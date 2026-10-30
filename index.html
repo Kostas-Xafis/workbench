@@ -38,6 +38,27 @@ header h1 { font-size: 16px; margin: 0 8px 0 0; letter-spacing: .2px; }
 .primary { background: var(--accent); color: var(--accent-ink); border: 0; border-radius: 8px; padding: 6px 14px; font-weight: 600; }
 .ghost { background: transparent; border: 1px solid var(--line); border-radius: 8px; padding: 5px 12px; }
 
+#links { display: flex; flex-wrap: wrap; gap: 8px; align-items: stretch; padding: 10px 16px 0; }
+#links .scope { display: flex; flex-wrap: wrap; gap: 8px; align-items: stretch; }
+#links .scope-label { align-self: center; font-size: 11.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; margin: 0 2px 0 6px; }
+#links .lbox { display: flex; flex-direction: column; gap: 5px; border: 1px solid var(--line); border-radius: 10px; padding: 5px 7px 7px; background: color-mix(in srgb, var(--card) 55%, transparent); }
+#links .lbox-title { font-size: 10.5px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .6px; padding-left: 2px; }
+#links .lbox-items { display: flex; flex-wrap: wrap; gap: 5px; }
+#links .loose { display: flex; flex-wrap: wrap; gap: 5px; align-self: flex-end; }
+#links a.link { display: inline-flex; align-items: center; gap: 7px; text-decoration: none; color: var(--ink); background: var(--card);
+	border: 1px solid var(--line); border-radius: 8px; padding: 4px 10px 4px 7px; font-size: 13px; max-width: 100%; }
+#links a.link:hover { background: var(--hover); border-color: var(--muted); }
+#links .fav { width: 16px; height: 16px; flex: none; border-radius: 3px; object-fit: contain; }
+@media (prefers-color-scheme: dark) { #links img.fav { background: #f4f3f0; padding: 1.5px; border-radius: 4px; } }
+#links .fav-letter { display: inline-grid; place-items: center; background: var(--hover); color: var(--muted); font-size: 10px; font-weight: 700; }
+#links.editing a.link { border-style: dashed; }
+#links.editing a.link::after { content: "✎"; color: var(--muted); font-size: 11px; }
+#links .tools { display: flex; gap: 6px; align-self: flex-end; }
+#links .tool { background: transparent; border: 1px dashed var(--line); border-radius: 8px; padding: 4px 10px; font-size: 13px; color: var(--muted); }
+#links .tool:hover { color: var(--ink); border-color: var(--muted); }
+#links .tool[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); border-style: solid; }
+.hint { font-size: 11.5px; color: var(--muted); }
+
 #repos { display: flex; gap: 10px; flex-wrap: wrap; padding: 12px 16px 0; }
 .repo { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; font-size: 13px; min-width: 0; max-width: 100%; }
 .repo b { margin-right: 6px; }
@@ -106,6 +127,7 @@ dialog::backdrop { background: rgb(0 0 0 / .35); }
 	<input id="search" type="search" placeholder="Search" autocomplete="off">
 	<button class="primary" id="new">New</button>
 </header>
+<nav id="links" aria-label="Bookmarks"></nav>
 <section id="repos"></section>
 <main>
 	<section class="col" id="col-me"><h2>Needs you <span class="count"></span></h2><div class="list"></div></section>
@@ -147,13 +169,35 @@ dialog::backdrop { background: rgb(0 0 0 / .35); }
 	</div>
 </form></dialog>
 <datalist id="areas"></datalist>
+<dialog id="link-dlg"><form class="dlg" id="link-form" autocomplete="off">
+	<b id="link-title">New link</b>
+	<div class="fields">
+		<label>Label<input name="label" required placeholder="RevenueCat customers"></label>
+		<label>Show with<select name="project"></select></label>
+		<label>Group (box)<input name="grp" list="link-groups" placeholder="none"></label>
+	</div>
+	<div class="fields" style="grid-template-columns:1fr">
+		<label>Address<input name="url" required placeholder="https://…"></label>
+		<label>Icon address (optional)<input name="icon_url" placeholder="Leave empty to use the site's own icon"></label>
+	</div>
+	<div class="hint">If the site's icon is wrong or missing, paste the address of any image here (right-click an icon → Copy image address).</div>
+	<datalist id="link-groups"></datalist>
+	<div class="error" id="link-err"></div>
+	<div class="row">
+		<button type="button" class="ghost" id="link-delete">Delete</button>
+		<span class="spacer"></span>
+		<button type="button" class="ghost" id="link-cancel">Cancel</button>
+		<button type="submit" class="primary">Save</button>
+	</div>
+</form></dialog>
+
 
 <script>
 const KINDS = ["task", "check", "review", "decision", "setup", "bug", "idea"];
 const STATUSES = ["todo", "doing", "waiting", "done", "dropped"];
 const ME_GROUPS = [["decision", "Decide"], ["setup", "Set up"], ["check", "Try on a device"], ["review", "Review"], ["other", "Other"]];
 const $ = (s, el = document) => el.querySelector(s);
-const state = { project: localGet("project") || "", q: "", items: [], projects: [], current: null };
+const state = { project: localGet("project") || "", q: "", items: [], projects: [], links: [], current: null };
 
 function localGet(k) { try { return localStorage.getItem("wb." + k); } catch { return null; } }
 function localSet(k, v) { try { localStorage.setItem("wb." + k, v); } catch {} }
@@ -374,6 +418,7 @@ $("#projects").addEventListener("click", (e) => {
 	state.project = chip.dataset.project;
 	localSet("project", state.project);
 	renderProjects();
+	renderLinks();
 	loadItems();
 	loadRepos();
 });
@@ -384,16 +429,111 @@ $("#search").addEventListener("input", (e) => {
 	searchTimer = setTimeout(() => { state.q = e.target.value.trim(); loadItems(); }, 200);
 });
 
+
+// Bookmarks: links with project '' show everywhere; a project's own links show with it (and under All).
+const linkDlg = $("#link-dlg");
+const linkForm = $("#link-form");
+let editingLinks = false;
+let currentLink = null;
+
+let iconRound = 0;
+function renderLinks() {
+	const scopes = [["", state.links.filter((l) => !l.project)]];
+	for (const p of state.projects) {
+		if (state.project && state.project !== p.slug) continue;
+		scopes.push([p.slug, state.links.filter((l) => l.project === p.slug)]);
+	}
+	const showLabels = !state.project;
+	const icon = (l) => `<img class="fav" alt="" data-letter="${esc((l.label.trim()[0] || "?").toUpperCase())}" src="/api/links/${l.id}/icon?v=${encodeURIComponent(l.icon_url || l.url)}-${iconRound}">`;
+	const chip = (l) => `<a class="link" href="${esc(l.url)}" target="_blank" rel="noreferrer" data-link="${l.id}" title="${esc(l.url)}">${icon(l)}<span>${esc(l.label)}</span></a>`;
+	const scope = ([slug, ls]) => {
+		const groups = [...new Set(ls.map((l) => l.grp).filter(Boolean))];
+		const loose = ls.filter((l) => !l.grp);
+		return `<div class="scope">${showLabels && slug ? `<span class="scope-label">${esc(projectName(slug))}</span>` : ""}
+			${groups.map((g) => `<div class="lbox"><div class="lbox-title">${esc(g)}</div><div class="lbox-items">${ls.filter((l) => l.grp === g).map(chip).join("")}</div></div>`).join("")}
+			${loose.length ? `<div class="loose">${loose.map(chip).join("")}</div>` : ""}</div>`;
+	};
+	$("#links").innerHTML = scopes.filter(([, ls]) => ls.length).map(scope).join("") +
+		`<div class="tools"><button class="tool" id="link-new">+ Link</button>` +
+		(state.links.length ? `<button class="tool" id="link-edit" aria-pressed="${editingLinks}">${editingLinks ? "Done" : "Edit links"}</button>` : "") +
+		(editingLinks ? `<button class="tool" id="link-refresh" title="Look up every site's icon again">Refresh icons</button>` : "") + `</div>`;
+	$("#links").classList.toggle("editing", editingLinks);
+	$("#link-groups").innerHTML = [...new Set(state.links.map((l) => l.grp).filter(Boolean))].sort().map((g) => `<option value="${esc(g)}">`).join("");
+}
+// A link without a stored icon shows its first letter.
+$("#links").addEventListener("error", (e) => {
+	const img = e.target;
+	if (!(img instanceof HTMLImageElement) || !img.classList.contains("fav")) return;
+	const span = document.createElement("span");
+	span.className = "fav fav-letter";
+	span.textContent = img.dataset.letter;
+	img.replaceWith(span);
+}, true);
+
+async function loadLinks() {
+	state.links = await api("/api/links");
+	renderLinks();
+}
+
+function openLink(link) {
+	currentLink = link;
+	setOptions(linkForm.project, [{ value: "", label: "Every project" }, ...state.projects.map((p) => ({ value: p.slug, label: p.name }))]);
+	linkForm.label.value = link.label ?? "";
+	linkForm.url.value = link.url ?? "";
+	linkForm.project.value = link.project ?? "";
+	linkForm.grp.value = link.grp ?? "";
+	linkForm.icon_url.value = link.icon_url ?? "";
+	$("#link-title").textContent = link.id ? "Edit link" : "New link";
+	$("#link-delete").hidden = !link.id;
+	$("#link-err").textContent = "";
+	linkDlg.showModal();
+	linkForm.label.focus();
+}
+
+$("#links").addEventListener("click", (e) => {
+	if (e.target.closest("#link-new")) return openLink({ project: state.project });
+	if (e.target.closest("#link-edit")) { editingLinks = !editingLinks; return renderLinks(); }
+	if (e.target.closest("#link-refresh")) {
+		return api("/api/links/icons/refresh", { method: "POST" }).then((links) => { state.links = links; iconRound++; renderLinks(); });
+	}
+	const a = e.target.closest("[data-link]");
+	if (a && editingLinks) {
+		e.preventDefault();
+		openLink(state.links.find((l) => l.id === Number(a.dataset.link)));
+	}
+});
+linkForm.addEventListener("submit", async (e) => {
+	e.preventDefault();
+	const body = JSON.stringify({
+		label: linkForm.label.value, url: linkForm.url.value.trim(), project: linkForm.project.value,
+		grp: linkForm.grp.value.trim(), icon_url: linkForm.icon_url.value.trim(),
+	});
+	try {
+		if (currentLink.id) await api(`/api/links/${currentLink.id}`, { method: "PATCH", body });
+		else await api("/api/links", { method: "POST", body });
+		linkDlg.close();
+		iconRound++;
+		await loadLinks();
+	} catch (err) { $("#link-err").textContent = err.message; }
+});
+$("#link-delete").onclick = async () => {
+	if (!confirm(`Delete "${currentLink.label}"?`)) return;
+	await api(`/api/links/${currentLink.id}`, { method: "DELETE" });
+	linkDlg.close();
+	await loadLinks();
+};
+$("#link-cancel").onclick = () => linkDlg.close();
+
 async function start() {
 	state.projects = await api("/api/projects");
 	if (state.project && !state.projects.some((p) => p.slug === state.project)) state.project = "";
 	renderProjects();
-	await Promise.all([loadItems(), loadRepos()]);
+	await Promise.all([loadItems(), loadRepos(), loadLinks()]);
 }
 start();
 // Agents write through the `wb` CLI, so the page polls; it pauses while a dialog is open.
 setInterval(() => {
-	if (document.visibilityState !== "visible" || dlg.open) return;
+	if (document.visibilityState !== "visible" || dlg.open || linkDlg.open) return;
 	loadItems();
 	loadRepos();
 }, 10000);

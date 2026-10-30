@@ -2,7 +2,11 @@
 import { parseArgs } from "node:util";
 import {
 	addItem,
+	addLink,
 	addNote,
+	listLinks,
+	removeLink,
+	updateLink,
 	getItem,
 	listItems,
 	open,
@@ -30,6 +34,11 @@ const HELP = `wb — the workbench. Tasks for agents, checks and decisions for K
   wb note <id> "text"              add to the history
   wb edit <id> [options]           change fields
   wb import <file.json> [--project P]   bulk add (array of items)
+  wb links                         bookmarks shown on the board
+  wb link "Label" <url> [--project P | --all] [--group G] [--icon <icon url>]
+                                   add one (--all: shown with every project)
+  wb relink <id> [--group G] [--icon <url>] [--title "Label"]   change one
+  wb unlink <id>                   remove one
   wb projects                      list projects
   wb project <slug> <path> "Name"  add or update a project
   wb serve [--lan]                 run the board on http://localhost:${PORT}
@@ -65,6 +74,8 @@ const { values: o, positionals: args } = parseArgs({
 		all: { type: "boolean" },
 		lan: { type: "boolean" },
 		q: { type: "string", short: "q" },
+		group: { type: "string" },
+		icon: { type: "string" },
 		help: { type: "boolean", short: "h" },
 	},
 });
@@ -258,6 +269,31 @@ try {
 				}
 			})();
 			console.log(`imported ${n} items into ${project}`);
+			break;
+		}
+		case "links":
+			for (const l of listLinks(db))
+				console.log(
+					`#${String(l.id).padEnd(4)} ${(l.project || "(all)").padEnd(14)} ${(l.grp || "-").padEnd(16)} ${l.label.padEnd(24)} ${l.url}`,
+				);
+			break;
+		case "link": {
+			const [, label, url] = args;
+			if (!label || !url) die('usage: wb link "Label" <url> [--project P | --all]');
+			const project = o.all ? "" : currentProject()!;
+			console.log(`#${addLink(db, { label, url, project, grp: o.group, icon_url: o.icon })}`);
+			break;
+		}
+		case "relink": {
+			const id = Number(args[1]);
+			if (!Number.isInteger(id)) die("usage: wb relink <id> [--group G] [--icon <url>] [--title Label]");
+			updateLink(db, id, { grp: o.group, icon_url: o.icon, label: o.title });
+			break;
+		}
+		case "unlink": {
+			const id = Number(args[1]);
+			if (!Number.isInteger(id)) die("usage: wb unlink <id>");
+			removeLink(db, id);
 			break;
 		}
 		case "projects":

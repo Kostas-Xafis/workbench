@@ -1,5 +1,22 @@
-import { addItem, addNote, getItem, listItems, open, projects, updateItem, type ItemFilter } from "./db";
+import {
+	addItem,
+	addLink,
+	addNote,
+	clearIcon,
+	getItem,
+	listItems,
+	linkIcon,
+	listLinks,
+	open,
+	projects,
+	removeLink,
+	storeIcon,
+	updateItem,
+	updateLink,
+	type ItemFilter,
+} from "./db";
 import { repoState } from "./git";
+import { findIcon } from "./icons";
 
 export const PORT = Number(process.env.WB_PORT ?? 4321);
 
@@ -16,6 +33,59 @@ export function serve({ lan = false } = {}) {
 		routes: {
 			"/": () => new Response(page, { headers: { "content-type": "text/html; charset=utf-8" } }),
 			"/api/projects": () => json(projects(db)),
+			"/api/links": {
+				GET: () => json(listLinks(db)),
+				POST: async (req) => {
+					try {
+						return json({ id: addLink(db, await req.json()) }, 201);
+					} catch (e) {
+						return fail(e);
+					}
+				},
+			},
+			// Fetched once and kept in the database; a failed lookup is retried after a day.
+			"/api/links/:id/icon": async (req) => {
+				const id = Number(req.params.id);
+				let row = linkIcon(db, id);
+				if (!row) return new Response("not found", { status: 404 });
+				const checked = row.icon_checked_at ? Date.parse(row.icon_checked_at.replace(" ", "T") + "Z") : 0;
+				if (!row.icon && Date.now() - checked > 86400e3) {
+					storeIcon(db, id, await findIcon(row.url, row.icon_url));
+					row = linkIcon(db, id)!;
+				}
+				if (!row.icon) return new Response("no icon", { status: 404, headers: { "cache-control": "no-store" } });
+				return new Response(new Uint8Array(row.icon), {
+					headers: {
+						"content-type": row.icon_type,
+						"cache-control": "max-age=86400",
+						"content-security-policy": "default-src 'none'; style-src 'unsafe-inline'",
+					},
+				});
+			},
+			"/api/links/icons/refresh": {
+				POST: () => {
+					clearIcon(db);
+					return json(listLinks(db));
+				},
+			},
+			"/api/links/:id": {
+				PATCH: async (req) => {
+					try {
+						updateLink(db, Number(req.params.id), await req.json());
+						return json(listLinks(db));
+					} catch (e) {
+						return fail(e);
+					}
+				},
+				DELETE: (req) => {
+					try {
+						removeLink(db, Number(req.params.id));
+						return json(listLinks(db));
+					} catch (e) {
+						return fail(e);
+					}
+				},
+			},
 			"/api/git": async () => json(await Promise.all(projects(db).map(repoState))),
 			"/api/items": {
 				GET: (req) => {

@@ -69,6 +69,23 @@ export function open(path = DB_PATH) {
 	)`);
 	db.run("CREATE INDEX IF NOT EXISTS items_open ON items(project, status, owner)");
 	db.run("CREATE INDEX IF NOT EXISTS notes_item ON notes(item_id)");
+	// project '' = shown with every project.
+	db.run(`CREATE TABLE IF NOT EXISTS links (
+		id INTEGER PRIMARY KEY,
+		project TEXT NOT NULL DEFAULT '',
+		label TEXT NOT NULL,
+		url TEXT NOT NULL,
+		sort INTEGER NOT NULL DEFAULT 0
+	)`);
+	const linkCols = (db.query("PRAGMA table_info(links)").all() as { name: string }[]).map((c) => c.name);
+	if (!linkCols.includes("icon_url")) {
+		db.run("ALTER TABLE links ADD COLUMN icon_url TEXT NOT NULL DEFAULT ''");
+		db.run("ALTER TABLE links ADD COLUMN icon BLOB");
+		db.run("ALTER TABLE links ADD COLUMN icon_type TEXT NOT NULL DEFAULT ''");
+		db.run("ALTER TABLE links ADD COLUMN icon_checked_at TEXT");
+	}
+	// `group` is an SQL keyword.
+	if (!linkCols.includes("grp")) db.run("ALTER TABLE links ADD COLUMN grp TEXT NOT NULL DEFAULT ''");
 	return db;
 }
 
@@ -185,4 +202,95 @@ export function updateItem(db: Db, id: number, patch: ItemPatch, author = ""): v
 export function addNote(db: Db, itemId: number, text: string, author = "") {
 	db.query("INSERT INTO notes (item_id, text, author) VALUES (?, ?, ?)").run(itemId, text, author);
 	db.query("UPDATE items SET updated_at = datetime('now') WHERE id = ?").run(itemId);
+}
+
+export type Link = {
+	id: number;
+	project: string;
+	label: string;
+	url: string;
+	sort: number;
+	/** The box it's drawn in on the board; '' = no box. */
+	grp: string;
+	/** Where to take the icon from; '' = find the site's own favicon. */
+	icon_url: string;
+	has_icon: number;
+};
+export type LinkPatch = Partial<Pick<Link, "project" | "label" | "url" | "sort" | "icon_url" | "grp">>;
+
+function validateLink(l: LinkPatch) {
+	if (l.label !== undefined && !l.label.trim()) throw new Error("label can't be empty");
+	if (l.url !== undefined && !/^(https?|claude|file):\/\//.test(l.url))
+		throw new Error("url must start with http:// or https://");
+	if (l.icon_url && !/^https?:\/\//.test(l.icon_url))
+		throw new Error("icon address must start with http:// or https://");
+}
+
+export function listLinks(db: Db): Link[] {
+	return db
+		.query(
+			"SELECT id, project, label, url, sort, grp, icon_url, icon IS NOT NULL AS has_icon FROM links ORDER BY project != '', project, grp, sort, id",
+		)
+		.all() as Link[];
+}
+
+export function addLink(
+	db: Db,
+	l: { label: string; url: string; project?: string; icon_url?: string; grp?: string },
+): number {
+	validateLink(l);
+	const { next } = db
+		.query("SELECT COALESCE(MAX(sort), 0) + 1 AS next FROM links WHERE project = ?")
+		.get(l.project ?? "") as { next: number };
+	const { id } = db
+		.query("INSERT INTO links (project, label, url, sort, icon_url, grp) VALUES (?, ?, ?, ?, ?, ?) RETURNING id")
+		.get(l.project ?? "", l.label.trim(), l.url.trim(), next, (l.icon_url ?? "").trim(), (l.grp ?? "").trim()) as {
+		id: number;
+	};
+	return id;
+}
+
+export function updateLink(db: Db, id: number, patch: LinkPatch) {
+	validateLink(patch);
+	const fields = (["project", "label", "url", "sort", "icon_url", "grp"] as const).filter(
+		(k) => patch[k] !== undefined,
+	);
+	if (!fields.length) return;
+	const row = Object.fromEntries(
+		fields.map((k) => [k, typeof patch[k] === "string" ? (patch[k] as string).trim() : patch[k]]),
+	);
+	const res = db
+		.query(`UPDATE links SET ${fields.map((k) => `${k} = $${k}`).join(", ")} WHERE id = $id`)
+		.run({ ...row, id } as Record<string, string | number>);
+	if (!res.changes) throw new Error(`no link #${id}`);
+	// A different page or icon address means the stored icon may be wrong: fetch again.
+	if (fields.includes("url") || fields.includes("icon_url")) clearIcon(db, id);
+}
+
+export function linkIcon(db: Db, id: number) {
+	return db.query("SELECT url, icon_url, icon, icon_type, icon_checked_at FROM links WHERE id = ?").get(id) as {
+		url: string;
+		icon_url: string;
+		icon: Uint8Array | null;
+		icon_type: string;
+		icon_checked_at: string | null;
+	} | null;
+}
+
+export function storeIcon(db: Db, id: number, icon: { data: Uint8Array; type: string } | null) {
+	db.query("UPDATE links SET icon = ?, icon_type = ?, icon_checked_at = datetime('now') WHERE id = ?").run(
+		icon?.data ?? null,
+		icon?.type ?? "",
+		id,
+	);
+}
+
+export function clearIcon(db: Db, id?: number) {
+	const sql = "UPDATE links SET icon = NULL, icon_type = '', icon_checked_at = NULL";
+	if (id === undefined) db.run(sql);
+	else db.query(`${sql} WHERE id = ?`).run(id);
+}
+
+export function removeLink(db: Db, id: number) {
+	if (!db.query("DELETE FROM links WHERE id = ?").run(id).changes) throw new Error(`no link #${id}`);
 }
