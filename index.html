@@ -1,0 +1,402 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Workbench</title>
+<style>
+:root {
+	--bg: #f6f5f2; --card: #ffffff; --ink: #1d1c1a; --muted: #6f6b64; --line: #e3e0da; --hover: #efede8;
+	--accent: #3d5afe; --accent-ink: #ffffff;
+	--decision: #7c3aed; --setup: #2563eb; --check: #15803d; --review: #b45309; --bug: #dc2626; --task: #57534e; --idea: #8a8580;
+	--warn-bg: #fff4dc; --warn-ink: #8a5300; --p1: #c2410c;
+	color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+	:root {
+		--bg: #151514; --card: #1f1f1d; --ink: #ecebe8; --muted: #a29e96; --line: #33322f; --hover: #2a2a27;
+		--accent: #8c9eff; --accent-ink: #10132b;
+		--decision: #b794f6; --setup: #7aa7ff; --check: #5fcf86; --review: #f0b45a; --bug: #ff7b7b; --task: #b5b0a8; --idea: #8e8a84;
+		--warn-bg: #3a2c10; --warn-ink: #ffcf7a; --p1: #ff9a5c;
+		color-scheme: dark;
+	}
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+button, input, select, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; }
+a { color: var(--accent); }
+code { font: 12.5px ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--hover); padding: 1px 4px; border-radius: 4px; }
+
+header { position: sticky; top: 0; z-index: 2; background: var(--bg); border-bottom: 1px solid var(--line);
+	display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; padding: 10px 16px; }
+header h1 { font-size: 16px; margin: 0 8px 0 0; letter-spacing: .2px; }
+.chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.chip { border: 1px solid var(--line); background: var(--card); border-radius: 999px; padding: 3px 11px; }
+.chip[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+#search { flex: 1 1 160px; min-width: 0; max-width: 320px; border: 1px solid var(--line); background: var(--card); border-radius: 8px; padding: 5px 10px; }
+.primary { background: var(--accent); color: var(--accent-ink); border: 0; border-radius: 8px; padding: 6px 14px; font-weight: 600; }
+.ghost { background: transparent; border: 1px solid var(--line); border-radius: 8px; padding: 5px 12px; }
+
+#repos { display: flex; gap: 10px; flex-wrap: wrap; padding: 12px 16px 0; }
+.repo { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; font-size: 13px; min-width: 0; max-width: 100%; }
+.repo b { margin-right: 6px; }
+.repo .facts { color: var(--muted); }
+.repo .warn { background: var(--warn-bg); color: var(--warn-ink); border-radius: 6px; padding: 0 6px; margin-left: 4px; white-space: nowrap; }
+.repo details { margin-top: 4px; color: var(--muted); }
+.repo details pre { margin: 4px 0 0; font-size: 12px; white-space: pre-wrap; word-break: break-all; }
+.repo .last { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+main { display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 16px; padding: 14px 16px 40px; align-items: start; }
+.col h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); margin: 4px 2px 10px; display: flex; gap: 8px; align-items: baseline; }
+.col h2 .count { font-weight: 500; }
+.group-label { font-size: 12px; font-weight: 600; margin: 14px 2px 6px; display: flex; align-items: center; gap: 6px; }
+.group-label::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--dot); }
+.empty { color: var(--muted); font-size: 13px; padding: 10px 2px; }
+
+.card { display: flex; gap: 10px; align-items: flex-start; background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+	padding: 9px 11px; margin-bottom: 7px; cursor: pointer; }
+.card:hover { background: var(--hover); }
+.card.doing { border-left: 3px solid var(--accent); }
+.card.waiting { border-left: 3px solid var(--review); }
+.card.closed .title { color: var(--muted); }
+.card.dropped .title { text-decoration: line-through; }
+.tick { flex: none; width: 20px; height: 20px; margin-top: 1px; border-radius: 6px; border: 1.5px solid var(--muted); background: transparent; padding: 0; color: transparent; font-size: 13px; line-height: 1; }
+.tick:hover { border-color: var(--check); color: var(--check); }
+.card .main { min-width: 0; flex: 1; }
+.card .title { font-weight: 500; overflow-wrap: anywhere; }
+.meta { display: flex; flex-wrap: wrap; gap: 4px 8px; margin-top: 3px; font-size: 12px; color: var(--muted); }
+.kind { font-weight: 600; color: var(--k); }
+.p1 { color: var(--p1); font-weight: 700; }
+.k-decision { --k: var(--decision); --dot: var(--decision); } .k-setup { --k: var(--setup); --dot: var(--setup); }
+.k-check { --k: var(--check); --dot: var(--check); } .k-review { --k: var(--review); --dot: var(--review); }
+.k-bug { --k: var(--bug); --dot: var(--bug); } .k-task { --k: var(--task); --dot: var(--task); } .k-idea { --k: var(--idea); --dot: var(--idea); }
+details.done-wrap summary { cursor: pointer; color: var(--muted); font-size: 13px; margin: 6px 2px; }
+
+dialog { border: 1px solid var(--line); border-radius: 14px; background: var(--card); color: var(--ink); padding: 0;
+	width: min(680px, calc(100vw - 32px)); max-height: calc(100vh - 48px); }
+dialog::backdrop { background: rgb(0 0 0 / .35); }
+.dlg { padding: 16px 18px 18px; display: flex; flex-direction: column; gap: 12px; }
+.dlg .title-input { font-size: 17px; font-weight: 600; border: 0; border-bottom: 1px solid transparent; background: transparent; padding: 2px 0; width: 100%; }
+.dlg .title-input:focus { outline: none; border-bottom-color: var(--line); }
+.fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; }
+.fields label { display: flex; flex-direction: column; gap: 2px; font-size: 11.5px; color: var(--muted); }
+.fields select, .fields input, .dlg textarea { border: 1px solid var(--line); background: var(--bg); border-radius: 7px; padding: 5px 8px; font-size: 13px; min-width: 0; }
+.dlg textarea { width: 100%; min-height: 140px; resize: vertical; font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.body-view { font-size: 14px; overflow-wrap: anywhere; }
+.body-view p { margin: 0 0 8px; } .body-view ul, .body-view ol { margin: 0 0 8px; padding-left: 20px; }
+.body-view:empty::before { content: "No details."; color: var(--muted); }
+.row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.row .spacer { flex: 1; }
+.history { border-top: 1px solid var(--line); padding-top: 10px; font-size: 12.5px; }
+.history h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); margin: 0 0 6px; }
+.history ol { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 5px; }
+.history time { color: var(--muted); margin-right: 6px; white-space: nowrap; }
+.history .who { font-weight: 600; margin-right: 4px; }
+.note-form { display: flex; gap: 8px; margin-top: 8px; }
+.note-form input { flex: 1; min-width: 0; border: 1px solid var(--line); background: var(--bg); border-radius: 7px; padding: 5px 8px; }
+.sources { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+.error { color: var(--bug); font-size: 13px; }
+</style>
+</head>
+<body>
+<header>
+	<h1>Workbench</h1>
+	<div class="chips" id="projects"></div>
+	<input id="search" type="search" placeholder="Search" autocomplete="off">
+	<button class="primary" id="new">New</button>
+</header>
+<section id="repos"></section>
+<main>
+	<section class="col" id="col-me"><h2>Needs you <span class="count"></span></h2><div class="list"></div></section>
+	<section class="col" id="col-agents"><h2>With agents <span class="count"></span></h2><div class="list"></div></section>
+	<section class="col" id="col-next"><h2>Up next <span class="count"></span></h2><div class="list"></div></section>
+	<section class="col" id="col-done"><h2>Done lately <span class="count"></span></h2><div class="list"></div></section>
+</main>
+
+<dialog id="dlg"><form class="dlg" method="dialog" id="form" autocomplete="off">
+	<input class="title-input" name="title" placeholder="What needs doing?" required>
+	<div class="fields">
+		<label>Status<select name="status"></select></label>
+		<label>Who acts<select name="owner"><option value="kostas">Kostas</option><option value="agent">Agent</option></select></label>
+		<label>Kind<select name="kind"></select></label>
+		<label>Priority<select name="priority"><option value="1">P1 · launch blocker</option><option value="2">P2 · before launch</option><option value="3">P3 · later</option></select></label>
+		<label>Project<select name="project"></select></label>
+		<label>Area<input name="area" list="areas"></label>
+		<label>Branch<input name="branch"></label>
+		<label>Session<input name="session"></label>
+	</div>
+	<div>
+		<div class="row" style="margin-bottom:6px"><b style="font-size:12px;color:var(--muted)">DETAILS</b><span class="spacer"></span><button type="button" class="ghost" id="edit-body">Edit</button></div>
+		<div class="body-view" id="body-view"></div>
+		<textarea name="body" hidden placeholder="Steps, context, links (markdown)"></textarea>
+	</div>
+	<div class="sources" id="sources"></div>
+	<div class="error" id="err"></div>
+	<div class="row">
+		<button type="button" class="ghost" id="act-done">Mark done</button>
+		<button type="button" class="ghost" id="act-drop">Drop</button>
+		<a id="session-link" hidden>Open session</a>
+		<span class="spacer"></span>
+		<button type="button" class="ghost" id="cancel">Close</button>
+		<button type="submit" class="primary" id="save">Save</button>
+	</div>
+	<div class="history" id="history" hidden>
+		<h3>History</h3><ol></ol>
+		<div class="note-form"><input id="note" placeholder="Add a note (answer, result, link…)"><button type="button" class="ghost" id="add-note">Add</button></div>
+	</div>
+</form></dialog>
+<datalist id="areas"></datalist>
+
+<script>
+const KINDS = ["task", "check", "review", "decision", "setup", "bug", "idea"];
+const STATUSES = ["todo", "doing", "waiting", "done", "dropped"];
+const ME_GROUPS = [["decision", "Decide"], ["setup", "Set up"], ["check", "Try on a device"], ["review", "Review"], ["other", "Other"]];
+const $ = (s, el = document) => el.querySelector(s);
+const state = { project: localGet("project") || "", q: "", items: [], projects: [], current: null };
+
+function localGet(k) { try { return localStorage.getItem("wb." + k); } catch { return null; } }
+function localSet(k, v) { try { localStorage.setItem("wb." + k, v); } catch {} }
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+
+function md(src) {
+	const inline = (s) => esc(s)
+		.replace(/`([^`]+)`/g, "<code>$1</code>")
+		.replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>")
+		.replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>');
+	const out = []; let list = null;
+	for (const line of String(src || "").split("\n")) {
+		const m = line.match(/^\s*(?:([-*])|(\d+)\.)\s+(.*)$/);
+		if (m) {
+			const tag = m[1] ? "ul" : "ol";
+			if (list !== tag) { if (list) out.push(`</${list}>`); out.push(`<${tag}>`); list = tag; }
+			out.push(`<li>${inline(m[3])}</li>`);
+			continue;
+		}
+		if (list) { out.push(`</${list}>`); list = null; }
+		if (line.trim()) out.push(`<p>${inline(line)}</p>`);
+	}
+	if (list) out.push(`</${list}>`);
+	return out.join("");
+}
+
+const parseTime = (s) => new Date(s.replace(" ", "T") + "Z");
+function ago(s) {
+	const d = (Date.now() - parseTime(s)) / 1000;
+	if (d < 60) return "just now";
+	if (d < 3600) return `${Math.floor(d / 60)} min ago`;
+	if (d < 86400) return `${Math.floor(d / 3600)} h ago`;
+	if (d < 86400 * 30) return `${Math.floor(d / 86400)} d ago`;
+	return parseTime(s).toLocaleDateString();
+}
+const sessionHref = (s) => /^local_[0-9a-f-]+$/.test(s) ? `claude://claude.ai/epitaxy/${s}` : null;
+const projectName = (slug) => state.projects.find((p) => p.slug === slug)?.name ?? slug;
+
+async function api(path, opts = {}) {
+	const res = await fetch(path, { ...opts, headers: { "content-type": "application/json" } });
+	const data = await res.json();
+	if (!res.ok) throw new Error(data.error || res.statusText);
+	return data;
+}
+
+function card(i, { tick = false } = {}) {
+	const closed = i.status === "done" || i.status === "dropped";
+	const meta = [
+		`<span class="kind k-${i.kind}">${i.kind}</span>`,
+		i.priority === 1 && !closed ? `<span class="p1">P1</span>` : "",
+		i.status === "waiting" ? `<span>waiting</span>` : "",
+		i.area ? `<span>${esc(i.area)}</span>` : "",
+		!state.project ? `<span>${esc(projectName(i.project))}</span>` : "",
+		i.branch ? `<span>⎇ ${esc(i.branch)}</span>` : "",
+		closed && i.done_at ? `<span>${ago(i.done_at)}</span>` : "",
+	].join("");
+	return `<article class="card ${i.status} ${closed ? "closed" : ""}" data-id="${i.id}">
+		${tick ? `<button class="tick" data-tick="${i.id}" title="Mark done" aria-label="Mark done">✓</button>` : ""}
+		<div class="main"><div class="title">${esc(i.title)}</div><div class="meta">${meta}</div></div></article>`;
+}
+
+function fill(col, html, count) {
+	$(`#${col} .list`).innerHTML = html || `<div class="empty">Nothing here.</div>`;
+	$(`#${col} .count`).textContent = count || "";
+}
+
+function render() {
+	const open = (i) => ["todo", "doing", "waiting"].includes(i.status);
+	const mine = state.items.filter((i) => i.owner === "kostas" && open(i));
+	// Later (P3) items fold away so launch blockers stay on screen.
+	const groups = ME_GROUPS.map(([k, label]) => {
+		const list = mine.filter((i) => k === "other" ? !["decision", "setup", "check", "review"].includes(i.kind) : i.kind === k);
+		if (!list.length) return "";
+		const now = list.filter((i) => i.priority < 3);
+		const later = list.filter((i) => i.priority === 3);
+		return `<div class="group-label k-${k === "other" ? "task" : k}">${label} · ${list.length}</div>
+			${now.map((i) => card(i, { tick: true })).join("")}
+			${later.length ? `<details class="done-wrap"><summary>${later.length} later</summary>${later.map((i) => card(i, { tick: true })).join("")}</details>` : ""}`;
+	}).join("");
+	const blockers = mine.filter((i) => i.priority === 1).length;
+	fill("col-me", groups, mine.length ? `${mine.length}${blockers ? ` · ${blockers} P1` : ""}` : "");
+
+	const working = state.items.filter((i) => i.owner === "agent" && (i.status === "doing" || i.status === "waiting"));
+	fill("col-agents", working.map((i) => card(i)).join(""), working.length);
+
+	const next = state.items.filter((i) => i.owner === "agent" && i.status === "todo");
+	fill("col-next", next.map((i) => card(i)).join(""), next.length);
+
+	const cutoff = Date.now() - 14 * 86400e3;
+	const done = state.items.filter((i) => !open(i) && i.done_at && parseTime(i.done_at) > cutoff)
+		.sort((a, b) => b.done_at.localeCompare(a.done_at));
+	fill("col-done", done.slice(0, 8).map((i) => card(i)).join("") +
+		(done.length > 8 ? `<details class="done-wrap"><summary>${done.length - 8} more</summary>${done.slice(8).map((i) => card(i)).join("")}</details>` : ""), done.length);
+
+	$("#areas").innerHTML = [...new Set(state.items.map((i) => i.area).filter(Boolean))].sort().map((a) => `<option value="${esc(a)}">`).join("");
+}
+
+function renderProjects() {
+	const chips = [{ slug: "", name: "All" }, ...state.projects];
+	$("#projects").innerHTML = chips.map((p) => `<button class="chip" data-project="${esc(p.slug)}" aria-pressed="${p.slug === state.project}">${esc(p.name)}</button>`).join("");
+}
+
+async function loadItems() {
+	const params = new URLSearchParams();
+	if (state.project) params.set("project", state.project);
+	if (state.q) params.set("q", state.q);
+	state.items = await api(`/api/items?${params}`);
+	render();
+}
+
+async function loadRepos() {
+	const repos = await api("/api/git");
+	$("#repos").innerHTML = repos.filter((r) => !state.project || r.project === state.project).map((r) => {
+		if (!r.ok) return `<div class="repo"><b>${esc(projectName(r.project))}</b><span class="facts">${esc(r.error)}</span></div>`;
+		const warns = [
+			r.dirty.length && `${r.dirty.length} uncommitted`,
+			r.ahead && `${r.ahead} unpushed`,
+			r.behind && `${r.behind} behind`,
+			r.unmerged.length && `${r.unmerged.length} unmerged branch${r.unmerged.length > 1 ? "es" : ""}`,
+			r.worktrees.length && `${r.worktrees.length} worktree${r.worktrees.length > 1 ? "s" : ""}`,
+		].filter(Boolean);
+		const detail = [
+			r.dirty.length ? "Uncommitted:\n" + r.dirty.join("\n") : "",
+			r.unmerged.length ? "Unmerged:\n" + r.unmerged.map((b) => `${b.name}  (${b.date})`).join("\n") : "",
+			r.worktrees.length ? "Worktrees:\n" + r.worktrees.map((w) => `${w.branch}  ${w.path}`).join("\n") : "",
+		].filter(Boolean).join("\n\n");
+		return `<div class="repo"><div><b>${esc(projectName(r.project))}</b><span class="facts">⎇ ${esc(r.branch || "detached")}</span>
+			${warns.length ? warns.map((w) => `<span class="warn">${w}</span>`).join("") : `<span class="facts"> · clean</span>`}</div>
+			<div class="last">${esc(r.lastCommit)}</div>
+			${detail ? `<details><summary>details</summary><pre>${esc(detail)}</pre></details>` : ""}</div>`;
+	}).join("");
+}
+
+const form = $("#form");
+const dlg = $("#dlg");
+function setOptions(sel, values) { sel.innerHTML = values.map((v) => `<option value="${esc(v.value ?? v)}">${esc(v.label ?? v)}</option>`).join(""); }
+setOptions(form.status, STATUSES);
+setOptions(form.kind, KINDS);
+
+function showBodyEditor(edit) {
+	form.body.hidden = !edit;
+	$("#body-view").hidden = edit;
+	$("#edit-body").textContent = edit ? "Preview" : "Edit";
+	if (!edit) $("#body-view").innerHTML = md(form.body.value);
+	else form.body.focus();
+}
+
+function openItem(item) {
+	state.current = item;
+	const isNew = !item.id;
+	setOptions(form.project, state.projects.map((p) => ({ value: p.slug, label: p.name })));
+	for (const k of ["title", "status", "owner", "kind", "priority", "project", "area", "branch", "session", "body"]) form[k].value = item[k] ?? "";
+	showBodyEditor(isNew);
+	$("#sources").textContent = item.sources ? `From: ${item.sources}` : "";
+	$("#err").textContent = "";
+	$("#act-done").hidden = isNew || item.status === "done";
+	$("#act-drop").hidden = isNew || item.status === "dropped";
+	const href = sessionHref(item.session || "");
+	$("#session-link").hidden = !href;
+	if (href) $("#session-link").href = href;
+	$("#history").hidden = isNew;
+	$("#history ol").innerHTML = (item.notes || []).map((n) => `<li><time title="${esc(n.at)} UTC">${ago(n.at)}</time>${n.author ? `<span class="who">${esc(n.author)}</span>` : ""}${esc(n.text)}</li>`).join("");
+	$("#note").value = "";
+	if (!dlg.open) dlg.showModal();
+	if (isNew) form.title.focus();
+}
+
+function formPatch() {
+	const p = {};
+	for (const k of ["title", "status", "owner", "kind", "project", "area", "branch", "session", "body"]) p[k] = form[k].value;
+	p.priority = Number(form.priority.value);
+	return p;
+}
+
+async function save(extra = {}) {
+	try {
+		const patch = { ...formPatch(), ...extra };
+		if (state.current.id) await api(`/api/items/${state.current.id}`, { method: "PATCH", body: JSON.stringify(patch) });
+		else await api("/api/items", { method: "POST", body: JSON.stringify(patch) });
+		dlg.close();
+		await loadItems();
+	} catch (e) { $("#err").textContent = e.message; }
+}
+
+form.addEventListener("submit", (e) => { e.preventDefault(); save(); });
+$("#cancel").onclick = () => dlg.close();
+$("#edit-body").onclick = () => showBodyEditor(form.body.hidden);
+$("#act-done").onclick = () => save({ status: "done" });
+$("#act-drop").onclick = () => save({ status: "dropped" });
+async function addNote() {
+	const text = $("#note").value.trim();
+	if (!text || !state.current?.id) return;
+	try { openItem(await api(`/api/items/${state.current.id}/notes`, { method: "POST", body: JSON.stringify({ text }) })); }
+	catch (e) { $("#err").textContent = e.message; }
+}
+$("#add-note").onclick = addNote;
+$("#note").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); addNote(); } });
+
+$("#new").onclick = () => openItem({
+	title: "", status: "todo", owner: "kostas", kind: "task", priority: 2,
+	project: state.project || state.projects[0]?.slug || "", area: "", branch: "", session: "", body: "",
+});
+
+document.querySelector("main").addEventListener("click", async (e) => {
+	const tick = e.target.closest("[data-tick]");
+	if (tick) {
+		e.stopPropagation();
+		await api(`/api/items/${tick.dataset.tick}`, { method: "PATCH", body: JSON.stringify({ status: "done" }) });
+		return loadItems();
+	}
+	const c = e.target.closest(".card");
+	if (c) openItem(await api(`/api/items/${c.dataset.id}`));
+});
+
+$("#projects").addEventListener("click", (e) => {
+	const chip = e.target.closest("[data-project]");
+	if (!chip) return;
+	state.project = chip.dataset.project;
+	localSet("project", state.project);
+	renderProjects();
+	loadItems();
+	loadRepos();
+});
+
+let searchTimer;
+$("#search").addEventListener("input", (e) => {
+	clearTimeout(searchTimer);
+	searchTimer = setTimeout(() => { state.q = e.target.value.trim(); loadItems(); }, 200);
+});
+
+async function start() {
+	state.projects = await api("/api/projects");
+	if (state.project && !state.projects.some((p) => p.slug === state.project)) state.project = "";
+	renderProjects();
+	await Promise.all([loadItems(), loadRepos()]);
+}
+start();
+// Agents write through the `wb` CLI, so the page polls; it pauses while a dialog is open.
+setInterval(() => {
+	if (document.visibilityState !== "visible" || dlg.open) return;
+	loadItems();
+	loadRepos();
+}, 10000);
+</script>
+</body>
+</html>

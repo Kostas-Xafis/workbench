@@ -1,0 +1,13 @@
+{
+	"name": "workbench",
+	"private": true,
+	"type": "module",
+	"bin": { "wb": "./wb.ts" },
+	"scripts": {
+		"serve": "bun server.ts",
+		"typecheck": "bunx tsc --noEmit"
+	},
+	"devDependencies": {
+		"@types/bun": "latest"
+	}
+}
