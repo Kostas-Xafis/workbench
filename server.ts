@@ -5,6 +5,7 @@ import {
 	clearIcon,
 	getItem,
 	listItems,
+	resolveItem,
 	linkIcon,
 	listLinks,
 	open,
@@ -26,6 +27,11 @@ export function serve({ lan = false } = {}) {
 	const icon = Bun.file(new URL("./icon.svg", import.meta.url));
 	const json = (data: unknown, status = 200) => Response.json(data, { status });
 	const fail = (e: unknown) => json({ error: (e as Error).message }, 400);
+	const itemId = (s: string) => {
+		const id = resolveItem(db, s);
+		if (id === undefined) throw new Error(`no item ${s}`);
+		return id;
+	};
 
 	const server = Bun.serve({
 		port: PORT,
@@ -111,13 +117,13 @@ export function serve({ lan = false } = {}) {
 			},
 			"/api/items/:id": {
 				GET: (req) => {
-					const item = getItem(db, Number(req.params.id));
-					return item ? json(item) : json({ error: "not found" }, 404);
+					const id = resolveItem(db, req.params.id);
+					return id === undefined ? json({ error: "not found" }, 404) : json(getItem(db, id));
 				},
 				PATCH: async (req) => {
 					try {
-						updateItem(db, Number(req.params.id), await req.json(), "web");
-						return json(getItem(db, Number(req.params.id)));
+						updateItem(db, itemId(req.params.id), await req.json(), "web");
+						return json(getItem(db, itemId(req.params.id)));
 					} catch (e) {
 						return fail(e);
 					}
@@ -128,8 +134,8 @@ export function serve({ lan = false } = {}) {
 					try {
 						const { text } = await req.json();
 						if (!text?.trim()) throw new Error("empty note");
-						addNote(db, Number(req.params.id), text.trim(), "kostas");
-						return json(getItem(db, Number(req.params.id)));
+						addNote(db, itemId(req.params.id), text.trim(), "kostas");
+						return json(getItem(db, itemId(req.params.id)));
 					} catch (e) {
 						return fail(e);
 					}

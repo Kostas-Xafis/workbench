@@ -91,6 +91,11 @@ main { display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)
 .meta { display: flex; flex-wrap: wrap; gap: 4px 8px; margin-top: 3px; font-size: 12px; color: var(--muted); }
 .kind { font-weight: 600; color: var(--k); }
 .p1 { color: var(--p1); font-weight: 700; }
+.ref { font: 600 11.5px ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--muted); background: var(--hover); border: 0; border-radius: 5px; padding: 1px 5px; cursor: copy; }
+.ref:hover { color: var(--accent); }
+.ref.copied { color: var(--check); }
+.dlg-head { display: flex; align-items: center; gap: 10px; }
+.dlg-head .ref { font-size: 13px; padding: 3px 8px; }
 .k-decision { --k: var(--decision); --dot: var(--decision); } .k-setup { --k: var(--setup); --dot: var(--setup); }
 .k-check { --k: var(--check); --dot: var(--check); } .k-review { --k: var(--review); --dot: var(--review); }
 .k-bug { --k: var(--bug); --dot: var(--bug); } .k-task { --k: var(--task); --dot: var(--task); } .k-idea { --k: var(--idea); --dot: var(--idea); }
@@ -139,7 +144,7 @@ dialog::backdrop { background: rgb(0 0 0 / .35); }
 </main>
 
 <dialog id="dlg"><form class="dlg" method="dialog" id="form" autocomplete="off">
-	<input class="title-input" name="title" placeholder="What needs doing?" required>
+	<div class="dlg-head"><button type="button" class="ref" id="dlg-ref" title="Copy" hidden></button><input class="title-input" name="title" placeholder="What needs doing?" required></div>
 	<div class="fields">
 		<label>Status<select name="status"></select></label>
 		<label>Who acts<select name="owner"><option value="kostas">Kostas</option><option value="agent">Agent</option></select></label>
@@ -257,6 +262,7 @@ async function api(path, opts = {}) {
 function card(i, { tick = false } = {}) {
 	const closed = i.status === "done" || i.status === "dropped";
 	const meta = [
+		`<button class="ref" data-copy="wb-${i.ref}" title="Copy wb-${i.ref}">wb-${i.ref}</button>`,
 		`<span class="kind k-${i.kind}">${i.kind}</span>`,
 		i.priority === 1 && !closed ? `<span class="p1">P1</span>` : "",
 		i.status === "waiting" ? `<span>waiting</span>` : "",
@@ -363,6 +369,9 @@ function openItem(item) {
 	for (const k of ["title", "status", "owner", "kind", "priority", "project", "area", "branch", "session", "body"]) form[k].value = item[k] ?? "";
 	showBodyEditor(isNew);
 	$("#sources").textContent = item.sources ? `From: ${item.sources}` : "";
+	$("#dlg-ref").hidden = !item.ref;
+	$("#dlg-ref").textContent = item.ref ? `wb-${item.ref}` : "";
+	$("#dlg-ref").dataset.copy = item.ref ? `wb-${item.ref}` : "";
 	$("#err").textContent = "";
 	$("#act-done").hidden = isNew || item.status === "done";
 	$("#act-drop").hidden = isNew || item.status === "dropped";
@@ -534,6 +543,31 @@ $("#link-delete").onclick = async () => {
 	await loadLinks();
 };
 $("#link-cancel").onclick = () => linkDlg.close();
+
+async function copyText(text) {
+	try { await navigator.clipboard.writeText(text); return true; } catch {}
+	const ta = Object.assign(document.createElement("textarea"), { value: text });
+	ta.style.cssText = "position:fixed;opacity:0";
+	(document.querySelector("dialog[open]") ?? document.body).append(ta);
+	ta.select();
+	const ok = document.execCommand("copy");
+	ta.remove();
+	return ok;
+}
+
+// Paste-ready ids for prompts ("Do wb-k3f9"). Capture phase, so a card under the button doesn't open.
+document.addEventListener("click", async (e) => {
+	const btn = e.target.closest("[data-copy]");
+	if (!btn || !btn.dataset.copy) return;
+	e.stopPropagation();
+	e.preventDefault();
+	if (!(await copyText(btn.dataset.copy))) return;
+	const text = btn.textContent;
+	btn.classList.add("copied");
+	btn.textContent = "copied";
+	window.lastCopied = btn.dataset.copy;
+	setTimeout(() => { btn.classList.remove("copied"); btn.textContent = text; }, 900);
+}, true);
 
 async function start() {
 	state.projects = await api("/api/projects");

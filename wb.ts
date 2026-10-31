@@ -9,6 +9,7 @@ import {
 	updateLink,
 	getItem,
 	listItems,
+	resolveItem,
 	open,
 	projectForPath,
 	projects,
@@ -21,18 +22,19 @@ import {
 import { PORT } from "./server";
 
 const HELP = `wb — the workbench. Tasks for agents, checks and decisions for Kostas, across projects.
+Items are named wb-xxxx (e.g. wb-k3f9); commands take that, the bare k3f9, or an old number.
 
   wb ls [--mine | --agents] [--all] [--project P] [--kind K] [-q text]
                                    open items (--all includes done); --mine = Kostas's
-  wb show <id>                     an item with its history
+  wb show <ref>                     an item with its history
   wb add "title" [options]         new item, prints its id
-  wb start <id> [--session S] [--branch B]   an agent picks it up (session defaults to the
+  wb start <ref> [--session S] [--branch B]   an agent picks it up (session defaults to the
                                    desktop app session it runs in, so the board links to it)
-  wb wait <id> "why"               blocked on something
-  wb done <id> ["note"]            finished (the note says what changed / where)
-  wb drop <id> ["why"]             won't do
-  wb note <id> "text"              add to the history
-  wb edit <id> [options]           change fields
+  wb wait <ref> "why"               blocked on something
+  wb done <ref> ["note"]            finished (the note says what changed / where)
+  wb drop <ref> ["why"]             won't do
+  wb note <ref> "text"              add to the history
+  wb edit <ref> [options]           change fields
   wb import <file.json> [--project P]   bulk add (array of items)
   wb links                         bookmarks shown on the board
   wb link "Label" <url> [--project P | --all] [--group G] [--icon <icon url>]
@@ -99,8 +101,8 @@ function currentProject(required = true) {
 }
 
 function idArg() {
-	const id = Number(args[1]);
-	if (!Number.isInteger(id) || !getItem(db, id)) die(`no item "${args[1] ?? ""}"`);
+	const id = resolveItem(db, args[1]);
+	if (id === undefined) die(`no item "${args[1] ?? ""}"`);
 	return id;
 }
 
@@ -136,7 +138,7 @@ function row(i: Item, showProject: boolean) {
 	const session = i.session.startsWith("local_") ? i.session.slice(0, 14) : i.session;
 	const where = [i.branch && `⎇ ${i.branch}`, session && `@ ${session}`].filter(Boolean).join("  ");
 	return [
-		`#${String(i.id).padEnd(4)}`,
+		`wb-${i.ref}`,
 		`P${i.priority}`,
 		who,
 		KIND_MARK[i.kind].padEnd(6),
@@ -150,7 +152,7 @@ function row(i: Item, showProject: boolean) {
 
 function show(id: number) {
 	const i = getItem(db, id)!;
-	console.log(`#${i.id} ${i.title}`);
+	console.log(`wb-${i.ref}  ${i.title}`);
 	console.log(
 		`${i.project} · ${i.kind} · owner ${i.owner} · ${i.status} · P${i.priority}${i.area ? ` · ${i.area}` : ""}`,
 	);
@@ -212,7 +214,7 @@ try {
 				},
 				author,
 			);
-			console.log(`#${id}`);
+			console.log(`wb-${getItem(db, id)!.ref}`);
 			break;
 		}
 		case "start": {
@@ -228,7 +230,7 @@ try {
 			const id = idArg();
 			const status = ({ wait: "waiting", done: "done", drop: "dropped" } as const)[cmd];
 			const note = args.slice(2).join(" ");
-			if (cmd === "wait" && !note) die('usage: wb wait <id> "what it waits on"');
+			if (cmd === "wait" && !note) die('usage: wb wait <ref> "what it waits on"');
 			updateItem(db, id, { ...patchFromOptions(), status }, author);
 			if (note) addNote(db, id, note, author);
 			console.log(row(getItem(db, id)!, true));
@@ -237,7 +239,7 @@ try {
 		case "note": {
 			const id = idArg();
 			const text = args.slice(2).join(" ");
-			if (!text) die('usage: wb note <id> "text"');
+			if (!text) die('usage: wb note <ref> "text"');
 			addNote(db, id, text, author);
 			break;
 		}

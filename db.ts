@@ -11,6 +11,8 @@ export type Owner = (typeof OWNERS)[number];
 
 export type Item = {
 	id: number;
+	/** The id people and agents use, shown as `wb-<ref>`. */
+	ref: string;
 	project: string;
 	title: string;
 	body: string;
@@ -77,6 +79,13 @@ export function open(path = DB_PATH) {
 		url TEXT NOT NULL,
 		sort INTEGER NOT NULL DEFAULT 0
 	)`);
+	const itemCols = (db.query("PRAGMA table_info(items)").all() as { name: string }[]).map((c) => c.name);
+	if (!itemCols.includes("ref")) {
+		db.run("ALTER TABLE items ADD COLUMN ref TEXT");
+		for (const { id } of db.query("SELECT id FROM items").all() as { id: number }[])
+			db.query("UPDATE items SET ref = ? WHERE id = ?").run(newRef(db), id);
+	}
+	db.run("CREATE UNIQUE INDEX IF NOT EXISTS items_ref ON items(ref)");
 	const linkCols = (db.query("PRAGMA table_info(links)").all() as { name: string }[]).map((c) => c.name);
 	if (!linkCols.includes("icon_url")) {
 		db.run("ALTER TABLE links ADD COLUMN icon_url TEXT NOT NULL DEFAULT ''");
@@ -90,6 +99,30 @@ export function open(path = DB_PATH) {
 }
 
 export type Db = ReturnType<typeof open>;
+
+// No 0/o, 1/l/i: refs get read aloud and typed into prompts. 31^4 ≈ 920k.
+const REF_ALPHABET = "23456789abcdefghjkmnpqrstuvwxyz";
+
+function newRef(db: Db): string {
+	for (;;) {
+		const ref = Array.from(
+			crypto.getRandomValues(new Uint8Array(4)),
+			(b) => REF_ALPHABET[b % REF_ALPHABET.length],
+		).join("");
+		if (!db.query("SELECT 1 FROM items WHERE ref = ?").get(ref)) return ref;
+	}
+}
+
+/** Accepts `wb-k3f9`, `k3f9`, and the old numbers (`#56`, `56`). */
+export function resolveItem(db: Db, s: string | undefined): number | undefined {
+	const t = (s ?? "").trim().toLowerCase().replace(/^wb-/, "").replace(/^#/, "");
+	if (!t) return undefined;
+	const byRef = db.query("SELECT id FROM items WHERE ref = ?").get(t) as { id: number } | null;
+	if (byRef) return byRef.id;
+	if (/^\d+$/.test(t))
+		return (db.query("SELECT id FROM items WHERE id = ?").get(Number(t)) as { id: number } | null)?.id;
+	return undefined;
+}
 
 const EDITABLE = [
 	"project",
@@ -172,9 +205,11 @@ export function getItem(db: Db, id: number): (Item & { notes: Note[] }) | undefi
 export function addItem(db: Db, item: ItemPatch & { title: string; project: string }, author = ""): number {
 	validate(item);
 	const fields = EDITABLE.filter((k) => item[k] !== undefined);
-	const row = Object.fromEntries(fields.map((k) => [k, item[k]]));
+	const row = Object.fromEntries([...fields.map((k) => [k, item[k]]), ["ref", newRef(db)]]);
 	const { id } = db
-		.query(`INSERT INTO items (${fields.join(", ")}) VALUES (${fields.map((k) => "$" + k).join(", ")}) RETURNING id`)
+		.query(
+			`INSERT INTO items (${[...fields, "ref"].join(", ")}) VALUES (${[...fields, "ref"].map((k) => "$" + k).join(", ")}) RETURNING id`,
+		)
 		.get(row as Record<string, string | number>) as { id: number };
 	if (item.status === "done") db.query("UPDATE items SET done_at = datetime('now') WHERE id = ?").run(id);
 	addNote(db, id, "created", author);

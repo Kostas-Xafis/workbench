@@ -8,6 +8,7 @@ wb ls --mine   # what waits on me, in the project of the current folder
 wb help        # everything else
 ```
 
+- **Items** are named `wb-xxxx` (e.g. `wb-k3f9`); click one on the board to copy it into a prompt ("Do wb-k3f9"). Commands also take the bare `k3f9` and the old numbers.
 - **Data:** `workbench.db` next to this file (gitignored). Back it up by copying it (`sqlite3 workbench.db ".backup backup.db"` while the server runs).
 - **Projects:** `wb project <slug> <path> "Name"`. Items added from inside that path belong to it; the board shows each project's git state (uncommitted files, unpushed commits, unmerged branches, worktrees).
 - **Bookmarks:** the bar under the header, in boxes by group. "+ Link" adds one (for one project or every project, optionally in a group), "Edit links" then a click edits or deletes. The server fetches each site's favicon once and keeps it in the database; paste an icon address in the dialog when the site's own is wrong, or use "Refresh icons" in edit mode. From a terminal: `wb links`, `wb link "Label" <url> [--project P | --all] [--group G] [--icon <url>]`, `wb relink <id> …`, `wb unlink <id>`.
