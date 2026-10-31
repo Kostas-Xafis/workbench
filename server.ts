@@ -23,6 +23,7 @@ export const PORT = Number(process.env.WB_PORT ?? 4321);
 export function serve({ lan = false } = {}) {
 	const db = open();
 	const page = Bun.file(new URL("./index.html", import.meta.url));
+	const icon = Bun.file(new URL("./icon.svg", import.meta.url));
 	const json = (data: unknown, status = 200) => Response.json(data, { status });
 	const fail = (e: unknown) => json({ error: (e as Error).message }, 400);
 
@@ -32,6 +33,8 @@ export function serve({ lan = false } = {}) {
 		hostname: lan ? "0.0.0.0" : "127.0.0.1",
 		routes: {
 			"/": () => new Response(page, { headers: { "content-type": "text/html; charset=utf-8" } }),
+			"/favicon.svg": () =>
+				new Response(icon, { headers: { "content-type": "image/svg+xml", "cache-control": "max-age=3600" } }),
 			"/api/projects": () => json(projects(db)),
 			"/api/links": {
 				GET: () => json(listLinks(db)),

@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Workbench</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <style>
 :root {
 	--bg: #f6f5f2; --card: #ffffff; --ink: #1d1c1a; --muted: #6f6b64; --line: #e3e0da; --hover: #efede8;
@@ -30,7 +31,8 @@ code { font: 12.5px ui-monospace, SFMono-Regular, Menlo, monospace; background: 
 
 header { position: sticky; top: 0; z-index: 2; background: var(--bg); border-bottom: 1px solid var(--line);
 	display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; padding: 10px 16px; }
-header h1 { font-size: 16px; margin: 0 8px 0 0; letter-spacing: .2px; }
+header h1 { font-size: 16px; margin: 0 8px 0 0; letter-spacing: .2px; display: flex; align-items: center; gap: 8px; }
+header h1 .logo { display: block; border-radius: 6px; }
 .chips { display: flex; gap: 6px; flex-wrap: wrap; }
 .chip { border: 1px solid var(--line); background: var(--card); border-radius: 999px; padding: 3px 11px; }
 .chip[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
@@ -122,7 +124,7 @@ dialog::backdrop { background: rgb(0 0 0 / .35); }
 </head>
 <body>
 <header>
-	<h1>Workbench</h1>
+	<h1><img class="logo" src="/favicon.svg" alt="" width="22" height="22">Workbench</h1>
 	<div class="chips" id="projects"></div>
 	<input id="search" type="search" placeholder="Search" autocomplete="off">
 	<button class="primary" id="new">New</button>
@@ -201,6 +203,15 @@ const state = { project: localGet("project") || "", q: "", items: [], projects: 
 
 function localGet(k) { try { return localStorage.getItem("wb." + k); } catch { return null; } }
 function localSet(k, v) { try { localStorage.setItem("wb." + k, v); } catch {} }
+// The lists are redrawn on every poll, so open/closed state of a <details data-key> lives here.
+const openDetails = new Set((() => { try { return JSON.parse(localGet("open") || "[]"); } catch { return []; } })());
+const isOpen = (key) => (openDetails.has(key) ? " open" : "");
+document.addEventListener("toggle", (e) => {
+	const key = e.target.dataset?.key;
+	if (!key) return;
+	if (e.target.open) openDetails.add(key); else openDetails.delete(key);
+	localSet("open", JSON.stringify([...openDetails]));
+}, true);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 
 function md(src) {
@@ -275,7 +286,7 @@ function render() {
 		const later = list.filter((i) => i.priority === 3);
 		return `<div class="group-label k-${k === "other" ? "task" : k}">${label} · ${list.length}</div>
 			${now.map((i) => card(i, { tick: true })).join("")}
-			${later.length ? `<details class="done-wrap"><summary>${later.length} later</summary>${later.map((i) => card(i, { tick: true })).join("")}</details>` : ""}`;
+			${later.length ? `<details class="done-wrap" data-key="later-${k}"${isOpen(`later-${k}`)}><summary>${later.length} later</summary>${later.map((i) => card(i, { tick: true })).join("")}</details>` : ""}`;
 	}).join("");
 	const blockers = mine.filter((i) => i.priority === 1).length;
 	fill("col-me", groups, mine.length ? `${mine.length}${blockers ? ` · ${blockers} P1` : ""}` : "");
@@ -290,7 +301,7 @@ function render() {
 	const done = state.items.filter((i) => !open(i) && i.done_at && parseTime(i.done_at) > cutoff)
 		.sort((a, b) => b.done_at.localeCompare(a.done_at));
 	fill("col-done", done.slice(0, 8).map((i) => card(i)).join("") +
-		(done.length > 8 ? `<details class="done-wrap"><summary>${done.length - 8} more</summary>${done.slice(8).map((i) => card(i)).join("")}</details>` : ""), done.length);
+		(done.length > 8 ? `<details class="done-wrap" data-key="done-more"${isOpen("done-more")}><summary>${done.length - 8} more</summary>${done.slice(8).map((i) => card(i)).join("")}</details>` : ""), done.length);
 
 	$("#areas").innerHTML = [...new Set(state.items.map((i) => i.area).filter(Boolean))].sort().map((a) => `<option value="${esc(a)}">`).join("");
 }
@@ -327,7 +338,7 @@ async function loadRepos() {
 		return `<div class="repo"><div><b>${esc(projectName(r.project))}</b><span class="facts">⎇ ${esc(r.branch || "detached")}</span>
 			${warns.length ? warns.map((w) => `<span class="warn">${w}</span>`).join("") : `<span class="facts"> · clean</span>`}</div>
 			<div class="last">${esc(r.lastCommit)}</div>
-			${detail ? `<details><summary>details</summary><pre>${esc(detail)}</pre></details>` : ""}</div>`;
+			${detail ? `<details data-key="repo-${r.project}"${isOpen(`repo-${r.project}`)}><summary>details</summary><pre>${esc(detail)}</pre></details>` : ""}</div>`;
 	}).join("");
 }
 
