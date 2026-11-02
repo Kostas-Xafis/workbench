@@ -30,7 +30,13 @@ export type Item = {
 };
 
 export type Note = { id: number; item_id: number; at: string; author: string; text: string };
-export type Project = { slug: string; name: string; path: string };
+export type Project = {
+	slug: string;
+	name: string;
+	path: string;
+	/** Logo file, relative to `path` or absolute; '' = look for one in the repo. */
+	icon: string;
+};
 
 export const DB_PATH = process.env.WB_DB ?? join(import.meta.dir, "workbench.db");
 
@@ -95,6 +101,29 @@ export function open(path = DB_PATH) {
 	}
 	// `group` is an SQL keyword.
 	if (!linkCols.includes("grp")) db.run("ALTER TABLE links ADD COLUMN grp TEXT NOT NULL DEFAULT ''");
+	const projectCols = (db.query("PRAGMA table_info(projects)").all() as { name: string }[]).map((c) => c.name);
+	if (!projectCols.includes("icon")) db.run("ALTER TABLE projects ADD COLUMN icon TEXT NOT NULL DEFAULT ''");
+	// A report is one HTML page; publishing it again under the same name adds a version.
+	db.run(`CREATE TABLE IF NOT EXISTS reports (
+		id INTEGER PRIMARY KEY,
+		project TEXT NOT NULL REFERENCES projects(slug),
+		name TEXT NOT NULL,
+		title TEXT NOT NULL,
+		grp TEXT NOT NULL DEFAULT '',
+		created_at TEXT NOT NULL DEFAULT (datetime('now')),
+		updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+		UNIQUE (project, name)
+	)`);
+	db.run(`CREATE TABLE IF NOT EXISTS report_versions (
+		id INTEGER PRIMARY KEY,
+		report_id INTEGER NOT NULL REFERENCES reports(id) ON DELETE CASCADE,
+		n INTEGER NOT NULL,
+		html TEXT NOT NULL,
+		text TEXT NOT NULL DEFAULT '',
+		author TEXT NOT NULL DEFAULT '',
+		at TEXT NOT NULL DEFAULT (datetime('now')),
+		UNIQUE (report_id, n)
+	)`);
 	return db;
 }
 
@@ -152,10 +181,25 @@ export function projects(db: Db): Project[] {
 	return db.query("SELECT * FROM projects ORDER BY name").all() as Project[];
 }
 
-export function upsertProject(db: Db, p: Project) {
+/** Projects with the number of open items waiting on Kostas, for the sidebar. */
+export function projectsWithCounts(db: Db): (Project & { mine: number })[] {
+	return db
+		.query(
+			`SELECT p.*, (SELECT COUNT(*) FROM items i WHERE i.project = p.slug AND i.owner = 'kostas'
+				AND i.status IN ('todo', 'doing', 'waiting')) AS mine FROM projects p ORDER BY name`,
+		)
+		.all() as (Project & { mine: number })[];
+}
+
+export function upsertProject(db: Db, p: Omit<Project, "icon">) {
 	db.query(
 		"INSERT INTO projects (slug, name, path) VALUES ($slug, $name, $path) ON CONFLICT(slug) DO UPDATE SET name = $name, path = $path",
 	).run(p);
+}
+
+export function setProjectIcon(db: Db, slug: string, icon: string) {
+	if (!db.query("UPDATE projects SET icon = ? WHERE slug = ?").run(icon, slug).changes)
+		throw new Error(`no project "${slug}"`);
 }
 
 export function projectForPath(db: Db, dir: string): Project | undefined {
@@ -186,8 +230,11 @@ export function listItems(db: Db, f: ItemFilter = {}): Item[] {
 		f.status.forEach((s, i) => (args[`s${i}`] = s));
 	}
 	if (f.q) {
-		where.push("(title LIKE $q OR body LIKE $q OR area LIKE $q)");
+		where.push(
+			"(title LIKE $q OR body LIKE $q OR area LIKE $q OR ref = $ref OR id IN (SELECT item_id FROM notes WHERE text LIKE $q))",
+		);
 		args.q = `%${f.q}%`;
+		args.ref = f.q.trim().toLowerCase().replace(/^wb-/, "");
 	}
 	const sql = `SELECT * FROM items ${where.length ? "WHERE " + where.join(" AND ") : ""}
 		ORDER BY CASE status WHEN 'doing' THEN 0 WHEN 'todo' THEN 1 WHEN 'waiting' THEN 2 ELSE 3 END,
@@ -328,4 +375,142 @@ export function clearIcon(db: Db, id?: number) {
 
 export function removeLink(db: Db, id: number) {
 	if (!db.query("DELETE FROM links WHERE id = ?").run(id).changes) throw new Error(`no link #${id}`);
+}
+
+export type Report = {
+	id: number;
+	project: string;
+	/** Unique in the project; publishing the same name again adds a version. */
+	name: string;
+	title: string;
+	grp: string;
+	created_at: string;
+	updated_at: string;
+	/** Latest version number. */
+	version: number;
+};
+export type ReportVersion = { n: number; at: string; author: string; bytes: number };
+
+const REPORT_COLS = `r.*, (SELECT MAX(n) FROM report_versions v WHERE v.report_id = r.id) AS version`;
+
+export function listReports(db: Db, project?: string): Report[] {
+	return db
+		.query(
+			`SELECT ${REPORT_COLS} FROM reports r ${project ? "WHERE project = $project" : ""} ORDER BY project, grp, title COLLATE NOCASE`,
+		)
+		.all(project ? { project } : {}) as Report[];
+}
+
+export function getReport(db: Db, id: number): (Report & { versions: ReportVersion[] }) | undefined {
+	const r = db.query(`SELECT ${REPORT_COLS} FROM reports r WHERE id = ?`).get(id) as Report | null;
+	if (!r) return undefined;
+	const versions = db
+		.query("SELECT n, at, author, length(html) AS bytes FROM report_versions WHERE report_id = ? ORDER BY n DESC")
+		.all(id) as ReportVersion[];
+	return { ...r, versions };
+}
+
+/** The page of version `n`, or the latest. */
+export function reportHtml(db: Db, id: number, n?: number) {
+	return db
+		.query(
+			`SELECT html, n FROM report_versions WHERE report_id = $id ${n ? "AND n = $n" : ""} ORDER BY n DESC LIMIT 1`,
+		)
+		.get(n ? { id, n } : { id }) as { html: string; n: number } | null;
+}
+
+/** Visible text of a page, for search. */
+export function htmlText(html: string) {
+	return html
+		.replace(/<(script|style|template|svg)\b[\s\S]*?<\/\1>/gi, " ")
+		.replace(/<!--[\s\S]*?-->/g, " ")
+		.replace(/<[^>]+>/g, " ")
+		.replace(/&nbsp;/g, " ")
+		.replace(/&amp;/g, "&")
+		.replace(/&lt;/g, "<")
+		.replace(/&gt;/g, ">")
+		.replace(/&quot;/g, '"')
+		.replace(/&#39;/g, "'")
+		.replace(/\s+/g, " ")
+		.trim();
+}
+
+export function htmlTitle(html: string) {
+	const m = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i) ?? html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i);
+	return m ? htmlText(m[1]) : "";
+}
+
+/** Adds the report, or a new version of the one with this name. An unchanged page adds nothing. */
+export function publishReport(
+	db: Db,
+	r: { project: string; name: string; html: string; title?: string; grp?: string },
+	author = "",
+): { id: number; n: number; changed: boolean } {
+	const name = r.name.trim().toLowerCase();
+	if (!name) throw new Error("report needs a name");
+	if (!r.html.trim()) throw new Error("the page is empty");
+	if (!db.query("SELECT 1 FROM projects WHERE slug = ?").get(r.project)) throw new Error(`no project "${r.project}"`);
+	return db.transaction(() => {
+		let row = db.query("SELECT id FROM reports WHERE project = ? AND name = ?").get(r.project, name) as {
+			id: number;
+		} | null;
+		const title = r.title?.trim() || htmlTitle(r.html) || name;
+		if (!row) {
+			row = db
+				.query("INSERT INTO reports (project, name, title, grp) VALUES (?, ?, ?, ?) RETURNING id")
+				.get(r.project, name, title, (r.grp ?? "").trim()) as { id: number };
+		} else {
+			const sets = ["title = $title"];
+			if (r.grp !== undefined) sets.push("grp = $grp");
+			db.query(`UPDATE reports SET ${sets.join(", ")} WHERE id = $id`).run({
+				id: row.id,
+				title,
+				...(r.grp !== undefined ? { grp: r.grp.trim() } : {}),
+			});
+		}
+		const latest = reportHtml(db, row.id);
+		if (latest?.html === r.html) return { id: row.id, n: latest.n, changed: false };
+		const n = (latest?.n ?? 0) + 1;
+		db.query("INSERT INTO report_versions (report_id, n, html, text, author) VALUES (?, ?, ?, ?, ?)").run(
+			row.id,
+			n,
+			r.html,
+			htmlText(r.html),
+			author,
+		);
+		db.query("UPDATE reports SET updated_at = datetime('now') WHERE id = ?").run(row.id);
+		return { id: row.id, n, changed: true };
+	})();
+}
+
+export function removeReport(db: Db, id: number) {
+	if (!db.query("DELETE FROM reports WHERE id = ?").run(id).changes) throw new Error(`no report #${id}`);
+}
+
+/** Everything matching `q` in a project (or all of them): items, reports with a snippet, links. */
+export function search(db: Db, q: string, project?: string) {
+	const like = `%${q}%`;
+	const items = listItems(db, { project, q }).slice(0, 15);
+	const reports = (
+		db
+			.query(
+				`SELECT ${REPORT_COLS}, (SELECT text FROM report_versions v WHERE v.report_id = r.id ORDER BY n DESC LIMIT 1) AS text
+				FROM reports r WHERE ($project = '' OR project = $project)
+				AND (title LIKE $q OR name LIKE $q OR id IN (SELECT report_id FROM report_versions v
+					WHERE v.n = (SELECT MAX(n) FROM report_versions w WHERE w.report_id = v.report_id) AND text LIKE $q))
+				ORDER BY updated_at DESC LIMIT 10`,
+			)
+			.all({ project: project ?? "", q: like }) as (Report & { text: string })[]
+	).map(({ text, ...r }) => {
+		const at = text.toLowerCase().indexOf(q.toLowerCase());
+		const snippet = at < 0 ? "" : (at > 60 ? "…" : "") + text.slice(Math.max(0, at - 60), at + q.length + 80);
+		return { ...r, snippet };
+	});
+	const links = db
+		.query(
+			`SELECT id, project, label, url, grp, icon_url FROM links WHERE ($project = '' OR project IN ('', $project))
+			AND (label LIKE $q OR url LIKE $q OR grp LIKE $q) ORDER BY label LIMIT 10`,
+		)
+		.all({ project: project ?? "", q: like });
+	return { items, reports, links };
 }

@@ -11,6 +11,7 @@
 	--accent: #3d5afe; --accent-ink: #ffffff;
 	--decision: #7c3aed; --setup: #2563eb; --check: #15803d; --review: #b45309; --bug: #dc2626; --task: #57534e; --idea: #8a8580;
 	--warn-bg: #fff4dc; --warn-ink: #8a5300; --p1: #c2410c;
+	--rail-bg: #edebe6; --shadow: 0 14px 36px rgb(0 0 0 / .16);
 	color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
@@ -19,66 +20,130 @@
 		--accent: #8c9eff; --accent-ink: #10132b;
 		--decision: #b794f6; --setup: #7aa7ff; --check: #5fcf86; --review: #f0b45a; --bug: #ff7b7b; --task: #b5b0a8; --idea: #8e8a84;
 		--warn-bg: #3a2c10; --warn-ink: #ffcf7a; --p1: #ff9a5c;
+		--rail-bg: #10100f; --shadow: 0 14px 36px rgb(0 0 0 / .5);
 		color-scheme: dark;
 	}
 }
 * { box-sizing: border-box; }
-body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+[hidden] { display: none !important; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+	height: 100dvh; overflow: hidden; display: grid; grid-template-columns: 64px var(--rail-w) minmax(0, 1fr); --rail-w: 244px; }
+body.rail-collapsed { --rail-w: 52px; }
+body.solo { grid-template-columns: minmax(0, 1fr); }
+body.solo #prail, body.solo #rail, body.solo header.top { display: none; }
 button, input, select, textarea { font: inherit; color: inherit; }
 button { cursor: pointer; }
 a { color: var(--accent); }
 code { font: 12.5px ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--hover); padding: 1px 4px; border-radius: 4px; }
-
-header { position: sticky; top: 0; z-index: 2; background: var(--bg); border-bottom: 1px solid var(--line);
-	display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; padding: 10px 16px; }
-header h1 { font-size: 16px; margin: 0 8px 0 0; letter-spacing: .2px; display: flex; align-items: center; gap: 8px; }
-header h1 .logo { display: block; border-radius: 6px; }
-.chips { display: flex; gap: 6px; flex-wrap: wrap; }
-.chip { border: 1px solid var(--line); background: var(--card); border-radius: 999px; padding: 3px 11px; }
-.chip[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
-#search { flex: 1 1 160px; min-width: 0; max-width: 320px; border: 1px solid var(--line); background: var(--card); border-radius: 8px; padding: 5px 10px; }
+summary { list-style: none; cursor: pointer; }
+summary::-webkit-details-marker { display: none; }
+.fold > summary::before { content: ""; flex: none; width: 0; height: 0; border-left: 4.5px solid currentColor; border-top: 4px solid transparent; border-bottom: 4px solid transparent;
+	opacity: .55; transition: transform .12s; }
+.fold[open] > summary::before { transform: rotate(90deg); }
 .primary { background: var(--accent); color: var(--accent-ink); border: 0; border-radius: 8px; padding: 6px 14px; font-weight: 600; }
 .ghost { background: transparent; border: 1px solid var(--line); border-radius: 8px; padding: 5px 12px; }
-
-#links { display: flex; flex-wrap: wrap; gap: 8px; align-items: stretch; padding: 10px 16px 0; }
-#links .scope { display: flex; flex-wrap: wrap; gap: 8px; align-items: stretch; }
-#links .scope-label { align-self: center; font-size: 11.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; margin: 0 2px 0 6px; }
-#links .lbox { display: flex; flex-direction: column; gap: 5px; border: 1px solid var(--line); border-radius: 10px; padding: 5px 7px 7px; background: color-mix(in srgb, var(--card) 55%, transparent); }
-#links .lbox-title { font-size: 10.5px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .6px; padding-left: 2px; }
-#links .lbox-items { display: flex; flex-wrap: wrap; gap: 5px; }
-#links .loose { display: flex; flex-wrap: wrap; gap: 5px; align-self: flex-end; }
-#links a.link { display: inline-flex; align-items: center; gap: 7px; text-decoration: none; color: var(--ink); background: var(--card);
-	border: 1px solid var(--line); border-radius: 8px; padding: 4px 10px 4px 7px; font-size: 13px; max-width: 100%; }
-#links a.link:hover { background: var(--hover); border-color: var(--muted); }
-#links .fav { width: 16px; height: 16px; flex: none; border-radius: 3px; object-fit: contain; }
-@media (prefers-color-scheme: dark) { #links img.fav { background: #f4f3f0; padding: 1.5px; border-radius: 4px; } }
-#links .fav-letter { display: inline-grid; place-items: center; background: var(--hover); color: var(--muted); font-size: 10px; font-weight: 700; }
-#links.editing a.link { border-style: dashed; }
-#links.editing a.link::after { content: "✎"; color: var(--muted); font-size: 11px; }
-#links .tools { display: flex; gap: 6px; align-self: flex-end; }
-#links .tool { background: transparent; border: 1px dashed var(--line); border-radius: 8px; padding: 4px 10px; font-size: 13px; color: var(--muted); }
-#links .tool:hover { color: var(--ink); border-color: var(--muted); }
-#links .tool[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); border-style: solid; }
+.sm { font-size: 12.5px; padding: 3px 10px; text-decoration: none; color: var(--ink); white-space: nowrap; }
+.ghost:hover { background: var(--hover); }
+.icon-btn { border: 0; background: transparent; border-radius: 7px; width: 28px; height: 28px; display: grid; place-items: center; color: var(--muted); padding: 0; flex: none; }
+.icon-btn:hover, .icon-btn[aria-pressed="true"] { background: var(--hover); color: var(--ink); }
+.icon-btn[aria-pressed="true"] { color: var(--accent); }
+.icon-btn svg { width: 16px; height: 16px; }
 .hint { font-size: 11.5px; color: var(--muted); }
+.spacer { flex: 1; }
 
-#repos { display: flex; gap: 10px; flex-wrap: wrap; padding: 12px 16px 0; }
-.repo { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; font-size: 13px; min-width: 0; max-width: 100%; }
-.repo b { margin-right: 6px; }
-.repo .facts { color: var(--muted); }
-.repo .warn { background: var(--warn-bg); color: var(--warn-ink); border-radius: 6px; padding: 0 6px; margin-left: 4px; white-space: nowrap; }
-.repo details { margin-top: 4px; color: var(--muted); }
-.repo details pre { margin: 4px 0 0; font-size: 12px; white-space: pre-wrap; word-break: break-all; }
-.repo .last { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Projects */
+#prail { background: var(--rail-bg); border-right: 1px solid var(--line); display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 0; overflow-y: auto; scrollbar-width: none; }
+.pbtn { position: relative; width: 56px; border: 0; background: transparent; padding: 4px 0 3px; display: flex; flex-direction: column; align-items: center; gap: 3px; color: var(--muted); }
+.plogo { width: 38px; height: 38px; border-radius: 11px; object-fit: contain; background: var(--card); border: 1px solid var(--line); padding: 3px; display: grid; place-items: center; }
+.plogo.letter { background: hsl(var(--hue, 220) 42% 46%); border-color: transparent; color: #fff; font-weight: 700; font-size: 14px; letter-spacing: .3px; }
+.pname { font-size: 10px; line-height: 1.2; max-width: 56px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pbtn:hover .plogo { border-color: var(--muted); }
+.pbtn[aria-current="true"] { color: var(--ink); }
+.pbtn[aria-current="true"] .plogo { box-shadow: 0 0 0 2px var(--rail-bg), 0 0 0 4px var(--accent); }
+.pbtn[aria-current="true"]::before { content: ""; position: absolute; left: -4px; top: 9px; width: 4px; height: 30px; border-radius: 0 4px 4px 0; background: var(--accent); }
+.badge { position: absolute; top: 0; right: 3px; min-width: 18px; height: 18px; padding: 0 4px; border-radius: 9px; background: var(--p1); color: #fff;
+	font-size: 10.5px; font-weight: 700; display: grid; place-items: center; border: 2px solid var(--rail-bg); }
+.prail-sep { width: 30px; height: 1px; background: var(--line); margin: 4px 0; flex: none; }
 
-main { display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 16px; padding: 14px 16px 40px; align-items: start; }
-.col h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); margin: 4px 2px 10px; display: flex; gap: 8px; align-items: baseline; }
-.col h2 .count { font-weight: 500; }
-.group-label { font-size: 12px; font-weight: 600; margin: 14px 2px 6px; display: flex; align-items: center; gap: 6px; }
-.group-label::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--dot); }
-.empty { color: var(--muted); font-size: 13px; padding: 10px 2px; }
+/* Reports and links */
+#rail { border-right: 1px solid var(--line); overflow-y: auto; overflow-x: hidden; background: color-mix(in srgb, var(--rail-bg) 45%, var(--bg)); padding-bottom: 16px; }
+.rail-head { display: flex; align-items: center; gap: 4px; padding: 12px 8px 6px 14px; }
+.rail-head b { flex: 1; font-size: 12px; color: var(--muted); font-weight: 600; }
+.rail-collapsed .rail-head { padding: 12px 0 6px; justify-content: center; }
+.rsec { padding: 2px 6px 6px; }
+.rsec > summary { display: flex; align-items: center; gap: 7px; padding: 5px 8px; font-size: 11px; font-weight: 700; letter-spacing: .6px; text-transform: uppercase; color: var(--muted); border-radius: 6px; }
+.rsec > summary .count { font-weight: 500; letter-spacing: 0; }
+.rsec > summary:hover { color: var(--ink); }
+.rsec > summary .tools { margin-left: auto; display: flex; gap: 2px; text-transform: none; letter-spacing: 0; }
+.rsec > summary .icon-btn { width: 24px; height: 24px; }
+.glabel { font-size: 11.5px; font-weight: 600; color: var(--muted); padding: 6px 8px 2px 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lgroup > summary { display: flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 600; color: var(--muted); padding: 5px 8px 3px 10px; }
+.lgroup > summary span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lgroup > summary:hover { color: var(--ink); }
+.ritem { display: flex; align-items: center; gap: 9px; padding: 5px 8px 5px 10px; border-radius: 7px; color: var(--ink); text-decoration: none; font-size: 13px; min-width: 0; }
+.ritem > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ritem > span.fav, .ritem > span.tile { flex: none; }
+.ritem small { color: var(--muted); font-size: 11px; flex: none; }
+.ritem:hover { background: var(--hover); }
+.ritem[aria-current="true"] { background: color-mix(in srgb, var(--accent) 15%, transparent); font-weight: 500; }
+.rail-collapsed .ritem { justify-content: center; padding: 6px 0; margin: 1px 4px; }
+.rail-sep { height: 1px; background: var(--line); margin: 6px 12px; }
+.doc-ic { width: 16px; height: 16px; flex: none; color: var(--muted); }
+.tile { width: 24px; height: 24px; border-radius: 7px; display: grid; place-items: center; font-size: 11px; font-weight: 700; background: var(--hover); color: var(--muted); border: 1px solid var(--line); }
+[aria-current="true"] > .tile { border-color: var(--accent); color: var(--accent); }
+.fav { width: 16px; height: 16px; flex: none; border-radius: 3px; object-fit: contain; }
+@media (prefers-color-scheme: dark) { img.fav { background: #f4f3f0; padding: 1.5px; border-radius: 4px; } }
+.fav.letter { display: inline-grid; place-items: center; background: var(--hover); color: var(--muted); font-size: 10px; font-weight: 700; }
+#rail.editing a.ritem.link { outline: 1px dashed var(--line); outline-offset: -1px; }
+#rail.editing a.ritem.link::after { content: "✎"; color: var(--muted); font-size: 11px; }
+.rail-empty { font-size: 12px; color: var(--muted); padding: 2px 10px 6px; }
 
-.card { display: flex; gap: 10px; align-items: flex-start; background: var(--card); border: 1px solid var(--line); border-radius: 10px;
-	padding: 9px 11px; margin-bottom: 7px; cursor: pointer; }
+/* Top bar and search */
+#content { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+header.top { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 560px) minmax(0, 1fr); align-items: center; gap: 14px; padding: 10px 18px; border-bottom: 1px solid var(--line); }
+.here { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.here .plogo { width: 30px; height: 30px; border-radius: 9px; font-size: 12px; }
+.here div { min-width: 0; }
+.here b { display: block; font-size: 15px; line-height: 1.2; }
+.here small { display: block; color: var(--muted); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.search-wrap { position: relative; }
+.search-wrap > svg { position: absolute; left: 11px; top: 50%; translate: 0 -50%; width: 15px; height: 15px; color: var(--muted); pointer-events: none; }
+.search-wrap kbd { position: absolute; right: 9px; top: 50%; translate: 0 -50%; font: 11px ui-monospace, monospace; color: var(--muted); border: 1px solid var(--line); border-radius: 5px; padding: 1px 5px; pointer-events: none; }
+#search:focus + kbd, #search:not(:placeholder-shown) + kbd { display: none; }
+#search { width: 100%; border: 1px solid var(--line); background: var(--card); border-radius: 10px; padding: 7px 60px 7px 33px; }
+#search:focus { outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent); outline-offset: -1px; }
+#results { position: absolute; z-index: 5; top: calc(100% + 6px); left: 0; right: 0; background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+	box-shadow: var(--shadow); max-height: min(70vh, 560px); overflow: auto; padding: 6px; }
+.rgroup { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); padding: 8px 9px 3px; }
+.res { display: flex; gap: 9px; align-items: center; width: 100%; text-align: left; border: 0; background: transparent; padding: 6px 9px; border-radius: 8px; color: var(--ink); text-decoration: none; }
+.res[aria-selected="true"], .res:hover { background: var(--hover); }
+.res .rt { flex: 1; min-width: 0; }
+.res .rt > div, .res .rt > small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.res .rt > small { display: block; color: var(--muted); font-size: 12px; }
+.res-foot { font-size: 11.5px; color: var(--muted); padding: 8px 9px 4px; border-top: 1px solid var(--line); margin-top: 6px; }
+.res-none { color: var(--muted); padding: 10px 9px; font-size: 13px; }
+mark { background: color-mix(in srgb, var(--review) 30%, transparent); color: inherit; border-radius: 3px; padding: 0 1px; }
+.top-right { display: flex; justify-content: flex-end; gap: 8px; }
+#rail-open { display: none; }
+
+/* Board */
+#board { flex: 1; overflow: auto; padding: 12px 18px 56px; }
+.board-bar { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; flex-wrap: wrap; }
+.seg { display: inline-flex; max-width: 100%; overflow-x: auto; scrollbar-width: none; border: 1px solid var(--line); border-radius: 9px; padding: 2px; background: var(--card); }
+.seg button { white-space: nowrap; border: 0; background: transparent; border-radius: 7px; padding: 3px 11px; font-size: 13px; color: var(--muted); }
+.seg button[aria-pressed="true"] { background: var(--ink); color: var(--bg); }
+.seg .n { opacity: .7; margin-left: 5px; font-size: 12px; }
+.sec { border-bottom: 1px solid var(--line); }
+.sec > summary { display: flex; align-items: center; gap: 9px; padding: 11px 2px; font-weight: 600; font-size: 14.5px; }
+.sec > summary:hover { color: var(--accent); }
+.sec .count { font-weight: 500; color: var(--muted); font-size: 13px; }
+.sec .sub { font-weight: 400; color: var(--muted); font-size: 12.5px; margin-left: 4px; }
+.dot { width: 9px; height: 9px; border-radius: 50%; background: var(--dot); flex: none; }
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr)); gap: 8px; padding: 0 0 8px; }
+.later > summary, .more > summary { color: var(--muted); font-size: 13px; padding: 2px 2px 10px; display: flex; align-items: center; gap: 7px; }
+.empty { color: var(--muted); font-size: 13px; padding: 18px 2px; }
+
+.card { display: flex; gap: 10px; align-items: flex-start; background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 9px 11px; cursor: pointer; min-width: 0; }
 .card:hover { background: var(--hover); }
 .card.doing { border-left: 3px solid var(--accent); }
 .card.waiting { border-left: 3px solid var(--review); }
@@ -88,23 +153,45 @@ main { display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)
 .tick:hover { border-color: var(--check); color: var(--check); }
 .card .main { min-width: 0; flex: 1; }
 .card .title { font-weight: 500; overflow-wrap: anywhere; }
-.meta { display: flex; flex-wrap: wrap; gap: 4px 8px; margin-top: 3px; font-size: 12px; color: var(--muted); }
+.meta { display: flex; flex-wrap: wrap; gap: 4px 8px; margin-top: 3px; font-size: 12px; color: var(--muted); align-items: center; }
 .kind { font-weight: 600; color: var(--k); }
+.owner { font-size: 11px; font-weight: 600; border-radius: 5px; padding: 0 5px; background: var(--hover); }
+.owner.kostas { background: color-mix(in srgb, var(--p1) 14%, transparent); color: var(--p1); }
+.st-doing { color: var(--accent); font-weight: 600; } .st-waiting { color: var(--review); font-weight: 600; }
 .p1 { color: var(--p1); font-weight: 700; }
 .ref { font: 600 11.5px ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--muted); background: var(--hover); border: 0; border-radius: 5px; padding: 1px 5px; cursor: copy; }
 .ref:hover { color: var(--accent); }
 .ref.copied { color: var(--check); }
-.dlg-head { display: flex; align-items: center; gap: 10px; }
-.dlg-head .ref { font-size: 13px; padding: 3px 8px; }
 .k-decision { --k: var(--decision); --dot: var(--decision); } .k-setup { --k: var(--setup); --dot: var(--setup); }
 .k-check { --k: var(--check); --dot: var(--check); } .k-review { --k: var(--review); --dot: var(--review); }
 .k-bug { --k: var(--bug); --dot: var(--bug); } .k-task { --k: var(--task); --dot: var(--task); } .k-idea { --k: var(--idea); --dot: var(--idea); }
-details.done-wrap summary { cursor: pointer; color: var(--muted); font-size: 13px; margin: 6px 2px; }
+.k-done { --dot: var(--check); } .k-repo { --dot: var(--muted); }
+
+.repos { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(340px, 100%), 1fr)); gap: 8px; padding-bottom: 12px; }
+.repo { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; font-size: 13px; min-width: 0; }
+.repo b { margin-right: 6px; }
+.repo .facts { color: var(--muted); }
+.warn { background: var(--warn-bg); color: var(--warn-ink); border-radius: 6px; padding: 0 6px; margin-left: 4px; white-space: nowrap; font-size: 12px; font-weight: 500; }
+.repo details { margin-top: 4px; color: var(--muted); }
+.repo details pre { margin: 4px 0 0; font-size: 12px; white-space: pre-wrap; word-break: break-all; }
+.repo .last { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Report viewer */
+#report-view { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.rbar { display: flex; align-items: center; gap: 10px; padding: 7px 14px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.rbar .r-title { min-width: 0; display: flex; align-items: baseline; gap: 8px; }
+.rbar .r-title b { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rbar .r-title small { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.rbar select { border: 1px solid var(--line); background: var(--card); border-radius: 7px; padding: 2px 6px; font-size: 12.5px; }
+.pill { background: var(--accent); color: var(--accent-ink); border: 0; border-radius: 999px; padding: 2px 10px; font-size: 12px; font-weight: 600; }
+#r-frame { flex: 1; width: 100%; border: 0; display: block; }
 
 dialog { border: 1px solid var(--line); border-radius: 14px; background: var(--card); color: var(--ink); padding: 0;
 	width: min(680px, calc(100vw - 32px)); max-height: calc(100vh - 48px); }
 dialog::backdrop { background: rgb(0 0 0 / .35); }
 .dlg { padding: 16px 18px 18px; display: flex; flex-direction: column; gap: 12px; }
+.dlg-head { display: flex; align-items: center; gap: 10px; }
+.dlg-head .ref { font-size: 13px; padding: 3px 8px; }
 .dlg .title-input { font-size: 17px; font-weight: 600; border: 0; border-bottom: 1px solid transparent; background: transparent; padding: 2px 0; width: 100%; }
 .dlg .title-input:focus { outline: none; border-bottom-color: var(--line); }
 .fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; }
@@ -115,7 +202,6 @@ dialog::backdrop { background: rgb(0 0 0 / .35); }
 .body-view p { margin: 0 0 8px; } .body-view ul, .body-view ol { margin: 0 0 8px; padding-left: 20px; }
 .body-view:empty::before { content: "No details."; color: var(--muted); }
 .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-.row .spacer { flex: 1; }
 .history { border-top: 1px solid var(--line); padding-top: 10px; font-size: 12.5px; }
 .history h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); margin: 0 0 6px; }
 .history ol { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 5px; }
@@ -125,23 +211,56 @@ dialog::backdrop { background: rgb(0 0 0 / .35); }
 .note-form input { flex: 1; min-width: 0; border: 1px solid var(--line); background: var(--bg); border-radius: 7px; padding: 5px 8px; }
 .sources { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
 .error { color: var(--bug); font-size: 13px; }
+
+/* Phones: the rail opens over the page from the header. */
+@media (max-width: 760px) {
+	body, body.rail-collapsed { grid-template-columns: 60px minmax(0, 1fr); }
+	#rail { position: fixed; z-index: 6; left: 60px; top: 0; bottom: 0; width: min(280px, calc(100vw - 76px)); box-shadow: var(--shadow); background: var(--bg); }
+	body.rail-collapsed #rail { display: none; }
+	#rail-open { display: grid; }
+	header.top { grid-template-columns: auto minmax(0, 1fr) auto; padding: 10px 12px; gap: 8px; }
+	.here div, .search-wrap kbd { display: none; }
+	#board { padding: 10px 12px 48px; }
+}
 </style>
 </head>
 <body>
-<header>
-	<h1><img class="logo" src="/favicon.svg" alt="" width="22" height="22">Workbench</h1>
-	<div class="chips" id="projects"></div>
-	<input id="search" type="search" placeholder="Search" autocomplete="off">
-	<button class="primary" id="new">New</button>
-</header>
-<nav id="links" aria-label="Bookmarks"></nav>
-<section id="repos"></section>
-<main>
-	<section class="col" id="col-me"><h2>Needs you <span class="count"></span></h2><div class="list"></div></section>
-	<section class="col" id="col-agents"><h2>With agents <span class="count"></span></h2><div class="list"></div></section>
-	<section class="col" id="col-next"><h2>Up next <span class="count"></span></h2><div class="list"></div></section>
-	<section class="col" id="col-done"><h2>Done lately <span class="count"></span></h2><div class="list"></div></section>
-</main>
+<nav id="prail" aria-label="Projects"></nav>
+<aside id="rail" aria-label="Reports and links"></aside>
+<div id="content">
+	<header class="top">
+		<div class="here"><button class="icon-btn" id="rail-open" title="Reports and links" aria-label="Reports and links"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2.5 4h11M2.5 8h11M2.5 12h11"/></svg></button><span id="here"></span></div>
+		<div class="search-wrap">
+			<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="7" cy="7" r="4.75"/><path d="m10.5 10.5 3 3"/></svg>
+			<input id="search" type="search" placeholder="Search" autocomplete="off" aria-controls="results"><kbd>Ctrl K</kbd>
+			<div id="results" role="listbox" hidden></div>
+		</div>
+		<div class="top-right"><button class="primary" id="new">New</button></div>
+	</header>
+	<main id="board">
+		<div class="board-bar">
+			<div class="seg" id="who" role="group" aria-label="Who acts"></div>
+			<span class="spacer"></span>
+			<button class="icon-btn" id="unfold-all" title="Open all sections" aria-label="Open all sections"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m4.5 6 3.5-3.5L11.5 6M4.5 10l3.5 3.5 3.5-3.5"/></svg></button>
+			<button class="icon-btn" id="fold-all" title="Fold all sections" aria-label="Fold all sections"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m4.5 2.5 3.5 3.5 3.5-3.5M4.5 13.5 8 10l3.5 3.5"/></svg></button>
+		</div>
+		<div id="sections"></div>
+	</main>
+	<section id="report-view" hidden>
+		<div class="rbar">
+			<button type="button" class="ghost sm" id="r-back">← Board</button>
+			<a class="ghost sm" id="r-home" hidden>Open in workbench</a>
+			<div class="r-title"><b id="r-title"></b><small id="r-sub"></small></div>
+			<select id="r-version" title="Version" aria-label="Version"></select>
+			<button type="button" class="pill" id="r-newer" hidden></button>
+			<span class="spacer"></span>
+			<button type="button" class="icon-btn" id="r-reload" title="Reload the page" aria-label="Reload"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M13 8a5 5 0 1 1-1.6-3.7M13 2.5v2.8h-2.8"/></svg></button>
+			<a class="ghost sm" id="r-newtab" target="_blank">New tab ↗</a>
+		</div>
+		<!-- Sandboxed by the page's own CSP header (see reports.ts), which also covers opening it directly. -->
+		<iframe id="r-frame" title="Report"></iframe>
+	</section>
+</div>
 
 <dialog id="dlg"><form class="dlg" method="dialog" id="form" autocomplete="off">
 	<div class="dlg-head"><button type="button" class="ref" id="dlg-ref" title="Copy" hidden></button><input class="title-input" name="title" placeholder="What needs doing?" required></div>
@@ -181,7 +300,7 @@ dialog::backdrop { background: rgb(0 0 0 / .35); }
 	<div class="fields">
 		<label>Label<input name="label" required placeholder="RevenueCat customers"></label>
 		<label>Show with<select name="project"></select></label>
-		<label>Group (box)<input name="grp" list="link-groups" placeholder="none"></label>
+		<label>Group<input name="grp" list="link-groups" placeholder="none"></label>
 	</div>
 	<div class="fields" style="grid-template-columns:1fr">
 		<label>Address<input name="url" required placeholder="https://…"></label>
@@ -198,26 +317,47 @@ dialog::backdrop { background: rgb(0 0 0 / .35); }
 	</div>
 </form></dialog>
 
-
 <script>
 const KINDS = ["task", "check", "review", "decision", "setup", "bug", "idea"];
 const STATUSES = ["todo", "doing", "waiting", "done", "dropped"];
-const ME_GROUPS = [["decision", "Decide"], ["setup", "Set up"], ["check", "Try on a device"], ["review", "Review"], ["other", "Other"]];
+const OPEN = ["todo", "doing", "waiting"];
+// Board sections, in order; the third value is whether a section starts open.
+const SECTIONS = [["decision", "Decisions", true], ["setup", "Setup", true], ["check", "Checks", true], ["review", "Reviews", true],
+	["bug", "Bugs", true], ["task", "Tasks", true], ["idea", "Ideas", false]];
+const WHO = [["all", "Everything"], ["kostas", "Needs you"], ["agent", "With agents"]];
 const $ = (s, el = document) => el.querySelector(s);
-const state = { project: localGet("project") || "", q: "", items: [], projects: [], links: [], current: null };
+const solo = new URLSearchParams(location.search).has("solo");
+const state = {
+	project: localGet("project") || "", who: localGet("who") || "all", items: [], projects: [], links: [], reports: [], repos: [],
+	current: null, report: null, reportV: null, collapsed: narrow() || localGet("rail") === "collapsed",
+};
+// On a phone the rail opens over the page, so it starts folded and its state isn't remembered.
+function narrow() { return matchMedia("(max-width: 760px)").matches; }
 
 function localGet(k) { try { return localStorage.getItem("wb." + k); } catch { return null; } }
 function localSet(k, v) { try { localStorage.setItem("wb." + k, v); } catch {} }
-// The lists are redrawn on every poll, so open/closed state of a <details data-key> lives here.
-const openDetails = new Set((() => { try { return JSON.parse(localGet("open") || "[]"); } catch { return []; } })());
-const isOpen = (key) => (openDetails.has(key) ? " open" : "");
+// Everything is redrawn on every poll, so whether a <details data-key> is open lives here.
+const folds = (() => {
+	try {
+		const f = JSON.parse(localGet("folds") || "null");
+		if (f) return f;
+		return Object.fromEntries(JSON.parse(localGet("open") || "[]").map((k) => [k, true]));
+	} catch { return {}; }
+})();
+const isOpen = (key, def = false) => ((folds[key] ?? def) ? " open" : "");
 document.addEventListener("toggle", (e) => {
 	const key = e.target.dataset?.key;
 	if (!key) return;
-	if (e.target.open) openDetails.add(key); else openDetails.delete(key);
-	localSet("open", JSON.stringify([...openDetails]));
+	folds[key] = e.target.open;
+	localSet("folds", JSON.stringify(folds));
 }, true);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+// Only touches the DOM when the markup changed, so polling doesn't reload icons or reset scroll.
+function paint(el, html) {
+	if (el._html === html) return;
+	el._html = html;
+	el.innerHTML = html;
+}
 
 function md(src) {
 	const inline = (s) => esc(s)
@@ -240,6 +380,18 @@ function md(src) {
 	return out.join("");
 }
 
+function hl(text, q) {
+	text = String(text ?? "");
+	if (!q) return esc(text);
+	const re = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi");
+	let out = "", last = 0;
+	for (const m of text.matchAll(re)) {
+		out += esc(text.slice(last, m.index)) + `<mark>${esc(m[0])}</mark>`;
+		last = m.index + m[0].length;
+	}
+	return out + esc(text.slice(last));
+}
+
 const parseTime = (s) => new Date(s.replace(" ", "T") + "Z");
 function ago(s) {
 	const d = (Date.now() - parseTime(s)) / 1000;
@@ -251,6 +403,15 @@ function ago(s) {
 }
 const sessionHref = (s) => /^local_[0-9a-f-]+$/.test(s) ? `claude://claude.ai/epitaxy/${s}` : null;
 const projectName = (slug) => state.projects.find((p) => p.slug === slug)?.name ?? slug;
+const initials = (name) => name.split(/[\s_-]+|(?<=[a-z])(?=[A-Z])/).filter(Boolean).slice(0, 2).map((w) => w[0]).join("").toUpperCase() || "?";
+const hue = (s) => [...s].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 360, 7);
+// A logo or icon that fails to load is replaced by its letters (see the error listener).
+const logo = (p) => p.slug
+	? `<img class="plogo" alt="" data-letter="${esc(initials(p.name))}" style="--hue:${hue(p.slug)}" src="/api/projects/${encodeURIComponent(p.slug)}/logo">`
+	: `<img class="plogo" alt="" src="/favicon.svg">`;
+let iconRound = 0;
+const fav = (l) => `<img class="fav" alt="" data-letter="${esc((l.label.trim()[0] || "?").toUpperCase())}" src="/api/links/${l.id}/icon?v=${encodeURIComponent(l.icon_url || l.url)}-${iconRound}">`;
+const DOC = `<svg class="doc-ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M3.75 1.75h5.5l3 3v9.5h-8.5z"/><path d="M9.25 1.75v3h3M6 8.25h4M6 10.75h4"/></svg>`;
 
 async function api(path, opts = {}) {
 	const res = await fetch(path, { ...opts, headers: { "content-type": "application/json" } });
@@ -259,13 +420,199 @@ async function api(path, opts = {}) {
 	return data;
 }
 
-function card(i, { tick = false } = {}) {
-	const closed = i.status === "done" || i.status === "dropped";
+/* ---------- Projects ---------- */
+
+function renderProjects() {
+	const total = state.projects.reduce((n, p) => n + p.mine, 0);
+	const btn = (p) => `<button class="pbtn" data-project="${esc(p.slug)}" aria-current="${p.slug === state.project}"
+		title="${esc(p.name)}${p.mine ? ` · ${p.mine} waiting on you` : ""}">${logo(p)}<span class="pname">${esc(p.slug ? p.name : "All")}</span>${p.mine ? `<span class="badge">${p.mine}</span>` : ""}</button>`;
+	paint($("#prail"), btn({ slug: "", name: "All projects", mine: total }) + `<div class="prail-sep"></div>` + state.projects.map(btn).join(""));
+	const p = state.projects.find((p) => p.slug === state.project);
+	paint($("#here"), `<span class="here" style="gap:10px">${logo(p ?? { slug: "" })}<div><b>${esc(p ? p.name : "All projects")}</b>
+		<small>${esc(p ? p.path : `${state.projects.length} projects`)}</small></div></span>`);
+}
+
+async function loadProjects() {
+	state.projects = await api("/api/projects");
+	if (state.project && !state.projects.some((p) => p.slug === state.project)) state.project = "";
+	renderProjects();
+}
+
+function setProject(slug) {
+	state.project = slug;
+	localSet("project", slug);
+	renderProjects();
+	renderRail();
+	if (location.hash) history.pushState(null, "", location.pathname + location.search);
+	route();
+	loadItems();
+	loadRepos();
+}
+$("#prail").addEventListener("click", (e) => {
+	const b = e.target.closest("[data-project]");
+	if (b) setProject(b.dataset.project);
+});
+
+/* ---------- Rail: reports and links ---------- */
+
+// Links with project '' show everywhere; a project's own links show with it (and under All).
+let editingLinks = false;
+function railLinks() {
+	const scopes = [["", state.links.filter((l) => !l.project)]];
+	for (const p of state.projects) if (!state.project || state.project === p.slug) scopes.push([p.slug, state.links.filter((l) => l.project === p.slug)]);
+	const groups = [];
+	for (const [slug, ls] of scopes) {
+		const prefix = !state.project && slug ? projectName(slug) : "";
+		for (const g of [...new Set(ls.map((l) => l.grp))].sort((a, b) => (a === "") - (b === "") || a.localeCompare(b)))
+			groups.push({ key: `lg-${slug}-${g}`, label: [prefix, g].filter(Boolean).join(" · "), links: ls.filter((l) => l.grp === g) });
+	}
+	return groups;
+}
+function railReports() {
+	const groups = new Map();
+	for (const r of state.reports) {
+		if (state.project && r.project !== state.project) continue;
+		const label = [!state.project ? projectName(r.project) : "", r.grp].filter(Boolean).join(" · ");
+		if (!groups.has(label)) groups.set(label, []);
+		groups.get(label).push(r);
+	}
+	return [...groups].sort(([a], [b]) => (a === "") - (b === "") || a.localeCompare(b));
+}
+const reportHref = (r) => `#report/${r.id}`;
+const isCurrent = (r) => state.report?.id === r.id;
+
+function renderRail() {
+	document.body.classList.toggle("rail-collapsed", state.collapsed);
+	const toggle = `<button class="icon-btn" id="rail-toggle" title="${state.collapsed ? "Show reports and links" : "Fold the sidebar"}" aria-label="Toggle sidebar">
+		<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">${state.collapsed ? '<path d="m6 4 4 4-4 4"/>' : '<path d="m10 4-4 4 4 4"/>'}</svg></button>`;
+	const reports = railReports();
+	const links = railLinks();
+	let html;
+	if (state.collapsed) {
+		html = `<div class="rail-head">${toggle}</div>` +
+			reports.flatMap(([, rs]) => rs).map((r) => `<a class="ritem" href="${reportHref(r)}" title="${esc(r.title)}" aria-current="${isCurrent(r)}"><span class="tile">${esc(initials(r.title))}</span></a>`).join("") +
+			(reports.length && links.length ? `<div class="rail-sep"></div>` : "") +
+			links.flatMap((g) => g.links).map((l) => `<a class="ritem link" href="${esc(l.url)}" target="_blank" rel="noreferrer" data-link="${l.id}" title="${esc(l.label)}">${fav(l)}</a>`).join("");
+	} else {
+		const nReports = reports.reduce((n, [, rs]) => n + rs.length, 0);
+		const reportList = reports.map(([label, rs]) => (label ? `<div class="glabel">${esc(label)}</div>` : "") +
+			rs.map((r) => `<a class="ritem" href="${reportHref(r)}" title="${esc(r.title)} · v${r.version}" aria-current="${isCurrent(r)}">${DOC}<span>${esc(r.title)}</span><small>${esc(ago(r.updated_at).replace(" ago", ""))}</small></a>`).join("")).join("");
+		const linkList = links.map((g) => {
+			const items = g.links.map((l) => `<a class="ritem link" href="${esc(l.url)}" target="_blank" rel="noreferrer" data-link="${l.id}" title="${esc(l.url)}">${fav(l)}<span>${esc(l.label)}</span></a>`).join("");
+			return g.label ? `<details class="lgroup fold" data-key="${esc(g.key)}"${isOpen(g.key, true)}><summary><span>${esc(g.label)}</span></summary>${items}</details>` : items;
+		}).join("");
+		const tools = `<span class="tools">
+			<button class="icon-btn" id="link-new" title="Add a link" aria-label="Add a link"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M8 3v10M3 8h10"/></svg></button>
+			${state.links.length ? `<button class="icon-btn" id="link-edit" title="${editingLinks ? "Done editing" : "Edit links"}" aria-pressed="${editingLinks}" aria-label="Edit links"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M10.5 2.5l3 3-8 8H2.5v-3z"/></svg></button>` : ""}
+			${editingLinks ? `<button class="icon-btn" id="link-refresh" title="Look up every site's icon again" aria-label="Refresh icons"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M13 8a5 5 0 1 1-1.6-3.7M13 2.5v2.8h-2.8"/></svg></button>` : ""}</span>`;
+		html = `<div class="rail-head"><b>${esc(state.project ? projectName(state.project) : "All projects")}</b>${toggle}</div>
+			<details class="rsec fold" data-key="rail-reports"${isOpen("rail-reports", true)}><summary>Reports <span class="count">${nReports || ""}</span></summary>
+				${reportList || `<div class="rail-empty">None yet. Publish one with <code>wb report page.html</code>.</div>`}</details>
+			<details class="rsec fold" data-key="rail-links"${isOpen("rail-links", true)}><summary>Links ${tools}</summary>
+				${linkList || `<div class="rail-empty">No links${state.project ? " for this project" : ""}.</div>`}</details>`;
+	}
+	const rail = $("#rail");
+	paint(rail, html);
+	rail.classList.toggle("editing", editingLinks);
+	$("#link-groups").innerHTML = [...new Set(state.links.map((l) => l.grp).filter(Boolean))].sort().map((g) => `<option value="${esc(g)}">`).join("");
+}
+
+function setCollapsed(c) {
+	state.collapsed = c;
+	if (!narrow()) localSet("rail", c ? "collapsed" : "open");
+	renderRail();
+}
+$("#rail-open").onclick = () => setCollapsed(!state.collapsed);
+
+async function loadLinks() {
+	state.links = await api("/api/links");
+	renderRail();
+}
+async function loadReports() {
+	state.reports = await api("/api/reports");
+	renderRail();
+	checkNewerReport();
+}
+
+const linkDlg = $("#link-dlg");
+const linkForm = $("#link-form");
+let currentLink = null;
+function setOptions(sel, values) { sel.innerHTML = values.map((v) => `<option value="${esc(v.value ?? v)}">${esc(v.label ?? v)}</option>`).join(""); }
+
+function openLink(link) {
+	currentLink = link;
+	setOptions(linkForm.project, [{ value: "", label: "Every project" }, ...state.projects.map((p) => ({ value: p.slug, label: p.name }))]);
+	linkForm.label.value = link.label ?? "";
+	linkForm.url.value = link.url ?? "";
+	linkForm.project.value = link.project ?? "";
+	linkForm.grp.value = link.grp ?? "";
+	linkForm.icon_url.value = link.icon_url ?? "";
+	$("#link-title").textContent = link.id ? "Edit link" : "New link";
+	$("#link-delete").hidden = !link.id;
+	$("#link-err").textContent = "";
+	linkDlg.showModal();
+	linkForm.label.focus();
+}
+
+$("#rail").addEventListener("click", (e) => {
+	if (e.target.closest("#rail-toggle")) return setCollapsed(!state.collapsed);
+	// The tools sit inside a <summary>: don't fold the section.
+	if (e.target.closest("#link-new")) { e.preventDefault(); return openLink({ project: state.project }); }
+	if (e.target.closest("#link-edit")) { e.preventDefault(); editingLinks = !editingLinks; return renderRail(); }
+	if (e.target.closest("#link-refresh")) {
+		e.preventDefault();
+		return api("/api/links/icons/refresh", { method: "POST" }).then((links) => { state.links = links; iconRound++; renderRail(); });
+	}
+	const a = e.target.closest("[data-link]");
+	if (a && editingLinks) {
+		e.preventDefault();
+		openLink(state.links.find((l) => l.id === Number(a.dataset.link)));
+	}
+	// On a phone the rail covers the page; picking a report closes it.
+	if (e.target.closest('a[href^="#report/"]') && narrow()) setCollapsed(true);
+});
+linkForm.addEventListener("submit", async (e) => {
+	e.preventDefault();
+	const body = JSON.stringify({
+		label: linkForm.label.value, url: linkForm.url.value.trim(), project: linkForm.project.value,
+		grp: linkForm.grp.value.trim(), icon_url: linkForm.icon_url.value.trim(),
+	});
+	try {
+		if (currentLink.id) await api(`/api/links/${currentLink.id}`, { method: "PATCH", body });
+		else await api("/api/links", { method: "POST", body });
+		linkDlg.close();
+		iconRound++;
+		await loadLinks();
+	} catch (err) { $("#link-err").textContent = err.message; }
+});
+$("#link-delete").onclick = async () => {
+	if (!confirm(`Delete "${currentLink.label}"?`)) return;
+	await api(`/api/links/${currentLink.id}`, { method: "DELETE" });
+	linkDlg.close();
+	await loadLinks();
+};
+$("#link-cancel").onclick = () => linkDlg.close();
+
+document.addEventListener("error", (e) => {
+	const img = e.target;
+	if (!(img instanceof HTMLImageElement) || !img.dataset.letter) return;
+	const span = document.createElement("span");
+	span.className = img.className + " letter";
+	span.textContent = img.dataset.letter;
+	span.setAttribute("style", img.getAttribute("style") || "");
+	img.replaceWith(span);
+}, true);
+
+/* ---------- Board ---------- */
+
+function card(i, { tick = i.owner === "kostas" && OPEN.includes(i.status), kind = false } = {}) {
+	const closed = !OPEN.includes(i.status);
 	const meta = [
 		`<button class="ref" data-copy="wb-${i.ref}" title="Copy wb-${i.ref}">wb-${i.ref}</button>`,
-		`<span class="kind k-${i.kind}">${i.kind}</span>`,
+		kind ? `<span class="kind k-${i.kind}">${i.kind}</span>` : "",
+		!closed && state.who === "all" ? `<span class="owner ${i.owner}">${i.owner === "kostas" ? "you" : "agent"}</span>` : "",
 		i.priority === 1 && !closed ? `<span class="p1">P1</span>` : "",
-		i.status === "waiting" ? `<span>waiting</span>` : "",
+		i.status === "doing" || i.status === "waiting" ? `<span class="st-${i.status}">${i.status}</span>` : "",
 		i.area ? `<span>${esc(i.area)}</span>` : "",
 		!state.project ? `<span>${esc(projectName(i.project))}</span>` : "",
 		i.branch ? `<span>⎇ ${esc(i.branch)}</span>` : "",
@@ -276,81 +623,109 @@ function card(i, { tick = false } = {}) {
 		<div class="main"><div class="title">${esc(i.title)}</div><div class="meta">${meta}</div></div></article>`;
 }
 
-function fill(col, html, count) {
-	$(`#${col} .list`).innerHTML = html || `<div class="empty">Nothing here.</div>`;
-	$(`#${col} .count`).textContent = count || "";
+const section = (key, def, summary, body) =>
+	`<details class="sec fold" data-key="${key}"${isOpen(key, def)}><summary>${summary}</summary>${body}</details>`;
+const cards = (list, opts) => `<div class="cards">${list.map((i) => card(i, opts)).join("")}</div>`;
+
+function repoWarnings(r) {
+	return [
+		r.dirty.length && `${r.dirty.length} uncommitted`,
+		r.ahead && `${r.ahead} unpushed`,
+		r.behind && `${r.behind} behind`,
+		r.unmerged.length && `${r.unmerged.length} unmerged branch${r.unmerged.length > 1 ? "es" : ""}`,
+		r.worktrees.length && `${r.worktrees.length} worktree${r.worktrees.length > 1 ? "s" : ""}`,
+	].filter(Boolean);
+}
+function repoCard(r) {
+	if (!r.ok) return `<div class="repo"><b>${esc(projectName(r.project))}</b><span class="facts">${esc(r.error)}</span></div>`;
+	const warns = repoWarnings(r);
+	const detail = [
+		r.dirty.length ? "Uncommitted:\n" + r.dirty.join("\n") : "",
+		r.unmerged.length ? "Unmerged:\n" + r.unmerged.map((b) => `${b.name}  (${b.date})`).join("\n") : "",
+		r.worktrees.length ? "Worktrees:\n" + r.worktrees.map((w) => `${w.branch}  ${w.path}`).join("\n") : "",
+	].filter(Boolean).join("\n\n");
+	return `<div class="repo"><div><b>${esc(projectName(r.project))}</b><span class="facts">⎇ ${esc(r.branch || "detached")}</span>
+		${warns.length ? warns.map((w) => `<span class="warn">${w}</span>`).join("") : `<span class="facts"> · clean</span>`}</div>
+		<div class="last">${esc(r.lastCommit)}</div>
+		${detail ? `<details data-key="repo-${r.project}"${isOpen(`repo-${r.project}`)}><summary class="facts">details</summary><pre>${esc(detail)}</pre></details>` : ""}</div>`;
 }
 
-function render() {
-	const open = (i) => ["todo", "doing", "waiting"].includes(i.status);
-	const mine = state.items.filter((i) => i.owner === "kostas" && open(i));
-	// Later (P3) items fold away so launch blockers stay on screen.
-	const groups = ME_GROUPS.map(([k, label]) => {
-		const list = mine.filter((i) => k === "other" ? !["decision", "setup", "check", "review"].includes(i.kind) : i.kind === k);
+function renderBoard() {
+	const open = state.items.filter((i) => OPEN.includes(i.status));
+	const counts = { all: open.length, kostas: open.filter((i) => i.owner === "kostas").length, agent: open.filter((i) => i.owner === "agent").length };
+	paint($("#who"), WHO.map(([k, label]) => `<button data-who="${k}" aria-pressed="${k === state.who}">${label}<span class="n">${counts[k]}</span></button>`).join(""));
+	const mineOnly = (i) => state.who === "all" || i.owner === state.who;
+	const shown = open.filter(mineOnly);
+
+	let html = SECTIONS.map(([kind, label, def]) => {
+		const list = shown.filter((i) => i.kind === kind);
 		if (!list.length) return "";
-		const now = list.filter((i) => i.priority < 3);
+		const mine = list.filter((i) => i.owner === "kostas").length;
+		const doing = list.filter((i) => i.status === "doing").length;
+		const p1 = list.filter((i) => i.priority === 1).length;
+		const sub = [state.who === "all" && mine ? `${mine} on you` : "", doing ? `${doing} in progress` : "", p1 ? `<span class="p1">${p1} P1</span>` : ""].filter(Boolean).join(" · ");
+		// Later (P3) items fold away so what matters now stays on screen.
 		const later = list.filter((i) => i.priority === 3);
-		return `<div class="group-label k-${k === "other" ? "task" : k}">${label} · ${list.length}</div>
-			${now.map((i) => card(i, { tick: true })).join("")}
-			${later.length ? `<details class="done-wrap" data-key="later-${k}"${isOpen(`later-${k}`)}><summary>${later.length} later</summary>${later.map((i) => card(i, { tick: true })).join("")}</details>` : ""}`;
-	}).join("");
-	const blockers = mine.filter((i) => i.priority === 1).length;
-	fill("col-me", groups, mine.length ? `${mine.length}${blockers ? ` · ${blockers} P1` : ""}` : "");
-
-	const working = state.items.filter((i) => i.owner === "agent" && (i.status === "doing" || i.status === "waiting"));
-	fill("col-agents", working.map((i) => card(i)).join(""), working.length);
-
-	const next = state.items.filter((i) => i.owner === "agent" && i.status === "todo");
-	fill("col-next", next.map((i) => card(i)).join(""), next.length);
+		return section(`sec-${kind}`, def, `<span class="dot k-${kind}"></span>${label}<span class="count">${list.length}</span>${sub ? `<span class="sub">${sub}</span>` : ""}`,
+			cards(list.filter((i) => i.priority < 3)) +
+			(later.length ? `<details class="later fold" data-key="later-${kind}"${isOpen(`later-${kind}`)}><summary>${later.length} later</summary>${cards(later)}</details>` : ""));
+	}).join("") || `<div class="empty">Nothing open${state.who === "kostas" ? " waits on you" : ""}.</div>`;
 
 	const cutoff = Date.now() - 14 * 86400e3;
-	const done = state.items.filter((i) => !open(i) && i.done_at && parseTime(i.done_at) > cutoff)
+	const done = state.items.filter((i) => !OPEN.includes(i.status) && mineOnly(i) && i.done_at && parseTime(i.done_at) > cutoff)
 		.sort((a, b) => b.done_at.localeCompare(a.done_at));
-	fill("col-done", done.slice(0, 8).map((i) => card(i)).join("") +
-		(done.length > 8 ? `<details class="done-wrap" data-key="done-more"${isOpen("done-more")}><summary>${done.length - 8} more</summary>${done.slice(8).map((i) => card(i)).join("")}</details>` : ""), done.length);
+	if (done.length) html += section("sec-done", false, `<span class="dot k-done"></span>Done lately<span class="count">${done.length}</span><span class="sub">last 14 days</span>`,
+		cards(done.slice(0, 12), { kind: true }) +
+		(done.length > 12 ? `<details class="more fold" data-key="done-more"${isOpen("done-more")}><summary>${done.length - 12} more</summary>${cards(done.slice(12), { kind: true })}</details>` : ""));
 
+	const repos = state.repos.filter((r) => !state.project || r.project === state.project);
+	if (repos.length) {
+		const one = state.project && repos.length === 1 ? repos[0] : null;
+		const attention = repos.filter((r) => !r.ok || repoWarnings(r).length).length;
+		const sub = one
+			? (one.ok ? `⎇ ${esc(one.branch || "detached")}${repoWarnings(one).map((w) => `<span class="warn">${w}</span>`).join("") || " · clean"}` : esc(one.error))
+			: attention ? `${attention} need attention` : "all clean";
+		html += section("sec-repo", false, `<span class="dot k-repo"></span>${one ? "Repository" : "Repositories"}${one ? "" : `<span class="count">${repos.length}</span>`}<span class="sub">${sub}</span>`,
+			`<div class="repos">${repos.map(repoCard).join("")}</div>`);
+	}
+	paint($("#sections"), html);
 	$("#areas").innerHTML = [...new Set(state.items.map((i) => i.area).filter(Boolean))].sort().map((a) => `<option value="${esc(a)}">`).join("");
 }
 
-function renderProjects() {
-	const chips = [{ slug: "", name: "All" }, ...state.projects];
-	$("#projects").innerHTML = chips.map((p) => `<button class="chip" data-project="${esc(p.slug)}" aria-pressed="${p.slug === state.project}">${esc(p.name)}</button>`).join("");
-}
-
 async function loadItems() {
-	const params = new URLSearchParams();
-	if (state.project) params.set("project", state.project);
-	if (state.q) params.set("q", state.q);
-	state.items = await api(`/api/items?${params}`);
-	render();
+	state.items = await api(`/api/items${state.project ? `?project=${encodeURIComponent(state.project)}` : ""}`);
+	renderBoard();
+}
+async function loadRepos() {
+	state.repos = await api("/api/git");
+	renderBoard();
 }
 
-async function loadRepos() {
-	const repos = await api("/api/git");
-	$("#repos").innerHTML = repos.filter((r) => !state.project || r.project === state.project).map((r) => {
-		if (!r.ok) return `<div class="repo"><b>${esc(projectName(r.project))}</b><span class="facts">${esc(r.error)}</span></div>`;
-		const warns = [
-			r.dirty.length && `${r.dirty.length} uncommitted`,
-			r.ahead && `${r.ahead} unpushed`,
-			r.behind && `${r.behind} behind`,
-			r.unmerged.length && `${r.unmerged.length} unmerged branch${r.unmerged.length > 1 ? "es" : ""}`,
-			r.worktrees.length && `${r.worktrees.length} worktree${r.worktrees.length > 1 ? "s" : ""}`,
-		].filter(Boolean);
-		const detail = [
-			r.dirty.length ? "Uncommitted:\n" + r.dirty.join("\n") : "",
-			r.unmerged.length ? "Unmerged:\n" + r.unmerged.map((b) => `${b.name}  (${b.date})`).join("\n") : "",
-			r.worktrees.length ? "Worktrees:\n" + r.worktrees.map((w) => `${w.branch}  ${w.path}`).join("\n") : "",
-		].filter(Boolean).join("\n\n");
-		return `<div class="repo"><div><b>${esc(projectName(r.project))}</b><span class="facts">⎇ ${esc(r.branch || "detached")}</span>
-			${warns.length ? warns.map((w) => `<span class="warn">${w}</span>`).join("") : `<span class="facts"> · clean</span>`}</div>
-			<div class="last">${esc(r.lastCommit)}</div>
-			${detail ? `<details data-key="repo-${r.project}"${isOpen(`repo-${r.project}`)}><summary>details</summary><pre>${esc(detail)}</pre></details>` : ""}</div>`;
-	}).join("");
-}
+$("#who").addEventListener("click", (e) => {
+	const b = e.target.closest("[data-who]");
+	if (!b) return;
+	state.who = b.dataset.who;
+	localSet("who", state.who);
+	renderBoard();
+});
+for (const [id, open] of [["#fold-all", false], ["#unfold-all", true]])
+	$(id).onclick = () => { for (const d of document.querySelectorAll("#sections details.sec")) d.open = open; };
+
+$("#sections").addEventListener("click", async (e) => {
+	const tick = e.target.closest("[data-tick]");
+	if (tick) {
+		e.stopPropagation();
+		await api(`/api/items/${tick.dataset.tick}`, { method: "PATCH", body: JSON.stringify({ status: "done" }) });
+		return Promise.all([loadItems(), loadProjects()]);
+	}
+	const c = e.target.closest(".card");
+	if (c) openItem(await api(`/api/items/${c.dataset.id}`));
+});
+
+/* ---------- Item dialog ---------- */
 
 const form = $("#form");
 const dlg = $("#dlg");
-function setOptions(sel, values) { sel.innerHTML = values.map((v) => `<option value="${esc(v.value ?? v)}">${esc(v.label ?? v)}</option>`).join(""); }
 setOptions(form.status, STATUSES);
 setOptions(form.kind, KINDS);
 
@@ -398,7 +773,8 @@ async function save(extra = {}) {
 		if (state.current.id) await api(`/api/items/${state.current.id}`, { method: "PATCH", body: JSON.stringify(patch) });
 		else await api("/api/items", { method: "POST", body: JSON.stringify(patch) });
 		dlg.close();
-		await loadItems();
+		await Promise.all([loadItems(), loadProjects()]);
+		refreshReport();
 	} catch (e) { $("#err").textContent = e.message; }
 }
 
@@ -418,131 +794,165 @@ $("#note").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preve
 
 $("#new").onclick = () => openItem({
 	title: "", status: "todo", owner: "kostas", kind: "task", priority: 2,
-	project: state.project || state.projects[0]?.slug || "", area: "", branch: "", session: "", body: "",
+	project: state.project || state.report?.project || state.projects[0]?.slug || "", area: "", branch: "", session: "", body: "",
 });
 
-document.querySelector("main").addEventListener("click", async (e) => {
-	const tick = e.target.closest("[data-tick]");
-	if (tick) {
-		e.stopPropagation();
-		await api(`/api/items/${tick.dataset.tick}`, { method: "PATCH", body: JSON.stringify({ status: "done" }) });
-		return loadItems();
-	}
-	const c = e.target.closest(".card");
-	if (c) openItem(await api(`/api/items/${c.dataset.id}`));
-});
+/* ---------- Search ---------- */
 
-$("#projects").addEventListener("click", (e) => {
-	const chip = e.target.closest("[data-project]");
-	if (!chip) return;
-	state.project = chip.dataset.project;
-	localSet("project", state.project);
-	renderProjects();
-	renderLinks();
-	loadItems();
-	loadRepos();
-});
+const search = $("#search");
+const results = $("#results");
+let searchSeq = 0, searchTimer;
 
-let searchTimer;
-$("#search").addEventListener("input", (e) => {
-	clearTimeout(searchTimer);
-	searchTimer = setTimeout(() => { state.q = e.target.value.trim(); loadItems(); }, 200);
-});
-
-
-// Bookmarks: links with project '' show everywhere; a project's own links show with it (and under All).
-const linkDlg = $("#link-dlg");
-const linkForm = $("#link-form");
-let editingLinks = false;
-let currentLink = null;
-
-let iconRound = 0;
-function renderLinks() {
-	const scopes = [["", state.links.filter((l) => !l.project)]];
-	for (const p of state.projects) {
-		if (state.project && state.project !== p.slug) continue;
-		scopes.push([p.slug, state.links.filter((l) => l.project === p.slug)]);
-	}
-	const showLabels = !state.project;
-	const icon = (l) => `<img class="fav" alt="" data-letter="${esc((l.label.trim()[0] || "?").toUpperCase())}" src="/api/links/${l.id}/icon?v=${encodeURIComponent(l.icon_url || l.url)}-${iconRound}">`;
-	const chip = (l) => `<a class="link" href="${esc(l.url)}" target="_blank" rel="noreferrer" data-link="${l.id}" title="${esc(l.url)}">${icon(l)}<span>${esc(l.label)}</span></a>`;
-	const scope = ([slug, ls]) => {
-		const groups = [...new Set(ls.map((l) => l.grp).filter(Boolean))];
-		const loose = ls.filter((l) => !l.grp);
-		return `<div class="scope">${showLabels && slug ? `<span class="scope-label">${esc(projectName(slug))}</span>` : ""}
-			${groups.map((g) => `<div class="lbox"><div class="lbox-title">${esc(g)}</div><div class="lbox-items">${ls.filter((l) => l.grp === g).map(chip).join("")}</div></div>`).join("")}
-			${loose.length ? `<div class="loose">${loose.map(chip).join("")}</div>` : ""}</div>`;
-	};
-	$("#links").innerHTML = scopes.filter(([, ls]) => ls.length).map(scope).join("") +
-		`<div class="tools"><button class="tool" id="link-new">+ Link</button>` +
-		(state.links.length ? `<button class="tool" id="link-edit" aria-pressed="${editingLinks}">${editingLinks ? "Done" : "Edit links"}</button>` : "") +
-		(editingLinks ? `<button class="tool" id="link-refresh" title="Look up every site's icon again">Refresh icons</button>` : "") + `</div>`;
-	$("#links").classList.toggle("editing", editingLinks);
-	$("#link-groups").innerHTML = [...new Set(state.links.map((l) => l.grp).filter(Boolean))].sort().map((g) => `<option value="${esc(g)}">`).join("");
+async function runSearch() {
+	const q = search.value.trim();
+	if (!q) { results.hidden = true; return; }
+	const seq = ++searchSeq;
+	const data = await api(`/api/search?q=${encodeURIComponent(q)}${state.project ? `&project=${encodeURIComponent(state.project)}` : ""}`);
+	if (seq !== searchSeq) return;
+	const where = (slug) => !state.project && slug ? ` · ${esc(projectName(slug))}` : "";
+	let html = "";
+	if (data.items.length) html += `<div class="rgroup">Items</div>` + data.items.map((i) =>
+		`<button class="res" data-item="${i.id}"><span class="dot k-${i.kind}"></span><span class="rt"><div>${hl(i.title, q)}</div>
+		<small>wb-${hl(i.ref, q)} · ${i.kind} · ${i.status} · ${i.owner === "kostas" ? "you" : "agent"}${where(i.project)}</small></span></button>`).join("");
+	if (data.reports.length) html += `<div class="rgroup">Reports</div>` + data.reports.map((r) =>
+		`<a class="res" href="${reportHref(r)}">${DOC}<span class="rt"><div>${hl(r.title, q)}</div><small>${r.snippet ? hl(r.snippet, q) : `v${r.version} · ${ago(r.updated_at)}`}${where(r.project)}</small></span></a>`).join("");
+	if (data.links.length) html += `<div class="rgroup">Links</div>` + data.links.map((l) =>
+		`<a class="res" href="${esc(l.url)}" target="_blank" rel="noreferrer">${fav(l)}<span class="rt"><div>${hl(l.label, q)}</div><small>${hl(l.url, q)}</small></span></a>`).join("");
+	results.innerHTML = (html || `<div class="res-none">Nothing matches “${esc(q)}”.</div>`) +
+		`<div class="res-foot">${state.project ? `In ${esc(projectName(state.project))} · pick All projects to search everywhere` : "In all projects"} · ↑↓ to move, Enter to open</div>`;
+	results.hidden = false;
+	select(0);
 }
-// A link without a stored icon shows its first letter.
-$("#links").addEventListener("error", (e) => {
-	const img = e.target;
-	if (!(img instanceof HTMLImageElement) || !img.classList.contains("fav")) return;
-	const span = document.createElement("span");
-	span.className = "fav fav-letter";
-	span.textContent = img.dataset.letter;
-	img.replaceWith(span);
-}, true);
-
-async function loadLinks() {
-	state.links = await api("/api/links");
-	renderLinks();
+function select(n) {
+	const all = [...results.querySelectorAll(".res")];
+	all.forEach((el, i) => el.setAttribute("aria-selected", i === n));
+	all[n]?.scrollIntoView({ block: "nearest" });
 }
-
-function openLink(link) {
-	currentLink = link;
-	setOptions(linkForm.project, [{ value: "", label: "Every project" }, ...state.projects.map((p) => ({ value: p.slug, label: p.name }))]);
-	linkForm.label.value = link.label ?? "";
-	linkForm.url.value = link.url ?? "";
-	linkForm.project.value = link.project ?? "";
-	linkForm.grp.value = link.grp ?? "";
-	linkForm.icon_url.value = link.icon_url ?? "";
-	$("#link-title").textContent = link.id ? "Edit link" : "New link";
-	$("#link-delete").hidden = !link.id;
-	$("#link-err").textContent = "";
-	linkDlg.showModal();
-	linkForm.label.focus();
-}
-
-$("#links").addEventListener("click", (e) => {
-	if (e.target.closest("#link-new")) return openLink({ project: state.project });
-	if (e.target.closest("#link-edit")) { editingLinks = !editingLinks; return renderLinks(); }
-	if (e.target.closest("#link-refresh")) {
-		return api("/api/links/icons/refresh", { method: "POST" }).then((links) => { state.links = links; iconRound++; renderLinks(); });
-	}
-	const a = e.target.closest("[data-link]");
-	if (a && editingLinks) {
+function closeSearch() { results.hidden = true; }
+search.addEventListener("input", () => { clearTimeout(searchTimer); searchTimer = setTimeout(runSearch, 150); });
+search.addEventListener("focus", () => { if (search.value.trim()) runSearch(); });
+search.addEventListener("keydown", (e) => {
+	const all = [...results.querySelectorAll(".res")];
+	const at = all.findIndex((el) => el.getAttribute("aria-selected") === "true");
+	if (e.key === "ArrowDown" || e.key === "ArrowUp") {
 		e.preventDefault();
-		openLink(state.links.find((l) => l.id === Number(a.dataset.link)));
+		if (all.length) select((at + (e.key === "ArrowDown" ? 1 : -1) + all.length) % all.length);
+	} else if (e.key === "Enter" && all[at]) {
+		e.preventDefault();
+		all[at].click();
+	} else if (e.key === "Escape") {
+		if (!results.hidden) closeSearch(); else { search.value = ""; search.blur(); }
 	}
 });
-linkForm.addEventListener("submit", async (e) => {
-	e.preventDefault();
-	const body = JSON.stringify({
-		label: linkForm.label.value, url: linkForm.url.value.trim(), project: linkForm.project.value,
-		grp: linkForm.grp.value.trim(), icon_url: linkForm.icon_url.value.trim(),
-	});
-	try {
-		if (currentLink.id) await api(`/api/links/${currentLink.id}`, { method: "PATCH", body });
-		else await api("/api/links", { method: "POST", body });
-		linkDlg.close();
-		iconRound++;
-		await loadLinks();
-	} catch (err) { $("#link-err").textContent = err.message; }
+results.addEventListener("click", async (e) => {
+	const r = e.target.closest(".res");
+	if (!r) return;
+	closeSearch();
+	if (r.dataset.item) openItem(await api(`/api/items/${r.dataset.item}`));
 });
-$("#link-delete").onclick = async () => {
-	if (!confirm(`Delete "${currentLink.label}"?`)) return;
-	await api(`/api/links/${currentLink.id}`, { method: "DELETE" });
-	linkDlg.close();
-	await loadLinks();
+document.addEventListener("pointerdown", (e) => { if (!e.target.closest(".search-wrap")) closeSearch(); });
+document.addEventListener("keydown", (e) => {
+	const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName) || document.querySelector("dialog[open]");
+	if (((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") || (e.key === "/" && !typing)) {
+		e.preventDefault();
+		search.focus();
+		search.select();
+	}
+});
+
+/* ---------- Reports ---------- */
+
+const frame = $("#r-frame");
+
+function route() {
+	const m = location.hash.match(/^#report\/(\d+)(?:\/v(\d+))?$/);
+	if (m) return showReport(Number(m[1]), m[2] ? Number(m[2]) : null);
+	state.report = null;
+	$("#report-view").hidden = true;
+	$("#board").hidden = false;
+	frame.removeAttribute("src");
+	delete frame.dataset.src;
+	document.title = "Workbench";
+	renderRail();
+}
+
+async function showReport(id, v) {
+	let r;
+	try { r = await api(`/api/reports/${id}`); } catch { history.replaceState(null, "", location.pathname + location.search); return route(); }
+	state.report = r;
+	state.reportV = v;
+	$("#board").hidden = true;
+	$("#report-view").hidden = false;
+	const shown = v ?? r.version;
+	$("#r-title").textContent = r.title;
+	$("#r-sub").textContent = `${projectName(r.project)} · updated ${ago(r.updated_at)}`;
+	setOptions($("#r-version"), r.versions.map((x) => ({ value: x.n, label: `v${x.n} · ${ago(x.at)}${x.author ? ` · ${x.author}` : ""}${x.n === r.version ? " (latest)" : ""}` })));
+	$("#r-version").value = shown;
+	$("#r-version").hidden = r.versions.length < 2;
+	$("#r-newer").hidden = true;
+	const hash = `#report/${id}${v ? `/v${v}` : ""}`;
+	$("#r-newtab").href = `/?solo${hash}`;
+	$("#r-home").href = `/${hash}`;
+	const src = `/r/${id}${v ? `?v=${v}` : ""}`;
+	if (frame.dataset.src !== src) { frame.dataset.src = src; frame.src = src; }
+	frame.dataset.version = shown;
+	document.title = `${r.title} · Workbench`;
+	renderRail();
+}
+
+// A newer version is offered, not loaded, so whatever is open in the page isn't thrown away.
+function checkNewerReport() {
+	if (!state.report || state.reportV) return;
+	const r = state.reports.find((x) => x.id === state.report.id);
+	if (!r || r.version <= Number(frame.dataset.version)) return;
+	$("#r-newer").textContent = `v${r.version} is out · show`;
+	$("#r-newer").hidden = false;
+}
+$("#r-newer").onclick = () => { delete frame.dataset.src; showReport(state.report.id, null); };
+$("#r-reload").onclick = () => { frame.src = frame.dataset.src; };
+$("#r-back").onclick = () => setProject(state.project);
+$("#r-version").onchange = (e) => {
+	const n = Number(e.target.value);
+	location.hash = `#report/${state.report.id}${n === state.report.version ? "" : `/v${n}`}`;
 };
-$("#link-cancel").onclick = () => linkDlg.close();
+window.addEventListener("hashchange", route);
+
+// The page runs sandboxed (origin "null") and asks the board through postMessage. Read-only by design:
+// nothing here changes the board, except opening an item's dialog for Kostas to act on.
+const bridge = {
+	items(f = {}) {
+		const p = new URLSearchParams();
+		const project = f.project === "*" ? "" : f.project ?? state.report.project;
+		if (project) p.set("project", project);
+		const status = f.status === "open" ? OPEN : f.status;
+		if (status) p.set("status", [].concat(status).join(","));
+		for (const k of ["kind", "owner", "q"]) if (f[k]) p.set(k, f[k]);
+		return api(`/api/items?${p}`);
+	},
+	item: (ref) => api(`/api/items/${encodeURIComponent(ref)}`),
+	async git(project) {
+		const [r] = await api(`/api/git?project=${encodeURIComponent(project ?? state.report.project)}`);
+		return r ?? null;
+	},
+	async links(project = state.report.project) {
+		const links = await api("/api/links");
+		return project === "*" ? links : links.filter((l) => !l.project || l.project === project);
+	},
+	projects: () => api("/api/projects"),
+	reports: (project = state.report.project) => api(`/api/reports${project === "*" ? "" : `?project=${encodeURIComponent(project)}`}`),
+	async open(ref) { openItem(await api(`/api/items/${encodeURIComponent(ref)}`)); return true; },
+};
+window.addEventListener("message", async (e) => {
+	const m = e.data;
+	if (e.source !== frame.contentWindow || e.origin !== "null" || !m || m.wb !== 1 || !Object.hasOwn(bridge, m.method)) return;
+	try { e.source.postMessage({ wb: 1, id: m.id, result: await bridge[m.method](...(m.args || [])) }, "*"); }
+	catch (err) { e.source.postMessage({ wb: 1, id: m.id, error: err.message }, "*"); }
+});
+function refreshReport() {
+	if (state.report) frame.contentWindow?.postMessage({ wb: 1, event: "refresh" }, "*");
+}
+
+/* ---------- Copy refs ---------- */
 
 async function copyText(text) {
 	try { await navigator.clipboard.writeText(text); return true; } catch {}
@@ -570,17 +980,26 @@ document.addEventListener("click", async (e) => {
 }, true);
 
 async function start() {
-	state.projects = await api("/api/projects");
-	if (state.project && !state.projects.some((p) => p.slug === state.project)) state.project = "";
-	renderProjects();
-	await Promise.all([loadItems(), loadRepos(), loadLinks()]);
+	if (solo) {
+		document.body.classList.add("solo");
+		$("#r-back").hidden = true;
+		$("#r-home").hidden = false;
+	}
+	await loadProjects();
+	renderRail();
+	await Promise.all([loadItems(), loadLinks(), loadReports()]);
+	route();
+	loadRepos();
 }
 start();
 // Agents write through the `wb` CLI, so the page polls; it pauses while a dialog is open.
 setInterval(() => {
 	if (document.visibilityState !== "visible" || dlg.open || linkDlg.open) return;
+	loadProjects();
 	loadItems();
 	loadRepos();
+	loadReports();
+	refreshReport();
 }, 10000);
 </script>
 </body>

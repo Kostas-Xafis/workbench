@@ -8,9 +8,14 @@ import {
 	resolveItem,
 	linkIcon,
 	listLinks,
+	listReports,
+	getReport,
 	open,
 	projects,
+	projectsWithCounts,
 	removeLink,
+	reportHtml,
+	search,
 	storeIcon,
 	updateItem,
 	updateLink,
@@ -18,6 +23,8 @@ import {
 } from "./db";
 import { repoState } from "./git";
 import { findIcon } from "./icons";
+import { projectLogo } from "./logo";
+import { REPORT_CSP, withBridge } from "./reports";
 
 export const PORT = Number(process.env.WB_PORT ?? 4321);
 
@@ -41,7 +48,43 @@ export function serve({ lan = false } = {}) {
 			"/": () => new Response(page, { headers: { "content-type": "text/html; charset=utf-8" } }),
 			"/favicon.svg": () =>
 				new Response(icon, { headers: { "content-type": "image/svg+xml", "cache-control": "max-age=3600" } }),
-			"/api/projects": () => json(projects(db)),
+			"/api/projects": () => json(projectsWithCounts(db)),
+			"/api/projects/:slug/logo": async (req) => {
+				const p = projects(db).find((p) => p.slug === req.params.slug);
+				const logo = p && (await projectLogo(p));
+				if (!logo) return new Response("no logo", { status: 404, headers: { "cache-control": "no-store" } });
+				return new Response(logo.file, {
+					headers: {
+						"content-type": logo.type,
+						"cache-control": "max-age=3600",
+						"content-security-policy": "default-src 'none'; style-src 'unsafe-inline'",
+					},
+				});
+			},
+			"/api/search": (req) => {
+				const u = new URL(req.url).searchParams;
+				const q = (u.get("q") ?? "").trim();
+				return json(q ? search(db, q, u.get("project") || undefined) : { items: [], reports: [], links: [] });
+			},
+			"/api/reports": (req) => json(listReports(db, new URL(req.url).searchParams.get("project") || undefined)),
+			"/api/reports/:id": (req) => {
+				const r = getReport(db, Number(req.params.id));
+				return r ? json(r) : json({ error: "not found" }, 404);
+			},
+			// The page itself, sandboxed: it reads the board only through the frame's postMessage bridge.
+			"/r/:id": (req) => {
+				const r = getReport(db, Number(req.params.id));
+				const v = Number(new URL(req.url).searchParams.get("v")) || undefined;
+				const page = r && reportHtml(db, r.id, v);
+				if (!r || !page) return new Response("no such report", { status: 404 });
+				return new Response(withBridge(page.html, r, page.n), {
+					headers: {
+						"content-type": "text/html; charset=utf-8",
+						"content-security-policy": REPORT_CSP,
+						"cache-control": "no-store",
+					},
+				});
+			},
 			"/api/links": {
 				GET: () => json(listLinks(db)),
 				POST: async (req) => {
@@ -95,12 +138,17 @@ export function serve({ lan = false } = {}) {
 					}
 				},
 			},
-			"/api/git": async () => json(await Promise.all(projects(db).map(repoState))),
+			"/api/git": async (req) => {
+				const only = new URL(req.url).searchParams.get("project");
+				return json(await Promise.all(projects(db).filter((p) => !only || p.slug === only).map(repoState)));
+			},
 			"/api/items": {
 				GET: (req) => {
 					const u = new URL(req.url).searchParams;
 					const f: ItemFilter = {
 						project: u.get("project") || undefined,
+						owner: (u.get("owner") || undefined) as ItemFilter["owner"],
+						kind: (u.get("kind") || undefined) as ItemFilter["kind"],
 						q: u.get("q") || undefined,
 						status: u.get("status")?.split(",") as ItemFilter["status"],
 					};

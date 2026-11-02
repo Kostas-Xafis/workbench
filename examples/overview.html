@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Project overview</title>
+<style>
+/* var(--wb-…) come from the workbench; the fallbacks keep the page readable on its own. */
+body { margin: 0; background: var(--wb-bg, #f6f5f2); color: var(--wb-ink, #1d1c1a); font: 14px/1.5 var(--wb-font, system-ui, sans-serif); }
+.page { max-width: 980px; margin: 0 auto; padding: 24px 20px 48px; }
+h1 { font-size: 22px; margin: 0; }
+.sub { color: var(--wb-muted, #6f6b64); margin: 2px 0 20px; font-size: 13px; }
+h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .6px; color: var(--wb-muted, #6f6b64); margin: 26px 0 10px; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+.tile { background: var(--wb-card, #fff); border: 1px solid var(--wb-line, #e3e0da); border-radius: 12px; padding: 12px 14px; }
+.tile b { display: block; font-size: 28px; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.tile span { color: var(--wb-muted, #6f6b64); font-size: 12.5px; }
+.panel { background: var(--wb-card, #fff); border: 1px solid var(--wb-line, #e3e0da); border-radius: 12px; padding: 14px 16px; }
+.bars { display: grid; grid-template-columns: 90px 1fr; gap: 8px 12px; align-items: center; }
+.bars .label { font-size: 13px; color: var(--wb-ink, #1d1c1a); }
+.track { display: flex; align-items: center; gap: 6px; height: 18px; }
+.bar { height: 100%; border-radius: 0 4px 4px 0; background: var(--wb-accent, #3d5afe); min-width: 2px; }
+.track .v { font-size: 12px; color: var(--wb-muted, #6f6b64); font-variant-numeric: tabular-nums; }
+.track:hover .bar { filter: brightness(1.12); }
+ul.list { list-style: none; margin: 0; padding: 0; }
+ul.list li { display: flex; gap: 10px; align-items: baseline; padding: 7px 0; border-top: 1px solid var(--wb-line, #e3e0da); }
+ul.list li:first-child { border-top: 0; }
+ul.list button { white-space: nowrap; font: 600 11.5px var(--wb-mono, monospace); background: var(--wb-hover, #efede8); color: var(--wb-muted, #6f6b64); border: 0; border-radius: 5px; padding: 1px 5px; cursor: pointer; }
+ul.list button:hover { color: var(--wb-accent, #3d5afe); }
+ul.list small { color: var(--wb-muted, #6f6b64); margin-left: auto; white-space: nowrap; }
+.warn { color: var(--wb-warn, #b45309); }
+.empty { color: var(--wb-muted, #6f6b64); }
+.cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; }
+</style>
+</head>
+<body>
+<div class="page">
+	<h1 id="title">Project overview</h1>
+	<p class="sub" id="sub">Live from the workbench.</p>
+	<div class="tiles" id="tiles"></div>
+	<h2>Open items by kind</h2>
+	<div class="panel"><div class="bars" id="bars"></div></div>
+	<div class="cols">
+		<div><h2>P1 · launch blockers</h2><div class="panel"><ul class="list" id="p1"></ul></div></div>
+		<div><h2>Done in the last 7 days</h2><div class="panel"><ul class="list" id="done"></ul></div></div>
+	</div>
+	<h2>Repository</h2>
+	<div class="panel" id="repo"></div>
+</div>
+<script>
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+const KINDS = ["decision", "setup", "check", "review", "bug", "task", "idea"];
+const OPEN = ["todo", "doing", "waiting"];
+const row = (i, right = "") => `<li><button data-ref="wb-${i.ref}" title="Open on the board">wb-${i.ref}</button><span>${esc(i.title)}</span><small>${right}</small></li>`;
+
+async function draw() {
+	const [items, repo, projects] = await Promise.all([wb.items(), wb.git(), wb.projects()]);
+	const open = items.filter((i) => OPEN.includes(i.status));
+	$("#title").textContent = `${projects.find((p) => p.slug === wb.report.project)?.name ?? wb.report.project} overview`;
+	$("#sub").textContent = `Live from the workbench · ${new Date().toLocaleTimeString()}`;
+
+	const tiles = [
+		[open.filter((i) => i.owner === "kostas").length, "waiting on you"],
+		[open.filter((i) => i.owner === "agent").length, "with agents"],
+		[open.filter((i) => i.status === "doing").length, "in progress"],
+		[open.filter((i) => i.priority === 1).length, "P1 open"],
+	];
+	$("#tiles").innerHTML = tiles.map(([n, label]) => `<div class="tile"><b>${n}</b><span>${label}</span></div>`).join("");
+
+	const byKind = KINDS.map((k) => [k, open.filter((i) => i.kind === k).length]).filter(([, n]) => n);
+	const max = Math.max(1, ...byKind.map(([, n]) => n));
+	$("#bars").innerHTML = byKind.map(([k, n]) =>
+		`<div class="label">${k}</div><div class="track" title="${n} open ${k}${n === 1 ? "" : "s"}"><div class="bar" style="width:${(n / max) * 88}%"></div><span class="v">${n}</span></div>`,
+	).join("") || `<span class="empty">Nothing open.</span>`;
+
+	const p1 = open.filter((i) => i.priority === 1);
+	$("#p1").innerHTML = p1.map((i) => row(i, `${i.owner === "kostas" ? "you" : "agent"} · ${i.status}`)).join("") || `<li class="empty">None.</li>`;
+
+	const week = Date.now() - 7 * 86400e3;
+	const done = items.filter((i) => i.status === "done" && i.done_at && Date.parse(i.done_at.replace(" ", "T") + "Z") > week);
+	$("#done").innerHTML = done.map((i) => row(i, i.kind)).join("") || `<li class="empty">Nothing yet.</li>`;
+
+	$("#repo").innerHTML = !repo ? `<span class="empty">No repository.</span>` : !repo.ok ? `<span class="warn">${esc(repo.error)}</span>` :
+		`⎇ <b>${esc(repo.branch || "detached")}</b> · ${esc(repo.lastCommit)}<br>` +
+		([repo.dirty.length && `${repo.dirty.length} uncommitted`, repo.ahead && `${repo.ahead} unpushed`, repo.unmerged.length && `${repo.unmerged.length} unmerged branches`]
+			.filter(Boolean).map((w) => `<span class="warn">${w}</span>`).join(" · ") || "clean");
+}
+
+document.addEventListener("click", (e) => {
+	const b = e.target.closest("[data-ref]");
+	if (b) wb.open(b.dataset.ref);
+});
+draw().catch((e) => { $("#sub").textContent = e.message; });
+wb.onRefresh(draw);
+</script>
+</body>
+</html>

@@ -5,7 +5,11 @@ import {
 	addLink,
 	addNote,
 	listLinks,
+	listReports,
+	publishReport,
 	removeLink,
+	removeReport,
+	setProjectIcon,
 	updateLink,
 	getItem,
 	listItems,
@@ -41,8 +45,13 @@ Items are named wb-xxxx (e.g. wb-k3f9); commands take that, the bare k3f9, or an
                                    add one (--all: shown with every project)
   wb relink <id> [--group G] [--icon <url>] [--title "Label"]   change one
   wb unlink <id>                   remove one
+  wb report <page.html> [--title T] [--group G] [--name N] [--project P]
+                                   publish a report page (again under the same name = new version)
+  wb reports [--project P]         reports and their versions
+  wb unreport <id>                 delete a report with all its versions
   wb projects                      list projects
   wb project <slug> <path> "Name"  add or update a project
+  wb project <slug> --icon <file>  use this logo (path in the repo); --icon "" = find one again
   wb serve [--lan]                 run the board on http://localhost:${PORT}
   wb open                          start the board if needed and open it
 
@@ -78,6 +87,7 @@ const { values: o, positionals: args } = parseArgs({
 		q: { type: "string", short: "q" },
 		group: { type: "string" },
 		icon: { type: "string" },
+		name: { type: "string" },
 		help: { type: "boolean", short: "h" },
 	},
 });
@@ -298,13 +308,47 @@ try {
 			removeLink(db, id);
 			break;
 		}
+		case "report": {
+			const file = args[1] ?? die("usage: wb report <page.html> [--title T] [--group G] [--name N]");
+			const page = Bun.file(file);
+			if (!(await page.exists())) die(`no file ${file}`);
+			const name = o.name ?? file.split("/").pop()!.replace(/\.html?$/i, "");
+			const r = publishReport(
+				db,
+				{ project: currentProject()!, name, html: await page.text(), title: o.title, grp: o.group },
+				author,
+			);
+			console.log(`report #${r.id} v${r.n}${r.changed ? "" : " (unchanged)"}  http://localhost:${PORT}/#report/${r.id}`);
+			break;
+		}
+		case "reports": {
+			const reports = listReports(db, o.project ?? currentProject(false));
+			if (!reports.length) console.log("no reports");
+			for (const r of reports)
+				console.log(
+					`#${String(r.id).padEnd(4)} ${r.project.padEnd(14)} ${(r.grp || "-").padEnd(12)} v${String(r.version).padEnd(3)} ${r.updated_at.slice(0, 16)}  ${r.name}  ${r.title}`,
+				);
+			break;
+		}
+		case "unreport": {
+			const id = Number(args[1]);
+			if (!Number.isInteger(id)) die("usage: wb unreport <id>");
+			removeReport(db, id);
+			break;
+		}
 		case "projects":
 			for (const p of projects(db)) console.log(`${p.slug.padEnd(14)} ${p.name.padEnd(18)} ${p.path}`);
 			break;
 		case "project": {
 			const [, slug, path, name] = args;
-			if (!slug || !path) die('usage: wb project <slug> <path> "Name"');
+			if (slug && !path && o.icon !== undefined) {
+				setProjectIcon(db, slug, o.icon);
+				console.log(o.icon ? `project ${slug} logo → ${o.icon}` : `project ${slug} logo: found in the repo`);
+				break;
+			}
+			if (!slug || !path) die('usage: wb project <slug> <path> "Name" [--icon <file>]');
 			upsertProject(db, { slug, path: path.replace(/\/$/, ""), name: name ?? slug });
+			if (o.icon !== undefined) setProjectIcon(db, slug, o.icon);
 			console.log(`project ${slug} → ${path}`);
 			break;
 		}
