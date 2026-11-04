@@ -2,6 +2,7 @@ import {
 	addItem,
 	addLink,
 	addNote,
+	addSecret,
 	clearIcon,
 	getItem,
 	listItems,
@@ -9,6 +10,14 @@ import {
 	linkIcon,
 	listLinks,
 	listReports,
+	listSecrets,
+	rekeyVault,
+	removeSecret,
+	secretValue,
+	setupVault,
+	updateSecret,
+	vaultAuthOk,
+	vaultInfo,
 	getReport,
 	open,
 	projects,
@@ -21,6 +30,7 @@ import {
 	updateLink,
 	type ItemFilter,
 } from "./db";
+import type { Server } from "bun";
 import { repoState } from "./git";
 import { findIcon } from "./icons";
 import { projectLogo } from "./logo";
@@ -34,6 +44,18 @@ export function serve({ lan = false } = {}) {
 	const icon = Bun.file(new URL("./icon.svg", import.meta.url));
 	const json = (data: unknown, status = 200) => Response.json(data, { status });
 	const fail = (e: unknown) => json({ error: (e as Error).message }, 400);
+	// The vault answers only this computer (not `--lan`, where the token would cross the network in the clear),
+	// and only with the auth token derived from the password.
+	const loopback = (req: Request, srv: Server<unknown>) =>
+		["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(srv.requestIP(req)?.address ?? "");
+	const vaultGate = async (req: Request, srv: Server<unknown>, { auth = true } = {}) => {
+		if (!loopback(req, srv)) return json({ error: "the vault opens only on this computer (localhost)" }, 403);
+		if (auth && !vaultAuthOk(db, req.headers.get("x-vault-auth") ?? "")) {
+			await Bun.sleep(500);
+			return json({ error: "wrong password" }, 401);
+		}
+		return null;
+	};
 	const itemId = (s: string) => {
 		const id = resolveItem(db, s);
 		if (id === undefined) throw new Error(`no item ${s}`);
@@ -133,6 +155,72 @@ export function serve({ lan = false } = {}) {
 					try {
 						removeLink(db, Number(req.params.id));
 						return json(listLinks(db));
+					} catch (e) {
+						return fail(e);
+					}
+				},
+			},
+			"/api/vault": {
+				GET: async (req, srv) => (await vaultGate(req, srv, { auth: false })) ?? json(vaultInfo(db)),
+				POST: async (req, srv) => {
+					const no = await vaultGate(req, srv, { auth: false });
+					if (no) return no;
+					try {
+						setupVault(db, await req.json());
+						return json(vaultInfo(db), 201);
+					} catch (e) {
+						return fail(e);
+					}
+				},
+			},
+			"/api/vault/rekey": {
+				POST: async (req, srv) => {
+					const no = await vaultGate(req, srv);
+					if (no) return no;
+					try {
+						const { secrets, ...v } = await req.json();
+						rekeyVault(db, v, secrets);
+						return json(vaultInfo(db));
+					} catch (e) {
+						return fail(e);
+					}
+				},
+			},
+			"/api/secrets": {
+				GET: async (req, srv) => (await vaultGate(req, srv)) ?? json(listSecrets(db)),
+				POST: async (req, srv) => {
+					const no = await vaultGate(req, srv);
+					if (no) return no;
+					try {
+						return json({ id: addSecret(db, await req.json()) }, 201);
+					} catch (e) {
+						return fail(e);
+					}
+				},
+			},
+			"/api/secrets/:id": {
+				GET: async (req, srv) => {
+					const no = await vaultGate(req, srv);
+					if (no) return no;
+					const value = secretValue(db, Number(req.params.id));
+					return value ? json({ value }) : json({ error: "not found" }, 404);
+				},
+				PATCH: async (req, srv) => {
+					const no = await vaultGate(req, srv);
+					if (no) return no;
+					try {
+						updateSecret(db, Number(req.params.id), await req.json());
+						return json(listSecrets(db));
+					} catch (e) {
+						return fail(e);
+					}
+				},
+				DELETE: async (req, srv) => {
+					const no = await vaultGate(req, srv);
+					if (no) return no;
+					try {
+						removeSecret(db, Number(req.params.id));
+						return json(listSecrets(db));
 					} catch (e) {
 						return fail(e);
 					}

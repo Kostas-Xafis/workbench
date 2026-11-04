@@ -9,7 +9,10 @@ import {
 	publishReport,
 	removeLink,
 	removeReport,
+	resetVault,
+	listSecrets,
 	setProjectIcon,
+	vaultInfo,
 	updateLink,
 	getItem,
 	listItems,
@@ -49,6 +52,8 @@ Items are named wb-xxxx (e.g. wb-k3f9); commands take that, the bare k3f9, or an
                                    publish a report page (again under the same name = new version)
   wb reports [--project P]         reports and their versions
   wb unreport <id>                 delete a report with all its versions
+  wb vault                         whether the vault is set up, and how many secrets it holds
+  wb vault reset --yes             forgot the password: delete the vault and every secret in it
   wb projects                      list projects
   wb project <slug> <path> "Name"  add or update a project
   wb project <slug> --icon <file>  use this logo (path in the repo); --icon "" = find one again
@@ -88,6 +93,7 @@ const { values: o, positionals: args } = parseArgs({
 		group: { type: "string" },
 		icon: { type: "string" },
 		name: { type: "string" },
+		yes: { type: "boolean" },
 		help: { type: "boolean", short: "h" },
 	},
 });
@@ -334,6 +340,21 @@ try {
 			const id = Number(args[1]);
 			if (!Number.isInteger(id)) die("usage: wb unreport <id>");
 			removeReport(db, id);
+			break;
+		}
+		case "vault": {
+			// Secrets are encrypted in the browser; the CLI can't read them, only start over.
+			if (args[1] === "reset") {
+				if (!o.yes) die("this deletes every secret for good; run `wb vault reset --yes` to do it");
+				console.log(`vault reset: ${resetVault(db)} secrets deleted`);
+				break;
+			}
+			const v = vaultInfo(db);
+			console.log(
+				v
+					? `vault set up · ${listSecrets(db).length} secrets · password changed ${v.changed_at} · open it on the board`
+					: "no vault yet: open the board and click Vault",
+			);
 			break;
 		}
 		case "projects":

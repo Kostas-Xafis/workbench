@@ -1,4 +1,5 @@
 import { Database } from "bun:sqlite";
+import { timingSafeEqual } from "node:crypto";
 import { join } from "node:path";
 
 export const KINDS = ["task", "check", "review", "decision", "setup", "bug", "idea"] as const;
@@ -123,6 +124,25 @@ export function open(path = DB_PATH) {
 		author TEXT NOT NULL DEFAULT '',
 		at TEXT NOT NULL DEFAULT (datetime('now')),
 		UNIQUE (report_id, n)
+	)`);
+	// The vault holds only what the browser encrypted. The password never reaches the server: the browser
+	// derives a key from it and an auth token, and only a hash of the token is kept here.
+	db.run(`CREATE TABLE IF NOT EXISTS vault (
+		id INTEGER PRIMARY KEY CHECK (id = 1),
+		salt TEXT NOT NULL,
+		iterations INTEGER NOT NULL,
+		auth_hash TEXT NOT NULL,
+		created_at TEXT NOT NULL DEFAULT (datetime('now')),
+		changed_at TEXT NOT NULL DEFAULT (datetime('now'))
+	)`);
+	// meta = {name, note} and value are each `base64(iv).base64(AES-GCM ciphertext)`.
+	db.run(`CREATE TABLE IF NOT EXISTS secrets (
+		id INTEGER PRIMARY KEY,
+		project TEXT NOT NULL DEFAULT '',
+		meta TEXT NOT NULL,
+		value TEXT NOT NULL,
+		created_at TEXT NOT NULL DEFAULT (datetime('now')),
+		updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 	)`);
 	return db;
 }
@@ -513,4 +533,115 @@ export function search(db: Db, q: string, project?: string) {
 		)
 		.all({ project: project ?? "", q: like });
 	return { items, reports, links };
+}
+
+export type VaultInfo = { salt: string; iterations: number; changed_at: string };
+export type Secret = { id: number; project: string; meta: string; created_at: string; updated_at: string };
+export type SecretPatch = { project?: string; meta?: string; value?: string };
+
+const SEALED = /^[A-Za-z0-9+/]+={0,2}\.[A-Za-z0-9+/]+={0,2}$/;
+const AUTH = /^[0-9a-f]{64}$/;
+const sha256 = (s: string) => new Bun.CryptoHasher("sha256").update(s).digest("hex");
+
+export function vaultInfo(db: Db): VaultInfo | null {
+	return db.query("SELECT salt, iterations, changed_at FROM vault WHERE id = 1").get() as VaultInfo | null;
+}
+
+function validateVault(v: { salt: string; iterations: number; auth: string }) {
+	if (!/^[A-Za-z0-9+/]{16,}={0,2}$/.test(v.salt ?? "")) throw new Error("bad salt");
+	if (!Number.isInteger(v.iterations) || v.iterations < 100_000) throw new Error("too few iterations");
+	if (!AUTH.test(v.auth ?? "")) throw new Error("bad auth token");
+}
+
+export function setupVault(db: Db, v: { salt: string; iterations: number; auth: string }) {
+	validateVault(v);
+	if (vaultInfo(db)) throw new Error("the vault already has a password");
+	db.query("INSERT INTO vault (id, salt, iterations, auth_hash) VALUES (1, ?, ?, ?)").run(
+		v.salt,
+		v.iterations,
+		sha256(v.auth),
+	);
+}
+
+export function vaultAuthOk(db: Db, auth: string): boolean {
+	const row = db.query("SELECT auth_hash FROM vault WHERE id = 1").get() as { auth_hash: string } | null;
+	if (!row || !AUTH.test(auth)) return false;
+	return timingSafeEqual(Buffer.from(sha256(auth)), Buffer.from(row.auth_hash));
+}
+
+function validateSecret(s: SecretPatch) {
+	if (s.meta !== undefined && !SEALED.test(s.meta)) throw new Error("meta must be encrypted");
+	if (s.value !== undefined && !SEALED.test(s.value)) throw new Error("value must be encrypted");
+}
+
+function checkProject(db: Db, project: string) {
+	if (project && !db.query("SELECT 1 FROM projects WHERE slug = ?").get(project))
+		throw new Error(`no project "${project}"`);
+}
+
+/** Names and notes only (still encrypted); a value is fetched one at a time. */
+export function listSecrets(db: Db): Secret[] {
+	return db.query("SELECT id, project, meta, created_at, updated_at FROM secrets ORDER BY id").all() as Secret[];
+}
+
+export function secretValue(db: Db, id: number): string | undefined {
+	return (db.query("SELECT value FROM secrets WHERE id = ?").get(id) as { value: string } | null)?.value;
+}
+
+export function addSecret(db: Db, s: { project?: string; meta: string; value: string }): number {
+	validateSecret(s);
+	if (!s.meta || !s.value) throw new Error("a secret needs a name and a value");
+	checkProject(db, s.project ?? "");
+	const { id } = db
+		.query("INSERT INTO secrets (project, meta, value) VALUES (?, ?, ?) RETURNING id")
+		.get(s.project ?? "", s.meta, s.value) as { id: number };
+	return id;
+}
+
+export function updateSecret(db: Db, id: number, s: SecretPatch) {
+	validateSecret(s);
+	if (s.project !== undefined) checkProject(db, s.project);
+	const fields = (["project", "meta", "value"] as const).filter((k) => s[k] !== undefined);
+	if (!fields.length) return;
+	const res = db
+		.query(
+			`UPDATE secrets SET ${fields.map((k) => `${k} = $${k}`).join(", ")}, updated_at = datetime('now') WHERE id = $id`,
+		)
+		.run({ ...Object.fromEntries(fields.map((k) => [k, s[k]!])), id });
+	if (!res.changes) throw new Error(`no secret #${id}`);
+}
+
+export function removeSecret(db: Db, id: number) {
+	if (!db.query("DELETE FROM secrets WHERE id = ?").run(id).changes) throw new Error(`no secret #${id}`);
+}
+
+/** New password: every secret re-encrypted by the browser, swapped in at once. */
+export function rekeyVault(
+	db: Db,
+	v: { salt: string; iterations: number; auth: string },
+	secrets: { id: number; meta: string; value: string }[],
+) {
+	validateVault(v);
+	for (const s of secrets) validateSecret(s);
+	db.transaction(() => {
+		const ids = listSecrets(db)
+			.map((s) => s.id)
+			.sort((a, b) => a - b);
+		const got = secrets.map((s) => s.id).sort((a, b) => a - b);
+		if (ids.join() !== got.join()) throw new Error("the secrets changed meanwhile; try again");
+		for (const s of secrets)
+			db.query("UPDATE secrets SET meta = ?, value = ? WHERE id = ?").run(s.meta, s.value, s.id);
+		db.query(
+			"UPDATE vault SET salt = ?, iterations = ?, auth_hash = ?, changed_at = datetime('now') WHERE id = 1",
+		).run(v.salt, v.iterations, sha256(v.auth));
+	})();
+}
+
+/** Forgotten password: the only way back is starting over. */
+export function resetVault(db: Db): number {
+	return db.transaction(() => {
+		const n = db.query("DELETE FROM secrets").run().changes;
+		db.run("DELETE FROM vault");
+		return n;
+	})();
 }
