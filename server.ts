@@ -3,7 +3,11 @@ import {
 	addLink,
 	addNote,
 	addSecret,
+	answerItem,
+	backup,
 	clearIcon,
+	listBackups,
+	pruneBackups,
 	getItem,
 	listItems,
 	resolveItem,
@@ -29,9 +33,10 @@ import {
 	updateItem,
 	updateLink,
 	type ItemFilter,
+	type Project,
 } from "./db";
 import type { Server } from "bun";
-import { repoState } from "./git";
+import { codeLinks, repoState, type CodeLinks } from "./git";
 import { findIcon } from "./icons";
 import { projectLogo } from "./logo";
 import { REPORT_CSP, withBridge } from "./reports";
@@ -56,6 +61,30 @@ export function serve({ lan = false } = {}) {
 		}
 		return null;
 	};
+	// Commits and pull requests per project; gh is slow and rate-limited, so each project is asked at most every 90 s.
+	const codeCache = new Map<string, { at: number; links: Promise<CodeLinks> }>();
+	const projectCode = (p: Project) => {
+		const hit = codeCache.get(p.slug);
+		if (hit && Date.now() - hit.at < 90e3) return hit.links;
+		const links = codeLinks(p);
+		codeCache.set(p.slug, { at: Date.now(), links });
+		return links;
+	};
+
+	// A backup when the newest is a day old: checked at start and every hour.
+	const nightly = () => {
+		try {
+			const last = listBackups()[0];
+			if (last && Date.now() - last.at.getTime() < 23 * 3600e3) return;
+			console.log(`backup: ${backup(db)}`);
+			pruneBackups();
+		} catch (e) {
+			console.error(`backup failed: ${(e as Error).message}`);
+		}
+	};
+	nightly();
+	setInterval(nightly, 3600e3);
+
 	const itemId = (s: string) => {
 		const id = resolveItem(db, s);
 		if (id === undefined) throw new Error(`no item ${s}`);
@@ -66,6 +95,8 @@ export function serve({ lan = false } = {}) {
 		port: PORT,
 		// Loopback unless asked: there is no login, so anyone who can reach the port can edit.
 		hostname: lan ? "0.0.0.0" : "127.0.0.1",
+		// The first look at pull requests per project can take gh several seconds.
+		idleTimeout: 30,
 		routes: {
 			"/": () => new Response(page, { headers: { "content-type": "text/html; charset=utf-8" } }),
 			"/favicon.svg": () =>
@@ -264,6 +295,22 @@ export function serve({ lan = false } = {}) {
 						return fail(e);
 					}
 				},
+			},
+			"/api/items/:id/answer": {
+				POST: async (req) => {
+					try {
+						const { answer } = await req.json();
+						answerItem(db, itemId(req.params.id), String(answer ?? ""), "kostas");
+						return json(getItem(db, itemId(req.params.id)));
+					} catch (e) {
+						return fail(e);
+					}
+				},
+			},
+			"/api/code": async (req) => {
+				const only = new URL(req.url).searchParams.get("project");
+				const all = await Promise.all(projects(db).filter((p) => !only || p.slug === only).map(projectCode));
+				return json(Object.assign({}, ...all));
 			},
 			"/api/items/:id/notes": {
 				POST: async (req) => {

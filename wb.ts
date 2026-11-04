@@ -4,6 +4,12 @@ import {
 	addItem,
 	addLink,
 	addNote,
+	answerItem,
+	backup,
+	BACKUP_DIR,
+	itemOptions,
+	listBackups,
+	pruneBackups,
 	listLinks,
 	listReports,
 	publishReport,
@@ -41,6 +47,7 @@ Items are named wb-xxxx (e.g. wb-k3f9); commands take that, the bare k3f9, or an
   wb done <ref> ["note"]            finished (the note says what changed / where)
   wb drop <ref> ["why"]             won't do
   wb note <ref> "text"              add to the history
+  wb answer <ref> "choice"          answer a decision (or the option's number); it goes back to the agent
   wb edit <ref> [options]           change fields
   wb import <file.json> [--project P]   bulk add (array of items)
   wb links                         bookmarks shown on the board
@@ -52,6 +59,8 @@ Items are named wb-xxxx (e.g. wb-k3f9); commands take that, the bare k3f9, or an
                                    publish a report page (again under the same name = new version)
   wb reports [--project P]         reports and their versions
   wb unreport <id>                 delete a report with all its versions
+  wb backup                        copy the database now (also done nightly by the board; newest 14 kept)
+  wb backups                       list them
   wb vault                         whether the vault is set up, and how many secrets it holds
   wb vault reset --yes             forgot the password: delete the vault and every secret in it
   wb projects                      list projects
@@ -65,6 +74,8 @@ Options for add/edit:
   --owner kostas|agent       who has to act (default agent; check/review/decision/setup default kostas)
   --project P                default: the project whose path contains the current folder
   --area A  --p 1|2|3  --body "markdown"  --branch B  --session S  --source "file:line"
+  --option "choice"          repeat for each choice of a decision; Kostas answers with one click
+                             (--option alone makes the item a decision)
   --status todo|doing|waiting|done|dropped
 
 Kinds: task = code work · check = try it on a device · review = read wording/design ·
@@ -94,6 +105,7 @@ const { values: o, positionals: args } = parseArgs({
 		icon: { type: "string" },
 		name: { type: "string" },
 		yes: { type: "boolean" },
+		option: { type: "string", multiple: true },
 		help: { type: "boolean", short: "h" },
 	},
 });
@@ -135,6 +147,7 @@ function patchFromOptions(): ItemPatch {
 	if (o.session !== undefined) patch.session = o.session;
 	if (o.source !== undefined) patch.sources = o.source;
 	if (o.status) patch.status = o.status as Status;
+	if (o.option) patch.options = o.option;
 	return patch;
 }
 
@@ -159,7 +172,7 @@ function row(i: Item, showProject: boolean) {
 		who,
 		KIND_MARK[i.kind].padEnd(6),
 		showProject ? i.project.padEnd(12) : "",
-		`${status}${i.title}`,
+		`${status}${i.title}${i.answer ? `  → ${i.answer}` : ""}`,
 		where ? ` ${where}` : "",
 	]
 		.filter(Boolean)
@@ -176,6 +189,9 @@ function show(id: number) {
 		console.log([i.branch && `branch ${i.branch}`, i.session && `session ${i.session}`].filter(Boolean).join(" · "));
 	if (i.sources) console.log(`sources: ${i.sources}`);
 	if (i.body) console.log(`\n${i.body}`);
+	const options = itemOptions(i);
+	if (options.length) console.log(`\noptions:\n${options.map((x, n) => `  ${n + 1}. ${x}`).join("\n")}`);
+	if (i.answer) console.log(`\nanswer: ${i.answer}`);
 	console.log("\nhistory:");
 	for (const n of i.notes) console.log(`  ${n.at}  ${n.author ? n.author + ": " : ""}${n.text}`);
 }
@@ -218,7 +234,7 @@ try {
 			const title = args.slice(1).join(" ") || o.title;
 			if (!title) die('usage: wb add "title" [options]');
 			const patch = patchFromOptions();
-			const kind = patch.kind ?? "task";
+			const kind = patch.kind ?? (patch.options ? "decision" : "task");
 			const id = addItem(
 				db,
 				{
@@ -250,6 +266,27 @@ try {
 			updateItem(db, id, { ...patchFromOptions(), status }, author);
 			if (note) addNote(db, id, note, author);
 			console.log(row(getItem(db, id)!, true));
+			break;
+		}
+		case "answer": {
+			const id = idArg();
+			const answer = args.slice(2).join(" ");
+			if (!answer) die('usage: wb answer <ref> "choice" (or the option\'s number)');
+			answerItem(db, id, answer, author);
+			console.log(row(getItem(db, id)!, true));
+			break;
+		}
+		case "backup": {
+			console.log(backup(db));
+			const pruned = pruneBackups();
+			if (pruned) console.log(`removed ${pruned} older backup${pruned > 1 ? "s" : ""}`);
+			break;
+		}
+		case "backups": {
+			const list = listBackups();
+			if (!list.length) console.log(`no backups yet in ${BACKUP_DIR}`);
+			for (const b of list)
+				console.log(`${b.at.toISOString().slice(0, 16).replace("T", " ")}  ${(b.bytes / 1024).toFixed(0).padStart(6)} KB  ${b.file}`);
 			break;
 		}
 		case "note": {

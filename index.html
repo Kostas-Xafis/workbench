@@ -218,6 +218,33 @@ mark { background: color-mix(in srgb, var(--review) 30%, transparent); color: in
 .field-col input { border: 1px solid var(--line); background: var(--bg); border-radius: 7px; padding: 5px 8px; font-size: 13px; }
 #secret-form textarea { min-height: 76px; }
 dialog.narrow { width: min(460px, calc(100vw - 32px)); }
+.vault-back { display: block; margin: 14px auto 0; }
+#env-list { display: flex; flex-direction: column; gap: 2px; max-height: 46vh; overflow: auto; border: 1px solid var(--line); border-radius: 8px; padding: 6px; }
+#env-list label { display: flex; gap: 8px; align-items: center; padding: 3px 6px; border-radius: 6px; font: 13px ui-monospace, SFMono-Regular, Menlo, monospace; }
+#env-list label:hover { background: var(--hover); }
+#env-list small { color: var(--muted); font-family: system-ui, sans-serif; }
+#env-out { min-height: 160px; }
+
+/* Decisions, code, notifications */
+.opts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 7px; }
+.opt { border: 1px solid color-mix(in srgb, var(--decision) 45%, var(--line)); background: color-mix(in srgb, var(--decision) 8%, var(--card)); color: var(--ink);
+	border-radius: 8px; padding: 3px 10px; font-size: 12.5px; text-align: left; }
+.opt:hover { background: color-mix(in srgb, var(--decision) 20%, var(--card)); border-color: var(--decision); }
+.opt.picked { background: var(--decision); color: #fff; border-color: var(--decision); }
+.answered { color: var(--check); font-weight: 600; }
+.code-tag { white-space: nowrap; }
+.pr { font-weight: 600; white-space: nowrap; }
+.pr.OPEN { color: var(--check); } .pr.MERGED { color: var(--decision); } .pr.CLOSED { color: var(--muted); }
+.ck { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-left: 4px; vertical-align: 1px; }
+.ck.passing { background: var(--check); } .ck.failing { background: var(--bug); } .ck.pending { background: var(--review); }
+.answer-box, .code-box { border-top: 1px solid var(--line); padding-top: 10px; font-size: 13px; }
+.answer-box h3, .code-box h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); margin: 0 0 6px; }
+.code-box ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.code-box li { display: flex; gap: 8px; align-items: baseline; min-width: 0; }
+.code-box li > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+.code-box code { flex: none; }
+.code-box small { color: var(--muted); white-space: nowrap; }
+#options-field textarea { min-height: 64px; }
 #toast { position: fixed; bottom: 18px; left: 50%; translate: -50% 0; background: var(--ink); color: var(--bg); padding: 7px 14px; border-radius: 999px; font-size: 13px; z-index: 10; box-shadow: var(--shadow); }
 
 dialog { border: 1px solid var(--line); border-radius: 14px; background: var(--card); color: var(--ink); padding: 0;
@@ -283,6 +310,7 @@ dialog::backdrop { background: rgb(0 0 0 / .35); }
 			<div class="seg" id="who" role="group" aria-label="Who acts"></div>
 			<span class="spacer"></span>
 			<button class="icon-btn" id="unfold-all" title="Open all sections" aria-label="Open all sections"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m4.5 6 3.5-3.5L11.5 6M4.5 10l3.5 3.5 3.5-3.5"/></svg></button>
+			<button class="icon-btn" id="notify" title="Desktop notifications" aria-label="Desktop notifications" aria-pressed="false" hidden><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M4 11V7a4 4 0 0 1 8 0v4l1.5 1.5h-11zM6.5 13.5a1.5 1.5 0 0 0 3 0"/></svg></button>
 			<button class="icon-btn" id="fold-all" title="Fold all sections" aria-label="Fold all sections"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m4.5 2.5 3.5 3.5 3.5-3.5M4.5 13.5 8 10l3.5 3.5"/></svg></button>
 		</div>
 		<div id="sections"></div>
@@ -317,11 +345,18 @@ dialog::backdrop { background: rgb(0 0 0 / .35); }
 		<label>Branch<input name="branch"></label>
 		<label>Session<input name="session"></label>
 	</div>
+	<label class="field-col" id="options-field">Choices, one per line (you answer with a click)<textarea name="options" rows="3" placeholder="CRDT sync&#10;Last write wins"></textarea></label>
 	<div>
 		<div class="row" style="margin-bottom:6px"><b style="font-size:12px;color:var(--muted)">DETAILS</b><span class="spacer"></span><button type="button" class="ghost" id="edit-body">Edit</button></div>
 		<div class="body-view" id="body-view"></div>
 		<textarea name="body" hidden placeholder="Steps, context, links (markdown)"></textarea>
 	</div>
+	<div class="answer-box" id="answer-box" hidden>
+		<h3>Answer</h3>
+		<div class="opts" id="answer-opts"></div>
+		<div class="note-form"><input id="answer-own" placeholder="Or answer in your own words"><button type="button" class="ghost" id="answer-send">Answer</button></div>
+	</div>
+	<div class="code-box" id="code-box" hidden><h3>Code</h3><ul></ul></div>
 	<div class="sources" id="sources"></div>
 	<div class="error" id="err"></div>
 	<div class="row">
@@ -370,6 +405,18 @@ dialog::backdrop { background: rgb(0 0 0 / .35); }
 	<div class="error" id="secret-err"></div>
 	<div class="row"><span class="spacer"></span><button type="button" class="ghost" id="secret-cancel">Cancel</button><button type="submit" class="primary">Save</button></div>
 </form></dialog>
+<dialog id="env-dlg" class="narrow"><form class="dlg" id="env-form" autocomplete="off">
+	<b id="env-title">Export as .env</b>
+	<div id="env-pick">
+		<div class="row" style="margin-bottom:6px"><span class="hint">Pick the secrets to include. Names that aren't valid variable names are converted.</span></div>
+		<div id="env-list"></div>
+	</div>
+	<textarea id="env-out" readonly spellcheck="false" hidden></textarea>
+	<div class="error" id="env-err"></div>
+	<div class="row"><span class="spacer"></span><button type="button" class="ghost" id="env-cancel">Close</button>
+		<button type="button" class="ghost" id="env-download" hidden>Download</button>
+		<button type="submit" class="primary" id="env-go">Show .env</button></div>
+</form></dialog>
 <dialog id="pw-dlg" class="narrow"><form class="dlg" id="pw-form" autocomplete="off">
 	<b id="pw-title">Vault password</b>
 	<input class="pw-input" type="password" name="pw" required placeholder="Vault password" autocomplete="off">
@@ -398,7 +445,7 @@ const $ = (s, el = document) => el.querySelector(s);
 const solo = new URLSearchParams(location.search).has("solo");
 const state = {
 	project: localGet("project") || "", who: localGet("who") || "all", items: [], projects: [], links: [], reports: [], repos: [],
-	current: null, report: null, reportV: null, collapsed: narrow() || localGet("rail") === "collapsed",
+	code: {}, current: null, report: null, reportV: null, collapsed: narrow() || localGet("rail") === "collapsed",
 };
 // On a phone the rail opens over the page, so it starts folded and its state isn't remembered.
 function narrow() { return matchMedia("(max-width: 760px)").matches; }
@@ -516,6 +563,7 @@ function setProject(slug) {
 	if (location.hash && location.hash !== "#vault") history.pushState(null, "", location.pathname + location.search);
 	route();
 	loadItems();
+	loadCode();
 	loadRepos();
 }
 $("#prail").addEventListener("click", (e) => {
@@ -675,8 +723,19 @@ document.addEventListener("error", (e) => {
 
 /* ---------- Board ---------- */
 
+const optionsOf = (i) => { try { const l = JSON.parse(i.options || "[]"); return Array.isArray(l) ? l.map(String) : []; } catch { return []; } };
+// The newest pull request and the commit count for an item, from /api/code.
+function codeMeta(i) {
+	const c = state.code[i.ref];
+	if (!c) return "";
+	const pr = [...c.prs].sort((a, b) => b.number - a.number)[0];
+	return (pr ? `<span class="pr ${pr.state}" title="${esc(pr.title)}">PR #${pr.number} ${pr.draft ? "draft" : pr.state.toLowerCase()}${pr.checks ? `<i class="ck ${pr.checks}" title="checks ${pr.checks}"></i>` : ""}</span>` : "") +
+		(c.commits.length ? `<span class="code-tag" title="Commits that mention wb-${i.ref}">${c.commits.length} commit${c.commits.length > 1 ? "s" : ""}</span>` : "");
+}
+
 function card(i, { tick = i.owner === "kostas" && OPEN.includes(i.status), kind = false } = {}) {
 	const closed = !OPEN.includes(i.status);
+	const options = !closed && i.owner === "kostas" ? optionsOf(i) : [];
 	const meta = [
 		`<button class="ref" data-copy="wb-${i.ref}" title="Copy wb-${i.ref}">wb-${i.ref}</button>`,
 		kind ? `<span class="kind k-${i.kind}">${i.kind}</span>` : "",
@@ -686,11 +745,14 @@ function card(i, { tick = i.owner === "kostas" && OPEN.includes(i.status), kind 
 		i.area ? `<span>${esc(i.area)}</span>` : "",
 		!state.project ? `<span>${esc(projectName(i.project))}</span>` : "",
 		i.branch ? `<span>⎇ ${esc(i.branch)}</span>` : "",
+		i.answer ? `<span class="answered" title="Your answer">→ ${esc(i.answer)}</span>` : "",
+		codeMeta(i),
 		closed && i.done_at ? `<span>${ago(i.done_at)}</span>` : "",
 	].join("");
 	return `<article class="card ${i.status} ${closed ? "closed" : ""}" data-id="${i.id}">
 		${tick ? `<button class="tick" data-tick="${i.id}" title="Mark done" aria-label="Mark done">✓</button>` : ""}
-		<div class="main"><div class="title">${esc(i.title)}</div><div class="meta">${meta}</div></div></article>`;
+		<div class="main"><div class="title">${esc(i.title)}</div><div class="meta">${meta}</div>
+		${options.length ? `<div class="opts">${options.map((o) => `<button class="opt" data-answer="${i.id}" data-choice="${esc(o)}" title="Answer: ${esc(o)}">${esc(o)}</button>`).join("")}</div>` : ""}</div></article>`;
 }
 
 const section = (key, def, summary, body) =>
@@ -770,6 +832,21 @@ async function loadRepos() {
 	state.repos = await api("/api/git");
 	renderBoard();
 }
+async function loadCode() {
+	state.code = await api(`/api/code${state.project ? `?project=${encodeURIComponent(state.project)}` : ""}`);
+	renderBoard();
+}
+
+// Items this tab just changed, so it doesn't notify about its own doing.
+const localChanges = new Map();
+const touched = (id) => localChanges.set(Number(id), Date.now());
+async function answer(id, text) {
+	touched(id);
+	const item = await api(`/api/items/${id}/answer`, { method: "POST", body: JSON.stringify({ answer: text }) });
+	await Promise.all([loadItems(), loadProjects()]);
+	refreshReport();
+	return item;
+}
 
 $("#who").addEventListener("click", (e) => {
 	const b = e.target.closest("[data-who]");
@@ -782,9 +859,16 @@ for (const [id, open] of [["#fold-all", false], ["#unfold-all", true]])
 	$(id).onclick = () => { for (const d of document.querySelectorAll("#sections details.sec")) d.open = open; };
 
 $("#sections").addEventListener("click", async (e) => {
+	const opt = e.target.closest("[data-answer]");
+	if (opt) {
+		e.stopPropagation();
+		opt.classList.add("picked");
+		return answer(opt.dataset.answer, opt.dataset.choice).catch((err) => toast(err.message));
+	}
 	const tick = e.target.closest("[data-tick]");
 	if (tick) {
 		e.stopPropagation();
+		touched(tick.dataset.tick);
 		await api(`/api/items/${tick.dataset.tick}`, { method: "PATCH", body: JSON.stringify({ status: "done" }) });
 		return Promise.all([loadItems(), loadProjects()]);
 	}
@@ -812,7 +896,20 @@ function openItem(item) {
 	const isNew = !item.id;
 	setOptions(form.project, state.projects.map((p) => ({ value: p.slug, label: p.name })));
 	for (const k of ["title", "status", "owner", "kind", "priority", "project", "area", "branch", "session", "body"]) form[k].value = item[k] ?? "";
+	const options = optionsOf(item);
+	form.options.value = options.join("\n");
+	showOptionsField();
 	showBodyEditor(isNew);
+	$("#answer-box").hidden = isNew || item.kind !== "decision";
+	$("#answer-opts").innerHTML = options.map((o) => `<button type="button" class="opt ${o === item.answer ? "picked" : ""}" data-choice="${esc(o)}">${esc(o)}</button>`).join("");
+	$("#answer-own").value = item.answer && !options.includes(item.answer) ? item.answer : "";
+	const code = state.code[item.ref];
+	$("#code-box").hidden = !code;
+	if (code) $("#code-box ul").innerHTML = [
+		...[...code.prs].sort((a, b) => b.number - a.number).map((pr) => `<li><span><a href="${esc(pr.url)}" target="_blank" rel="noreferrer">PR #${pr.number}</a> ${esc(pr.title)}</span>
+			<small class="pr ${pr.state}">${pr.draft ? "draft" : pr.state.toLowerCase()}${pr.review ? ` · ${esc(pr.review.toLowerCase().replaceAll("_", " "))}` : ""}${pr.checks ? ` · checks ${pr.checks}<i class="ck ${pr.checks}"></i>` : ""}</small></li>`),
+		...code.commits.map((c) => `<li><code>${c.url ? `<a href="${esc(c.url)}" target="_blank" rel="noreferrer">${esc(c.short)}</a>` : esc(c.short)}</code><span>${esc(c.subject)}</span><small>${esc(c.date)}</small></li>`),
+	].join("");
 	$("#sources").textContent = item.sources ? `From: ${item.sources}` : "";
 	$("#dlg-ref").hidden = !item.ref;
 	$("#dlg-ref").textContent = item.ref ? `wb-${item.ref}` : "";
@@ -834,12 +931,14 @@ function formPatch() {
 	const p = {};
 	for (const k of ["title", "status", "owner", "kind", "project", "area", "branch", "session", "body"]) p[k] = form[k].value;
 	p.priority = Number(form.priority.value);
+	p.options = form.options.value.split("\n").map((o) => o.trim()).filter(Boolean);
 	return p;
 }
 
 async function save(extra = {}) {
 	try {
 		const patch = { ...formPatch(), ...extra };
+		if (state.current.id) touched(state.current.id);
 		if (state.current.id) await api(`/api/items/${state.current.id}`, { method: "PATCH", body: JSON.stringify(patch) });
 		else await api("/api/items", { method: "POST", body: JSON.stringify(patch) });
 		dlg.close();
@@ -849,6 +948,18 @@ async function save(extra = {}) {
 }
 
 form.addEventListener("submit", (e) => { e.preventDefault(); save(); });
+function showOptionsField() { $("#options-field").hidden = form.kind.value !== "decision"; }
+form.kind.addEventListener("change", showOptionsField);
+async function answerFromDialog(text) {
+	if (!text.trim() || !state.current?.id) return;
+	try { openItem(await answer(state.current.id, text)); } catch (e) { $("#err").textContent = e.message; }
+}
+$("#answer-opts").addEventListener("click", (e) => {
+	const b = e.target.closest("[data-choice]");
+	if (b) answerFromDialog(b.dataset.choice);
+});
+$("#answer-send").onclick = () => answerFromDialog($("#answer-own").value);
+$("#answer-own").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); answerFromDialog(e.target.value); } });
 $("#cancel").onclick = () => dlg.close();
 $("#edit-body").onclick = () => showBodyEditor(form.body.hidden);
 $("#act-done").onclick = () => save({ status: "done" });
@@ -988,7 +1099,11 @@ function checkNewerReport() {
 }
 $("#r-newer").onclick = () => { delete frame.dataset.src; showReport(state.report.id, null); };
 $("#r-reload").onclick = () => { frame.src = frame.dataset.src; };
-$("#r-back").onclick = () => setProject(state.project);
+function goBoard() {
+	history.pushState(null, "", location.pathname + location.search);
+	route();
+}
+$("#r-back").onclick = goBoard;
 $("#r-version").onchange = (e) => {
 	const n = Number(e.target.value);
 	location.hash = `#report/${state.report.id}${n === state.report.version ? "" : `/v${n}`}`;
@@ -1085,7 +1200,7 @@ function lockVault() {
 	if (!vault.key) return;
 	vault.key = vault.auth = null;
 	vault.secrets = [];
-	for (const d of ["#secret-dlg", "#pw-dlg", "#rekey-dlg"]) if ($(d).open) $(d).close();
+	closePassword(); closeSecret(); closeRekey(); closeEnv();
 	if (!$("#vault-view").hidden) renderVault();
 }
 function touchVault() {
@@ -1102,7 +1217,8 @@ async function openVault() {
 }
 
 const vaultCard = (title, text, form = "") =>
-	`<div class="vault-card"><div class="vault-ic">${icon("lock")}</div><h2>${title}</h2><p>${text}</p>${form}</div>`;
+	`<div class="vault-card"><div class="vault-ic">${icon("lock")}</div><h2>${title}</h2><p>${text}</p>${form}</div>
+	<button class="ghost sm vault-back" data-act="board">← Back to the board</button>`;
 
 function renderVault() {
 	const el = $("#vault-view");
@@ -1144,9 +1260,10 @@ function renderVault() {
 	};
 	const groups = scopes.map((slug) => [slug, visible.filter((s) => s.project === slug)]).filter(([, list]) => list.length)
 		.map(([slug, list]) => `<div class="v-group">${esc(slug ? projectName(slug) : "Every project")}</div>${list.map(row).join("")}`).join("");
-	el.innerHTML = `<div class="vault-head"><div><h2>Secrets</h2><small>${esc(state.project ? `${projectName(state.project)}, and those shared with every project` : "All projects")}</small></div>
+	el.innerHTML = `<div class="vault-head"><button class="ghost sm" data-act="board">← Board</button><div><h2>Secrets</h2><small>${esc(state.project ? `${projectName(state.project)}, and those shared with every project` : "All projects")}</small></div>
 		<span class="spacer"></span>
 		<button class="primary sm" data-act="add">+ Add secret</button>
+		<button class="ghost sm" data-act="env"${visible.length ? "" : " disabled"}>Export .env</button>
 		<button class="ghost sm" data-act="rekey">Change password</button>
 		<button class="ghost sm" data-act="lock">${icon("lock")} Lock</button></div>
 		<div class="vault-body">${groups || `<div class="empty">No secrets ${state.project ? "for this project " : ""}yet.</div>`}
@@ -1175,14 +1292,19 @@ $("#pw-form").addEventListener("submit", async (e) => {
 		const resolve = pwResolve;
 		pwResolve = null;
 		$("#pw-dlg").close();
+		$("#pw-form").pw.value = "";
 		resolve(d);
 	} finally { btn.disabled = false; }
 });
-$("#pw-cancel").onclick = () => $("#pw-dlg").close();
-$("#pw-dlg").addEventListener("close", () => {
+// Each vault dialog is closed through one function that wipes it at once; "close" (Escape) does the same,
+// but that event waits for the next frame, and secret text shouldn't.
+function closePassword() {
 	$("#pw-form").pw.value = "";
 	if (pwResolve) { pwResolve(null); pwResolve = null; }
-});
+	if ($("#pw-dlg").open) $("#pw-dlg").close();
+}
+$("#pw-cancel").onclick = closePassword;
+$("#pw-dlg").addEventListener("close", closePassword);
 
 async function secretValue(s, why) {
 	const shown = vault.shown.get(s.id);
@@ -1233,14 +1355,19 @@ secretForm.addEventListener("submit", async (e) => {
 		if (currentSecret.id) await vaultApi(`/api/secrets/${currentSecret.id}`, vault.auth, { method: "PATCH", body });
 		else await vaultApi("/api/secrets", vault.auth, { method: "POST", body });
 		vault.shown.delete(currentSecret.id);
-		secretDlg.close();
+		closeSecret();
 		await loadSecrets();
 		renderVault();
 	} catch (err) { $("#secret-err").textContent = err.message; }
 });
-$("#secret-cancel").onclick = () => secretDlg.close();
+function closeSecret() {
+	secretForm.reset();
+	currentSecret = null;
+	if (secretDlg.open) secretDlg.close();
+}
+$("#secret-cancel").onclick = closeSecret;
 // The value doesn't stay in the form once it's closed.
-secretDlg.addEventListener("close", () => { secretForm.reset(); currentSecret = null; });
+secretDlg.addEventListener("close", closeSecret);
 
 const rekeyDlg = $("#rekey-dlg");
 const rekeyForm = $("#rekey-form");
@@ -1265,14 +1392,19 @@ rekeyForm.addEventListener("submit", async (e) => {
 		vault.info = await vaultApi("/api/vault/rekey", old.auth, { method: "POST", body: JSON.stringify({ salt, iterations: ITERATIONS, auth: nu.auth, secrets }) });
 		vault.key = nu.key;
 		vault.auth = nu.auth;
-		rekeyDlg.close();
+		closeRekey();
 		await loadSecrets();
 		renderVault();
 		toast("Vault password changed");
 	} catch (e2) { err.textContent = e2.message; } finally { btn.disabled = false; }
 });
-$("#rekey-cancel").onclick = () => rekeyDlg.close();
-rekeyDlg.addEventListener("close", () => { rekeyForm.reset(); $("#rekey-err").textContent = ""; });
+function closeRekey() {
+	rekeyForm.reset();
+	$("#rekey-err").textContent = "";
+	if (rekeyDlg.open) rekeyDlg.close();
+}
+$("#rekey-cancel").onclick = closeRekey;
+rekeyDlg.addEventListener("close", closeRekey);
 
 const vaultView = $("#vault-view");
 vaultView.addEventListener("submit", async (e) => {
@@ -1308,8 +1440,10 @@ vaultView.addEventListener("submit", async (e) => {
 });
 vaultView.addEventListener("click", async (e) => {
 	const b = e.target.closest("[data-act]");
+	if (b?.dataset.act === "board") return goBoard();
 	if (!b || !vault.key) return;
 	const act = b.dataset.act;
+	if (act === "env") return openEnv();
 	if (act === "add") return openSecret({ project: state.project });
 	if (act === "lock") return lockVault();
 	if (act === "rekey") return rekeyDlg.showModal();
@@ -1335,7 +1469,113 @@ vaultView.addEventListener("click", async (e) => {
 	} catch (err) { toast(err.message); }
 });
 for (const ev of ["pointerdown", "keydown"]) vaultView.addEventListener(ev, touchVault);
-$("#vault-btn").onclick = () => { location.hash = "#vault"; };
+$("#vault-btn").onclick = () => (location.hash === "#vault" ? goBoard() : (location.hash = "#vault"));
+
+// .env export: pick secrets, enter the password once, then copy or download. The text leaves with the dialog.
+const envDlg = $("#env-dlg");
+const envName = (name) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(name) ? name : name.trim().toUpperCase().replace(/[^A-Z0-9]+/g, "_").replace(/^(?=\d)/, "_");
+function envValue(v) {
+	if (/^[A-Za-z0-9_.\-\/:@+=,]*$/.test(v)) return v;
+	if (!/['\n]/.test(v)) return `'${v}'`;
+	return `"${v.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\$/g, "\\$").replace(/\n/g, "\\n")}"`;
+}
+function envSecrets() { return vault.secrets.filter((s) => !state.project || !s.project || s.project === state.project).sort((a, b) => a.name.localeCompare(b.name)); }
+function openEnv() {
+	touchVault();
+	$("#env-title").textContent = `Export as .env${state.project ? ` · ${projectName(state.project)}` : ""}`;
+	$("#env-list").innerHTML = envSecrets().map((s) => `<label><input type="checkbox" value="${s.id}" checked>${esc(envName(s.name))}${envName(s.name) !== s.name ? ` <small>from “${esc(s.name)}”</small>` : ""}</label>`).join("");
+	$("#env-pick").hidden = false;
+	$("#env-out").hidden = $("#env-download").hidden = true;
+	$("#env-go").hidden = false;
+	$("#env-err").textContent = "";
+	envDlg.showModal();
+}
+$("#env-form").addEventListener("submit", async (e) => {
+	e.preventDefault();
+	const ids = [...$("#env-list").querySelectorAll("input:checked")].map((c) => Number(c.value));
+	if (!ids.length) return ($("#env-err").textContent = "Pick at least one secret.");
+	const creds = await askPassword(`Export ${ids.length} secret${ids.length > 1 ? "s" : ""}: vault password`);
+	if (!creds) return;
+	try {
+		const lines = await Promise.all(vault.secrets.filter((s) => ids.includes(s.id)).sort((a, b) => a.name.localeCompare(b.name)).map(async (s) => {
+			const { value } = await vaultApi(`/api/secrets/${s.id}`, creds.auth);
+			const v = (await unseal(creds.key, value)).value;
+			return `${s.note ? `# ${s.note.replace(/\n/g, " ")}\n` : ""}${envName(s.name)}=${envValue(v)}`;
+		}));
+		$("#env-out").value = lines.join("\n") + "\n";
+		$("#env-pick").hidden = $("#env-go").hidden = true;
+		$("#env-out").hidden = $("#env-download").hidden = false;
+		$("#env-cancel").textContent = "Close";
+		$("#env-out").select();
+		if (await copyText($("#env-out").value)) toast("Copied the .env block");
+	} catch (err) { $("#env-err").textContent = err.message; }
+});
+$("#env-download").onclick = () => {
+	const a = Object.assign(document.createElement("a"), {
+		href: URL.createObjectURL(new Blob([$("#env-out").value], { type: "text/plain" })),
+		download: `${state.project || "workbench"}.env`,
+	});
+	a.click();
+	setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+};
+function closeEnv() {
+	$("#env-out").value = "";
+	$("#env-list").innerHTML = "";
+	if (envDlg.open) envDlg.close();
+}
+$("#env-cancel").onclick = closeEnv;
+envDlg.addEventListener("close", closeEnv);
+
+/* ---------- Notifications ---------- */
+
+// Off by default. Checked every 20 s even when the tab is in the background; shown only while it's not in front.
+const notify = { on: localGet("notify") === "on", items: null, reports: null };
+function renderNotify() {
+	const b = $("#notify");
+	b.hidden = !("Notification" in window);
+	const on = notify.on && window.Notification?.permission === "granted";
+	b.setAttribute("aria-pressed", on);
+	b.title = on ? "Desktop notifications on: what needs you, finished work, new report versions" : "Turn on desktop notifications";
+}
+$("#notify").onclick = async () => {
+	if (!notify.on && Notification.permission !== "granted" && (await Notification.requestPermission()) !== "granted")
+		return toast("Notifications are blocked for this page in the browser settings");
+	notify.on = !notify.on;
+	localSet("notify", notify.on ? "on" : "off");
+	notify.items = notify.reports = null;
+	renderNotify();
+	toast(notify.on ? "Notifications on" : "Notifications off");
+};
+function ping(title, body, tag, open) {
+	const n = new Notification(title, { body, tag, icon: "/favicon.svg" });
+	n.onclick = () => { window.focus(); open(); n.close(); };
+}
+async function notifyCheck() {
+	if (!notify.on || window.Notification?.permission !== "granted") return;
+	const [items, reports] = await Promise.all([api("/api/items"), api("/api/reports")]);
+	const away = document.visibilityState !== "visible" || !document.hasFocus();
+	const mine = (i) => i && i.owner === "kostas" && OPEN.includes(i.status);
+	for (const [id, at] of localChanges) if (Date.now() - at > 60e3) localChanges.delete(id);
+	if (notify.items && away) {
+		for (const i of items) {
+			const was = notify.items.get(i.id);
+			if (localChanges.has(i.id) || (was && was.updated_at === i.updated_at)) continue;
+			const where = projectName(i.project);
+			const openIt = async () => openItem(await api(`/api/items/${i.id}`));
+			if (mine(i) && !mine(was)) ping(`Needs you · ${where}`, `${i.kind}: ${i.title}`, `wb-${i.ref}`, openIt);
+			else if (i.owner === "agent" && i.status === "done" && was && was.status !== "done") ping(`Done · ${where}`, i.title, `wb-${i.ref}`, openIt);
+			else if (i.owner === "agent" && i.status === "waiting" && was && was.status !== "waiting") ping(`Agent waiting · ${where}`, i.title, `wb-${i.ref}`, openIt);
+		}
+		for (const r of reports) {
+			const was = notify.reports.get(r.id);
+			if (was !== undefined && r.version > was) ping(`Report updated · ${projectName(r.project)}`, `${r.title} (v${r.version})`, `report-${r.id}`, () => { location.hash = `#report/${r.id}`; });
+			else if (was === undefined) ping(`New report · ${projectName(r.project)}`, r.title, `report-${r.id}`, () => { location.hash = `#report/${r.id}`; });
+		}
+	}
+	notify.items = new Map(items.map((i) => [i.id, i]));
+	notify.reports = new Map(reports.map((r) => [r.id, r.version]));
+}
+setInterval(() => notifyCheck().catch(() => {}), 20000);
 
 /* ---------- Copy refs ---------- */
 
@@ -1374,7 +1614,10 @@ async function start() {
 	renderRail();
 	await Promise.all([loadItems(), loadLinks(), loadReports()]);
 	route();
+	renderNotify();
 	loadRepos();
+	loadCode();
+	notifyCheck().catch(() => {});
 }
 start();
 // Agents write through the `wb` CLI, so the page polls; it pauses while a dialog is open.
@@ -1383,6 +1626,7 @@ setInterval(() => {
 	loadProjects();
 	loadItems();
 	loadRepos();
+	loadCode();
 	loadReports();
 	refreshReport();
 }, 10000);

@@ -1,6 +1,7 @@
 import { Database } from "bun:sqlite";
 import { timingSafeEqual } from "node:crypto";
-import { join } from "node:path";
+import { mkdirSync, readdirSync, rmSync, statSync } from "node:fs";
+import { dirname, join } from "node:path";
 
 export const KINDS = ["task", "check", "review", "decision", "setup", "bug", "idea"] as const;
 export const STATUSES = ["todo", "doing", "waiting", "done", "dropped"] as const;
@@ -25,6 +26,10 @@ export type Item = {
 	branch: string;
 	session: string;
 	sources: string;
+	/** JSON array of the choices a decision offers; '' = none. */
+	options: string;
+	/** What Kostas picked or wrote. */
+	answer: string;
 	created_at: string;
 	updated_at: string;
 	done_at: string | null;
@@ -93,6 +98,10 @@ export function open(path = DB_PATH) {
 			db.query("UPDATE items SET ref = ? WHERE id = ?").run(newRef(db), id);
 	}
 	db.run("CREATE UNIQUE INDEX IF NOT EXISTS items_ref ON items(ref)");
+	if (!itemCols.includes("options")) {
+		db.run("ALTER TABLE items ADD COLUMN options TEXT NOT NULL DEFAULT ''");
+		db.run("ALTER TABLE items ADD COLUMN answer TEXT NOT NULL DEFAULT ''");
+	}
 	const linkCols = (db.query("PRAGMA table_info(links)").all() as { name: string }[]).map((c) => c.name);
 	if (!linkCols.includes("icon_url")) {
 		db.run("ALTER TABLE links ADD COLUMN icon_url TEXT NOT NULL DEFAULT ''");
@@ -185,8 +194,30 @@ const EDITABLE = [
 	"branch",
 	"session",
 	"sources",
+	"options",
+	"answer",
 ] as const;
-export type ItemPatch = Partial<Pick<Item, (typeof EDITABLE)[number]>>;
+/** `options` may also be given as a list. */
+export type ItemPatch = Partial<Omit<Pick<Item, (typeof EDITABLE)[number]>, "options">> & {
+	options?: string | string[];
+};
+
+/** The choices of a decision as a list. */
+export function itemOptions(i: Pick<Item, "options">): string[] {
+	try {
+		const list = JSON.parse(i.options || "[]");
+		return Array.isArray(list) ? list.map(String) : [];
+	} catch {
+		return [];
+	}
+}
+
+function normalize(patch: ItemPatch): ItemPatch {
+	if (patch.options === undefined) return patch;
+	const list = Array.isArray(patch.options) ? patch.options : itemOptions({ options: patch.options });
+	const clean = list.map((o) => String(o).trim()).filter(Boolean);
+	return { ...patch, options: clean.length ? JSON.stringify(clean) : "" };
+}
 
 export function validate(patch: ItemPatch) {
 	if (patch.kind && !KINDS.includes(patch.kind)) throw new Error(`kind must be one of ${KINDS.join(", ")}`);
@@ -270,6 +301,7 @@ export function getItem(db: Db, id: number): (Item & { notes: Note[] }) | undefi
 }
 
 export function addItem(db: Db, item: ItemPatch & { title: string; project: string }, author = ""): number {
+	item = { ...item, ...normalize(item) };
 	validate(item);
 	const fields = EDITABLE.filter((k) => item[k] !== undefined);
 	const row = Object.fromEntries([...fields.map((k) => [k, item[k]]), ["ref", newRef(db)]]);
@@ -284,6 +316,7 @@ export function addItem(db: Db, item: ItemPatch & { title: string; project: stri
 }
 
 export function updateItem(db: Db, id: number, patch: ItemPatch, author = ""): void {
+	patch = normalize(patch);
 	validate(patch);
 	const before = getItem(db, id);
 	if (!before) throw new Error(`no item #${id}`);
@@ -296,8 +329,11 @@ export function updateItem(db: Db, id: number, patch: ItemPatch, author = ""): v
 	db.query(
 		`UPDATE items SET ${fields.map((k) => `${k} = $${k}`).join(", ")}, updated_at = datetime('now')${doneAt} WHERE id = $id`,
 	).run({ ...row, id });
-	const changes = fields.filter((k) => k !== "body").map((k) => `${k}: ${before[k] || "—"} → ${patch[k] || "—"}`);
+	const changes = fields
+		.filter((k) => k !== "body" && k !== "options")
+		.map((k) => `${k}: ${before[k] || "—"} → ${patch[k] || "—"}`);
 	if (fields.includes("body")) changes.push("body edited");
+	if (fields.includes("options")) changes.push(`options: ${itemOptions(patch as Item).join(" | ") || "—"}`);
 	addNote(db, id, changes.join(" · "), author);
 }
 
@@ -644,4 +680,48 @@ export function resetVault(db: Db): number {
 		db.run("DELETE FROM vault");
 		return n;
 	})();
+}
+
+/** Kostas answers a decision: it goes back to the agent, to act on. A number picks that option (1-based). */
+export function answerItem(db: Db, id: number, answer: string, author = "kostas") {
+	const item = getItem(db, id);
+	if (!item) throw new Error(`no item #${id}`);
+	const options = itemOptions(item);
+	let text = answer.trim();
+	if (/^\d+$/.test(text) && !options.includes(text) && options[Number(text) - 1]) text = options[Number(text) - 1];
+	if (!text) throw new Error("empty answer");
+	updateItem(db, id, { answer: text, owner: "agent", status: item.status === "doing" ? "doing" : "todo" }, author);
+}
+
+// Backups: whole-database copies next to it, newest 14 kept. VACUUM INTO is safe while others write.
+export const BACKUP_DIR = process.env.WB_BACKUPS ?? join(dirname(DB_PATH), "backups");
+const BACKUP_NAME = /^workbench-\d{4}-\d{2}-\d{2}-\d{6}\.db$/;
+
+export function backup(db: Db, dir = BACKUP_DIR): string {
+	mkdirSync(dir, { recursive: true });
+	const stamp = new Date().toISOString().slice(0, 19).replace("T", "-").replaceAll(":", "");
+	const file = join(dir, `workbench-${stamp}.db`);
+	db.run(`VACUUM INTO '${file.replaceAll("'", "''")}'`);
+	return file;
+}
+
+export function listBackups(dir = BACKUP_DIR): { file: string; at: Date; bytes: number }[] {
+	let names: string[] = [];
+	try {
+		names = readdirSync(dir).filter((n) => BACKUP_NAME.test(n));
+	} catch {
+		return [];
+	}
+	return names
+		.map((n) => {
+			const st = statSync(join(dir, n));
+			return { file: join(dir, n), at: st.mtime, bytes: st.size };
+		})
+		.sort((a, b) => b.at.getTime() - a.at.getTime());
+}
+
+export function pruneBackups(keep = 14, dir = BACKUP_DIR): number {
+	const old = listBackups(dir).slice(keep);
+	for (const b of old) rmSync(b.file);
+	return old.length;
 }
