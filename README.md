@@ -51,7 +51,7 @@ wb unreport <id>
 
 Publishing a file with the same name again adds a version; the viewer has a version picker and offers a newer version instead of reloading what you're looking at. `--name` publishes under another name than the file's.
 
-A page can use any HTML, CSS and JS, including libraries from a CDN. It runs sandboxed (its own opaque origin, so no cookies or `localStorage`, and no direct calls to the board's API), and gets a read-only `wb` object instead:
+A page can use any HTML, CSS and JS, including libraries from a CDN. It runs sandboxed (its own opaque origin, so no cookies or `localStorage`, and no direct calls to the board's API), and gets a `wb` object instead, read-only apart from its own saved state:
 
 ```js
 await wb.items()                                    // this project's items, all statuses
@@ -62,7 +62,11 @@ await wb.links(); await wb.reports(); await wb.projects()
 wb.open("wb-k3f9")                                   // open the item's dialog on the board
 wb.onRefresh(redraw)                                 // the board refreshes every 10 s
 wb.report                                            // { id, project, name, title, version }
+await wb.state.set({ rate: 3.5 })                    // save this report's inputs (replaces; JSON object/array, ≤ 256 KB)
+await wb.state.get()                                 // what was saved, or null; wb.state.clear() forgets it
 ```
+
+`wb.state` is the one thing a page can write: its own saved object, kept in `workbench.db` by project + report name, so it survives refreshes and new versions; `wb unreport` deletes it. It needs the board around the page (sidebar or "New tab ↗"); on a bare `/r/<id>` page `get` gives `null` and `set` gives `false`.
 
 To match the board's look, use `var(--wb-bg)`, `--wb-card`, `--wb-ink`, `--wb-muted`, `--wb-line`, `--wb-accent`, `--wb-good`, `--wb-warn`, `--wb-bad`, `--wb-font` and `--wb-mono` (they follow light/dark). [examples/overview.html](examples/overview.html) is a live project overview built this way.
 

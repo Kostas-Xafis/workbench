@@ -134,6 +134,14 @@ export function open(path = DB_PATH) {
 		at TEXT NOT NULL DEFAULT (datetime('now')),
 		UNIQUE (report_id, n)
 	)`);
+	// What a report page saved with wb.state.set: by project and name, so it outlives new versions.
+	db.run(`CREATE TABLE IF NOT EXISTS report_state (
+		project TEXT NOT NULL,
+		name TEXT NOT NULL,
+		json TEXT NOT NULL,
+		updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+		PRIMARY KEY (project, name)
+	)`);
 	// The vault holds only what the browser encrypted. The password never reaches the server: the browser
 	// derives a key from it and an auth token, and only a hash of the token is kept here.
 	db.run(`CREATE TABLE IF NOT EXISTS vault (
@@ -540,7 +548,39 @@ export function publishReport(
 }
 
 export function removeReport(db: Db, id: number) {
-	if (!db.query("DELETE FROM reports WHERE id = ?").run(id).changes) throw new Error(`no report #${id}`);
+	db.transaction(() => {
+		db.query("DELETE FROM report_state WHERE (project, name) IN (SELECT project, name FROM reports WHERE id = ?)").run(id);
+		if (!db.query("DELETE FROM reports WHERE id = ?").run(id).changes) throw new Error(`no report #${id}`);
+	})();
+}
+
+export const REPORT_STATE_MAX = 256 * 1024;
+
+/** What the report's page saved, as JSON text, or null. */
+export function reportState(db: Db, id: number): string | null {
+	const row = db
+		.query("SELECT s.json FROM report_state s JOIN reports r USING (project, name) WHERE r.id = ?")
+		.get(id) as { json: string } | null;
+	return row?.json ?? null;
+}
+
+/** Replaces the saved state with `json` (an object or array), or clears it when `json` is null. */
+export function setReportState(db: Db, id: number, json: string | null) {
+	const r = db.query("SELECT project, name FROM reports WHERE id = ?").get(id) as { project: string; name: string } | null;
+	if (!r) throw new Error(`no report #${id}`);
+	if (json === null) return void db.query("DELETE FROM report_state WHERE project = ? AND name = ?").run(r.project, r.name);
+	if (Buffer.byteLength(json) > REPORT_STATE_MAX) throw new Error(`state is over ${REPORT_STATE_MAX / 1024} KB`);
+	let v: unknown;
+	try {
+		v = JSON.parse(json);
+	} catch {
+		throw new Error("state must be JSON");
+	}
+	if (typeof v !== "object" || v === null) throw new Error("state must be an object or array");
+	db.query(
+		`INSERT INTO report_state (project, name, json) VALUES (?, ?, ?)
+		ON CONFLICT (project, name) DO UPDATE SET json = excluded.json, updated_at = datetime('now')`,
+	).run(r.project, r.name, JSON.stringify(v));
 }
 
 /** Everything matching `q` in a project (or all of them): items, reports with a snippet, links. */

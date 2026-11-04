@@ -21,7 +21,7 @@ const CLIENT = `(() => {
 		if (parent === window) return reject(new Error("open this report from the workbench to read the board"));
 		const id = ++n;
 		pending.set(id, { resolve, reject });
-		parent.postMessage({ wb: 1, id, method, args }, "*");
+		parent.postMessage({ wb: 1, id, method, args, report: window.wb.report.id }, "*");
 	});
 	window.wb = {
 		report: __REPORT__,
@@ -36,6 +36,13 @@ const CLIENT = `(() => {
 		reports: (project) => call("reports", project),
 		/** Opens the item's dialog on the board. */
 		open: (ref) => call("open", ref),
+		/** This report's saved state (kept by project + name, across versions). Outside the board: get → null, set → false. */
+		state: {
+			get: () => parent === window ? Promise.resolve(null) : call("stateGet"),
+			/** Replaces the saved state with obj (an object or array, as JSON, ≤ 256 KB). Resolves true. */
+			set: (obj) => parent === window ? Promise.resolve(false) : call("stateSet", JSON.stringify(obj)),
+			clear: () => parent === window ? Promise.resolve(false) : call("stateClear"),
+		},
 		/** Called whenever the board refreshes (every 10 s while visible). */
 		onRefresh: (f) => { refresh.add(f); return () => refresh.delete(f); },
 	};

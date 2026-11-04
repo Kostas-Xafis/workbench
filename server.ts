@@ -28,6 +28,9 @@ import {
 	projectsWithCounts,
 	removeLink,
 	reportHtml,
+	reportState,
+	setReportState,
+	REPORT_STATE_MAX,
 	search,
 	storeIcon,
 	updateItem,
@@ -123,6 +126,31 @@ export function serve({ lan = false } = {}) {
 			"/api/reports/:id": (req) => {
 				const r = getReport(db, Number(req.params.id));
 				return r ? json(r) : json({ error: "not found" }, 404);
+			},
+			// A report page's saved inputs. The board passes these on for the page in its frame only.
+			"/api/reports/:id/state": {
+				GET: (req) => {
+					const id = Number(req.params.id);
+					if (!getReport(db, id)) return json({ error: "not found" }, 404);
+					return new Response(reportState(db, id) ?? "null", { headers: { "content-type": "application/json" } });
+				},
+				PUT: async (req) => {
+					try {
+						if (Number(req.headers.get("content-length")) > REPORT_STATE_MAX) throw new Error("state is too big");
+						setReportState(db, Number(req.params.id), await req.text());
+						return json({ ok: true });
+					} catch (e) {
+						return fail(e);
+					}
+				},
+				DELETE: (req) => {
+					try {
+						setReportState(db, Number(req.params.id), null);
+						return json({ ok: true });
+					} catch (e) {
+						return fail(e);
+					}
+				},
 			},
 			// The page itself, sandboxed: it reads the board only through the frame's postMessage bridge.
 			"/r/:id": (req) => {

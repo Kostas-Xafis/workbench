@@ -1111,7 +1111,8 @@ $("#r-version").onchange = (e) => {
 window.addEventListener("hashchange", route);
 
 // The page runs sandboxed (origin "null") and asks the board through postMessage. Read-only by design:
-// nothing here changes the board, except opening an item's dialog for Kostas to act on.
+// nothing here changes the board, except opening an item's dialog for Kostas to act on, and the page's
+// own saved state (stateGet/Set/Clear), which is always that of the report shown in the frame.
 const bridge = {
 	items(f = {}) {
 		const p = new URLSearchParams();
@@ -1134,10 +1135,23 @@ const bridge = {
 	projects: () => api("/api/projects"),
 	reports: (project = state.report.project) => api(`/api/reports${project === "*" ? "" : `?project=${encodeURIComponent(project)}`}`),
 	async open(ref) { openItem(await api(`/api/items/${encodeURIComponent(ref)}`)); return true; },
+	stateGet: () => api(`/api/reports/${state.report.id}/state`),
+	async stateSet(json) {
+		if (typeof json !== "string") throw new Error("wb.state.set takes an object");
+		await api(`/api/reports/${state.report.id}/state`, { method: "PUT", body: json });
+		return true;
+	},
+	async stateClear() { await api(`/api/reports/${state.report.id}/state`, { method: "DELETE" }); return true; },
 };
+const STATE_METHODS = ["stateGet", "stateSet", "stateClear"];
 window.addEventListener("message", async (e) => {
 	const m = e.data;
 	if (e.source !== frame.contentWindow || e.origin !== "null" || !m || m.wb !== 1 || !Object.hasOwn(bridge, m.method)) return;
+	// State only for the report the frame was pointed at: the page names itself, and must be the one loaded.
+	if (STATE_METHODS.includes(m.method) && !(state.report && m.report === state.report.id
+		&& new URL(frame.dataset.src ?? "", location.href).pathname === `/r/${state.report.id}`)) {
+		return e.source.postMessage({ wb: 1, id: m.id, error: "not this report's state" }, "*");
+	}
 	try { e.source.postMessage({ wb: 1, id: m.id, result: await bridge[m.method](...(m.args || [])) }, "*"); }
 	catch (err) { e.source.postMessage({ wb: 1, id: m.id, error: err.message }, "*"); }
 });
