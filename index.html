@@ -1189,6 +1189,7 @@ const ICON = {
 	hide: '<path d="M1.5 8S4 3.5 8 3.5 14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8z"/><path d="m2.5 2.5 11 11"/>',
 	copy: '<rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 5.5v-2a1 1 0 0 0-1-1h-6a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2"/>',
 	edit: '<path d="M10.5 2.5l3 3-8 8H2.5v-3z"/>',
+	duplicate: '<rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M3.5 10.5h-.5a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1h6.5a1 1 0 0 1 1 1v.5M9.5 7.5v4M7.5 9.5h4"/>',
 	trash: '<path d="M2.5 4.5h11M6 4.5V3h4v1.5M4 4.5l.7 9h6.6l.7-9"/>',
 };
 const icon = (name) => `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4">${ICON[name]}</svg>`;
@@ -1279,6 +1280,7 @@ function renderVault() {
 				<button class="icon-btn" data-act="show" title="${shown ? "Hide" : "Show"}" aria-label="${shown ? "Hide" : "Show"}">${icon(shown ? "hide" : "eye")}</button>
 				<button class="icon-btn" data-act="copy" title="Copy" aria-label="Copy">${icon("copy")}</button>
 				<button class="icon-btn" data-act="edit" title="Edit" aria-label="Edit">${icon("edit")}</button>
+				<button class="icon-btn" data-act="duplicate" title="Duplicate" aria-label="Duplicate">${icon("duplicate")}</button>
 				<button class="icon-btn" data-act="delete" title="Delete" aria-label="Delete">${icon("trash")}</button>
 			</div></div>`;
 	};
@@ -1363,10 +1365,11 @@ function openSecret(s) {
 	secretForm.value.value = s.value ?? "";
 	secretForm.note.value = s.note ?? "";
 	secretForm.project.value = s.project ?? "";
-	$("#secret-title").textContent = s.id ? "Edit secret" : "New secret";
+	$("#secret-title").textContent = s.id ? "Edit secret" : s.copyOf ? `Duplicate ${s.copyOf}` : "New secret";
 	$("#secret-err").textContent = "";
 	secretDlg.showModal();
 	secretForm.name.focus();
+	if (s.copyOf) secretForm.name.select();
 }
 secretForm.addEventListener("submit", async (e) => {
 	e.preventDefault();
@@ -1484,6 +1487,10 @@ vaultView.addEventListener("click", async (e) => {
 		} else if (act === "edit") {
 			const v = await secretValue(s, "Edit");
 			if (v != null) openSecret({ ...s, value: v });
+		} else if (act === "duplicate") {
+			// A new secret prefilled from this one: nothing is saved until the form is.
+			const v = await secretValue(s, "Duplicate");
+			if (v != null) openSecret({ name: `${s.name}_COPY`, value: v, note: s.note, project: s.project, copyOf: s.name });
 		} else if (act === "delete") {
 			if (!confirm(`Delete the secret “${s.name}”? This can't be undone.`)) return;
 			await vaultApi(`/api/secrets/${s.id}`, vault.auth, { method: "DELETE" });
