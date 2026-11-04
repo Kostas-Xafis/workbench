@@ -158,6 +158,9 @@ mark { background: color-mix(in srgb, var(--review) 30%, transparent); color: in
 .owner { font-size: 11px; font-weight: 600; border-radius: 5px; padding: 0 5px; background: var(--hover); }
 .owner.kostas { background: color-mix(in srgb, var(--p1) 14%, transparent); color: var(--p1); }
 .st-doing { color: var(--accent); font-weight: 600; } .st-waiting { color: var(--review); font-weight: 600; }
+.gl { width: 13px; height: 13px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; vertical-align: -2px; }
+.meta .gl { margin-right: 3px; }
+.sec > summary .gl { width: 14px; height: 14px; color: var(--dot); }
 .p1 { color: var(--p1); font-weight: 700; }
 .ref { font: 600 11.5px ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--muted); background: var(--hover); border: 0; border-radius: 5px; padding: 1px 5px; cursor: copy; }
 .ref:hover { color: var(--accent); }
@@ -441,6 +444,15 @@ const OPEN = ["todo", "doing", "waiting"];
 // Board sections, in order; the third value is whether a section starts open.
 const SECTIONS = [["decision", "Decisions", true], ["setup", "Setup", true], ["check", "Checks", true], ["review", "Reviews", true],
 	["bug", "Bugs", true], ["task", "Tasks", true], ["idea", "Ideas", false]];
+// Same line glyphs as the day reports (day.ts).
+const RING = '<circle cx="8" cy="8" r="6.25"/>';
+const GLYPH = {
+	check: RING + '<path d="M5.2 8.2l1.9 1.9 3.7-4"/>',
+	play: RING + '<path d="M6.8 5.6v4.8L10.6 8z"/>',
+	pause: RING + '<path d="M6.5 5.8v4.4M9.5 5.8v4.4"/>',
+	commit: '<circle cx="8" cy="8" r="2.6"/><path d="M1.5 8h3.9M10.6 8h3.9"/>',
+};
+const glyph = (name) => `<svg class="gl" viewBox="0 0 16 16" aria-hidden="true">${GLYPH[name]}</svg>`;
 const WHO = [["all", "Everything"], ["kostas", "Needs you"], ["agent", "With agents"]];
 const $ = (s, el = document) => el.querySelector(s);
 const solo = new URLSearchParams(location.search).has("solo");
@@ -731,7 +743,7 @@ function codeMeta(i) {
 	if (!c) return "";
 	const pr = [...c.prs].sort((a, b) => b.number - a.number)[0];
 	return (pr ? `<span class="pr ${pr.state}" title="${esc(pr.title)}">PR #${pr.number} ${pr.draft ? "draft" : pr.state.toLowerCase()}${pr.checks ? `<i class="ck ${pr.checks}" title="checks ${pr.checks}"></i>` : ""}</span>` : "") +
-		(c.commits.length ? `<span class="code-tag" title="Commits that mention wb-${i.ref}">${c.commits.length} commit${c.commits.length > 1 ? "s" : ""}</span>` : "");
+		(c.commits.length ? `<span class="code-tag" title="Commits that mention wb-${i.ref}">${glyph("commit")}${c.commits.length} commit${c.commits.length > 1 ? "s" : ""}</span>` : "");
 }
 
 function card(i, { tick = i.owner === "kostas" && OPEN.includes(i.status), kind = false } = {}) {
@@ -742,7 +754,7 @@ function card(i, { tick = i.owner === "kostas" && OPEN.includes(i.status), kind 
 		kind ? `<span class="kind k-${i.kind}">${i.kind}</span>` : "",
 		!closed && state.who === "all" ? `<span class="owner ${i.owner}">${i.owner === "kostas" ? "you" : "agent"}</span>` : "",
 		i.priority === 1 && !closed ? `<span class="p1">P1</span>` : "",
-		i.status === "doing" || i.status === "waiting" ? `<span class="st-${i.status}">${i.status}</span>` : "",
+		i.status === "doing" || i.status === "waiting" ? `<span class="st-${i.status}">${glyph(i.status === "doing" ? "play" : "pause")}${i.status}</span>` : "",
 		i.area ? `<span>${esc(i.area)}</span>` : "",
 		!state.project ? `<span>${esc(projectName(i.project))}</span>` : "",
 		i.branch ? `<span>⎇ ${esc(i.branch)}</span>` : "",
@@ -807,7 +819,7 @@ function renderBoard() {
 	const cutoff = Date.now() - 14 * 86400e3;
 	const done = state.items.filter((i) => !OPEN.includes(i.status) && mineOnly(i) && i.done_at && parseTime(i.done_at) > cutoff)
 		.sort((a, b) => b.done_at.localeCompare(a.done_at));
-	if (done.length) html += section("sec-done", false, `<span class="dot k-done"></span>Done lately<span class="count">${done.length}</span><span class="sub">last 14 days</span>`,
+	if (done.length) html += section("sec-done", false, `<span class="k-done">${glyph("check")}</span>Done lately<span class="count">${done.length}</span><span class="sub">last 14 days</span>`,
 		cards(done.slice(0, 12), { kind: true }) +
 		(done.length > 12 ? `<details class="more fold" data-key="done-more"${isOpen("done-more")}><summary>${done.length - 12} more</summary>${cards(done.slice(12), { kind: true })}</details>` : ""));
 
@@ -818,7 +830,7 @@ function renderBoard() {
 		const sub = one
 			? (one.ok ? `⎇ ${esc(one.branch || "detached")}${repoWarnings(one).map((w) => `<span class="warn">${w}</span>`).join("") || " · clean"}` : esc(one.error))
 			: attention ? `${attention} need attention` : "all clean";
-		html += section("sec-repo", false, `<span class="dot k-repo"></span>${one ? "Repository" : "Repositories"}${one ? "" : `<span class="count">${repos.length}</span>`}<span class="sub">${sub}</span>`,
+		html += section("sec-repo", false, `<span class="k-repo">${glyph("commit")}</span>${one ? "Repository" : "Repositories"}${one ? "" : `<span class="count">${repos.length}</span>`}<span class="sub">${sub}</span>`,
 			`<div class="repos">${repos.map(repoCard).join("")}</div>`);
 	}
 	paint($("#sections"), html);
