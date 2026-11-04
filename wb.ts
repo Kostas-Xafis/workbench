@@ -32,6 +32,7 @@ import {
 	type ItemPatch,
 	type Status,
 } from "./db";
+import { currentDay, dayData, dayPage, dayTitle, DAY_START_HOUR } from "./day";
 import { PORT } from "./server";
 
 const HELP = `wb — the workbench. Tasks for agents, checks and decisions for Kostas, across projects.
@@ -58,6 +59,9 @@ Items are named wb-xxxx (e.g. wb-k3f9); commands take that, the bare k3f9, or an
   wb report <page.html> [--title T] [--group G] [--name N] [--project P]
                                    publish a report page (again under the same name = new version)
   wb reports [--project P]         reports and their versions
+  wb day [YYYY-MM-DD] [--project P] [--out file.html]
+                                   publish a report of everything that moved that work day
+                                   (${DAY_START_HOUR}:00 to ${DAY_START_HOUR}:00 next morning; default: the current one), in group Days
   wb unreport <id>                 delete a report with all its versions
   wb backup                        copy the database now (also done nightly by the board; newest 14 kept)
   wb backups                       list them
@@ -104,6 +108,7 @@ const { values: o, positionals: args } = parseArgs({
 		group: { type: "string" },
 		icon: { type: "string" },
 		name: { type: "string" },
+		out: { type: "string" },
 		yes: { type: "boolean" },
 		option: { type: "string", multiple: true },
 		help: { type: "boolean", short: "h" },
@@ -362,6 +367,21 @@ try {
 				author,
 			);
 			console.log(`report #${r.id} v${r.n}${r.changed ? "" : " (unchanged)"}  http://localhost:${PORT}/#report/${r.id}`);
+			break;
+		}
+		case "day": {
+			const day = args[1] ?? currentDay();
+			const data = await dayData(db, day, o.project);
+			const html = dayPage(data);
+			if (o.out) {
+				await Bun.write(o.out, html);
+				console.log(o.out);
+				break;
+			}
+			const project = o.project ?? currentProject(false) ?? "workbench";
+			const r = publishReport(db, { project, name: `day-${day}`, html, title: dayTitle(day), grp: "Days" }, author);
+			const n = data.projects.reduce((a, p) => a + p.items.length, 0);
+			console.log(`report #${r.id} v${r.n}${r.changed ? "" : " (unchanged)"}  ${n} items, ${data.projects.reduce((a, p) => a + p.commits.length, 0)} commits  http://localhost:${PORT}/#report/${r.id}`);
 			break;
 		}
 		case "reports": {

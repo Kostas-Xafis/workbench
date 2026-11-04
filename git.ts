@@ -105,7 +105,7 @@ const REF = /\bwb-([2-9a-hjkmnp-z]{4})\b/gi;
 const refsIn = (text: string) => new Set(Array.from(text.matchAll(REF), (m) => m[1].toLowerCase()));
 
 /** https://github.com/owner/repo for an origin on GitHub, else ''. */
-function githubWeb(remote: string) {
+export function githubWeb(remote: string) {
 	const m = remote.trim().match(/github\.com[:/]([^/]+)\/(.+?)(?:\.git)?$/);
 	return m ? `https://github.com/${m[1]}/${m[2]}` : "";
 }

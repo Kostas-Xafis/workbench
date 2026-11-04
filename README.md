@@ -49,6 +49,8 @@ wb reports                                # list, with versions
 wb unreport <id>
 ```
 
+**Day reports:** `wb day [YYYY-MM-DD]` publishes `day-<date>` in the sidebar's "Days" group: every item that moved that work day (added, started, noted, waiting, finished or dropped) grouped by where it ended up, each with that day's history, plus commits from every project and report versions, in a by-project view and a timeline. A work day runs 05:00 to 05:00, so a late night counts as the day before; with no date it is the current one. Run it again to add a newer version; `--project P` keeps one project, `--out file.html` writes the page without publishing.
+
 Publishing a file with the same name again adds a version; the viewer has a version picker and offers a newer version instead of reloading what you're looking at. `--name` publishes under another name than the file's.
 
 A page can use any HTML, CSS and JS, including libraries from a CDN. It runs sandboxed (its own opaque origin, so no cookies or `localStorage`, and no direct calls to the board's API), and gets a `wb` object instead, read-only apart from its own saved state:
