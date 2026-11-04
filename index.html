@@ -250,6 +250,7 @@ dialog.narrow { width: min(460px, calc(100vw - 32px)); }
 dialog { border: 1px solid var(--line); border-radius: 14px; background: var(--card); color: var(--ink); padding: 0;
 	width: min(680px, calc(100vw - 32px)); max-height: calc(100vh - 48px); }
 dialog::backdrop { background: rgb(0 0 0 / .35); }
+#dlg::backdrop { backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px); }
 .dlg { padding: 16px 18px 18px; display: flex; flex-direction: column; gap: 12px; }
 .dlg-head { display: flex; align-items: center; gap: 10px; }
 .dlg-head .ref { font-size: 13px; padding: 3px 8px; }
@@ -961,6 +962,15 @@ $("#answer-opts").addEventListener("click", (e) => {
 $("#answer-send").onclick = () => answerFromDialog($("#answer-own").value);
 $("#answer-own").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); answerFromDialog(e.target.value); } });
 $("#cancel").onclick = () => dlg.close();
+// Close the task popup on a click outside it. Both press and release must land outside the box,
+// so a text selection dragged out of the form doesn't close it.
+const outsideDlg = (e) => {
+	const r = dlg.getBoundingClientRect();
+	return e.target === dlg && (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom);
+};
+let pressedOutside = false;
+dlg.addEventListener("pointerdown", (e) => { pressedOutside = outsideDlg(e); });
+dlg.addEventListener("click", (e) => { if (pressedOutside && outsideDlg(e)) dlg.close(); pressedOutside = false; });
 $("#edit-body").onclick = () => showBodyEditor(form.body.hidden);
 $("#act-done").onclick = () => save({ status: "done" });
 $("#act-drop").onclick = () => save({ status: "dropped" });
