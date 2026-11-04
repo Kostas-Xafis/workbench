@@ -170,6 +170,14 @@ h3 { font-size: 11.5px; text-transform: uppercase; letter-spacing: .6px; color: 
 .pick button span { color: var(--wb-muted, #6f6b64); font-weight: 400; margin-left: 4px; font-variant-numeric: tabular-nums; }
 .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 10px; }
 .tile { background: var(--wb-card, #fff); border: 1px solid var(--wb-line, #e3e0da); border-radius: 12px; padding: 10px 14px; }
+.tile { position: relative; }
+.tile .i { position: absolute; top: 11px; right: 11px; width: 16px; height: 16px; color: var(--wb-muted, #6f6b64); opacity: .8; }
+.tile.good .i { color: var(--wb-good, #15803d); opacity: 1; }
+.i { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+h3 { display: flex; align-items: center; gap: 6px; }
+h3 .i.done { color: var(--wb-good, #15803d); }
+h3 .i.doing { color: var(--wb-accent, #3d5afe); }
+h3 .i.waiting { color: var(--wb-warn, #b45309); }
 .tile b { display: block; font-size: 26px; line-height: 1.15; font-variant-numeric: tabular-nums; }
 .tile span { color: var(--wb-muted, #6f6b64); font-size: 12.5px; }
 .tabs { display: flex; gap: 4px; margin: 22px 0 0; border-bottom: 1px solid var(--wb-line, #e3e0da); }
@@ -243,7 +251,21 @@ const hm = (iso) => new Date(iso).toLocaleTimeString("en-GB", { hour: "2-digit",
 const from = new Date(D.from), to = new Date(D.to);
 const STATUS = /(?:^| · )status: (\\w+) → (\\w+)/;
 const LABEL = { doing: "started", waiting: "waiting", done: "done", dropped: "dropped", todo: "back to to-do" };
-const GROUPS = [["done", "Finished"], ["doing", "In progress"], ["waiting", "Waiting"], ["todo", "Open"], ["dropped", "Dropped"]];
+const GROUPS = [["done", "Finished", "check"], ["doing", "In progress", "play"], ["waiting", "Waiting", "pause"], ["todo", "Open", "open"], ["dropped", "Dropped", "x"]];
+const RING = '<circle cx="8" cy="8" r="6.25"/>';
+const ICONS = {
+	pulse: '<path d="M1.5 8h3l2-4.5 3 9 2-4.5h3"/>',
+	check: RING + '<path d="M5.2 8.2l1.9 1.9 3.7-4"/>',
+	play: RING + '<path d="M6.8 5.6v4.8L10.6 8z"/>',
+	plus: '<path d="M8 3v10M3 8h10"/>',
+	clock: RING + '<path d="M8 4.8V8l2.2 1.4"/>',
+	commit: '<circle cx="8" cy="8" r="2.6"/><path d="M1.5 8h3.9M10.6 8h3.9"/>',
+	doc: '<path d="M4 1.8h5.2L12 4.6v9.6H4z"/><path d="M9 1.8v3h3M6 8.2h4M6 10.8h4"/>',
+	pause: RING + '<path d="M6.5 5.8v4.4M9.5 5.8v4.4"/>',
+	open: '<circle cx="8" cy="8" r="6.25" stroke-dasharray="2.4 2.2"/>',
+	x: RING + '<path d="M5.9 5.9l4.2 4.2M10.1 5.9l-4.2 4.2"/>',
+};
+const ico = (name, cls = "") => \`<svg class="i \${cls}" viewBox="0 0 16 16" aria-hidden="true">\${ICONS[name]}</svg>\`;
 
 function events(it) {
 	const out = [];
@@ -292,15 +314,15 @@ function pick() {
 function tiles() {
 	const all = shown().flatMap((p) => p.items);
 	const t = [
-		[all.length, "items touched"],
-		[all.filter((i) => i.status === "done").length, "finished"],
-		[all.filter((i) => i.notes.some((n) => (n.text.match(STATUS) || [])[2] === "doing")).length, "started"],
-		[all.filter((i) => i.created).length, "added"],
-		[all.reduce((n, i) => n + i.notes.length, 0), "history entries"],
-		[count((p) => p.commits.length), "commits"],
-		[count((p) => p.reports.length), "report versions"],
+		[all.length, "items touched", "pulse"],
+		[all.filter((i) => i.status === "done").length, "finished", "check", "good"],
+		[all.filter((i) => i.notes.some((n) => (n.text.match(STATUS) || [])[2] === "doing")).length, "started", "play"],
+		[all.filter((i) => i.created).length, "added", "plus"],
+		[all.reduce((n, i) => n + i.notes.length, 0), "history entries", "clock"],
+		[count((p) => p.commits.length), "commits", "commit"],
+		[count((p) => p.reports.length), "report versions", "doc"],
 	];
-	document.getElementById("tiles").innerHTML = t.map(([v, l]) => \`<div class="tile"><b>\${v}</b><span>\${l}</span></div>\`).join("");
+	document.getElementById("tiles").innerHTML = t.map(([v, l, icon, cls = ""]) => \`<div class="tile \${cls}">\${ico(icon)}<b>\${v}</b><span>\${l}</span></div>\`).join("");
 }
 
 function byProject() {
@@ -308,12 +330,12 @@ function byProject() {
 	return shown().map((p) => {
 		let h = project === "*" ? \`<h2>\${esc(p.name)}</h2>\` : "";
 		if (p.error) h += \`<p class="err">git: \${esc(p.error)}</p>\`;
-		for (const [status, label] of GROUPS) {
+		for (const [status, label, icon] of GROUPS) {
 			const list = p.items.filter((i) => i.status === status);
-			if (list.length) h += \`<h3>\${label} · \${list.length}</h3><div class="panel">\${list.map(itemRow).join("")}</div>\`;
+			if (list.length) h += \`<h3>\${ico(icon, status)}\${label} · \${list.length}</h3><div class="panel">\${list.map(itemRow).join("")}</div>\`;
 		}
-		if (p.commits.length) h += \`<h3>Commits · \${p.commits.length}</h3><div class="panel"><ul class="rows">\${p.commits.map(commitRow).join("")}</ul></div>\`;
-		if (p.reports.length) h += \`<h3>Reports · \${p.reports.length}</h3><div class="panel"><ul class="rows">\${p.reports.map((r) =>
+		if (p.commits.length) h += \`<h3>\${ico("commit")}Commits · \${p.commits.length}</h3><div class="panel"><ul class="rows">\${p.commits.map(commitRow).join("")}</ul></div>\`;
+		if (p.reports.length) h += \`<h3>\${ico("doc")}Reports · \${p.reports.length}</h3><div class="panel"><ul class="rows">\${p.reports.map((r) =>
 			\`<li><span class="time">\${hm(r.at)}</span><span class="chip">v\${r.n}</span><span>\${esc(r.title)}</span></li>\`).join("")}</ul></div>\`;
 		return h;
 	}).join("");
