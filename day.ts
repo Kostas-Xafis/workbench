@@ -110,7 +110,7 @@ export async function dayData(db: Db, day: string, only?: string): Promise<DayDa
 	const reports = db
 		.query(
 			`SELECT r.id, r.project, r.title, v.n, v.at FROM report_versions v JOIN reports r ON r.id = v.report_id
-			 WHERE v.at >= $from AND v.at < $to ORDER BY v.at`,
+			 WHERE v.at >= $from AND v.at < $to AND r.name NOT LIKE 'day-%' ORDER BY v.at`,
 		)
 		.all(range) as (DayReport & { project: string })[];
 
@@ -163,6 +163,11 @@ h1 { font-size: 22px; margin: 0; }
 .sub { color: var(--wb-muted, #6f6b64); margin: 2px 0 18px; font-size: 13px; }
 h2 { font-size: 17px; margin: 30px 0 4px; }
 h3 { font-size: 11.5px; text-transform: uppercase; letter-spacing: .6px; color: var(--wb-muted, #6f6b64); margin: 18px 0 8px; font-weight: 600; }
+.pick { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 14px; }
+.pick button { font: inherit; font-size: 13px; background: var(--wb-card, #fff); color: var(--wb-ink, #1d1c1a); border: 1px solid var(--wb-line, #e3e0da); border-radius: 999px; padding: 4px 12px; cursor: pointer; }
+.pick button:hover { background: var(--wb-hover, #efede8); }
+.pick button[aria-pressed="true"] { border-color: var(--wb-accent, #3d5afe); color: var(--wb-accent, #3d5afe); font-weight: 600; }
+.pick button span { color: var(--wb-muted, #6f6b64); font-weight: 400; margin-left: 4px; font-variant-numeric: tabular-nums; }
 .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 10px; }
 .tile { background: var(--wb-card, #fff); border: 1px solid var(--wb-line, #e3e0da); border-radius: 12px; padding: 10px 14px; }
 .tile b { display: block; font-size: 26px; line-height: 1.15; font-variant-numeric: tabular-nums; }
@@ -223,6 +228,7 @@ code { font: 12px var(--wb-mono, monospace); }
 <div class="page">
 	<h1 id="title"></h1>
 	<p class="sub" id="sub"></p>
+	<div class="pick" id="pick" role="group" aria-label="Project"></div>
 	<div class="tiles" id="tiles"></div>
 	<div class="tabs" role="tablist">
 		<button role="tab" data-tab="projects" aria-selected="true">By project</button>
@@ -271,9 +277,20 @@ function commitRow(c) {
 	return \`<li><span class="time">\${hm(c.at)}</span>\${hash}<span>\${esc(c.subject)}\${branch}</span></li>\`;
 }
 
-function count(fn) { return D.projects.reduce((n, p) => n + fn(p), 0); }
+let project = "*", tab = "projects";
+const shown = () => D.projects.filter((p) => project === "*" || p.slug === project);
+const activity = (ps) => ps.reduce((n, p) => n + p.items.length, 0);
+function count(fn) { return shown().reduce((n, p) => n + fn(p), 0); }
+
+function pick() {
+	const el = document.getElementById("pick");
+	if (D.projects.length < 2) return el.remove();
+	const btn = (slug, name, n) => \`<button data-project="\${slug}" aria-pressed="\${project === slug}">\${esc(name)}<span>\${n}</span></button>\`;
+	el.innerHTML = btn("*", "All projects", activity(D.projects)) + D.projects.map((p) => btn(p.slug, p.name, activity([p]))).join("");
+}
+
 function tiles() {
-	const all = D.projects.flatMap((p) => p.items);
+	const all = shown().flatMap((p) => p.items);
 	const t = [
 		[all.length, "items touched"],
 		[all.filter((i) => i.status === "done").length, "finished"],
@@ -288,8 +305,8 @@ function tiles() {
 
 function byProject() {
 	if (!D.projects.length) return '<p class="empty">Nothing was recorded on this day.</p>';
-	return D.projects.map((p) => {
-		let h = \`<h2>\${esc(p.name)}</h2>\`;
+	return shown().map((p) => {
+		let h = project === "*" ? \`<h2>\${esc(p.name)}</h2>\` : "";
 		if (p.error) h += \`<p class="err">git: \${esc(p.error)}</p>\`;
 		for (const [status, label] of GROUPS) {
 			const list = p.items.filter((i) => i.status === status);
@@ -304,7 +321,7 @@ function byProject() {
 
 function timeline() {
 	const rows = [];
-	for (const p of D.projects) {
+	for (const p of shown()) {
 		for (const it of p.items) for (const n of it.notes) rows.push({ at: n.at, p, html: \`\${refBtn(it.ref)} <span class="text \${isPlain(n.text) ? "" : "meta"}">\${who(n.author)}\${esc(pretty(n.text))}</span> <span class="proj">· \${esc(it.title)}</span>\` });
 		for (const c of p.commits) rows.push({ at: c.at, p, html: \`<span class="chip">commit</span> <code>\${esc(c.short)}</code> \${esc(c.subject)}\` });
 		for (const r of p.reports) rows.push({ at: r.at, p, html: \`<span class="chip">report v\${r.n}</span> \${esc(r.title)}\` });
@@ -320,7 +337,9 @@ function timeline() {
 	return \`<div class="panel" style="margin-top:16px">\${h}</div>\`;
 }
 
-function show(tab) {
+function show() {
+	pick();
+	tiles();
 	document.querySelectorAll(".tabs button").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.tab === tab)));
 	document.getElementById("body").innerHTML = tab === "timeline" ? timeline() : byProject();
 }
@@ -332,9 +351,9 @@ const last = stamps.length ? \` · last activity \${hm(stamps.at(-1))}\` : "";
 const partial = new Date(D.generated) < to ? \` · generated \${new Date(D.generated).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}, the day was not over yet\` : "";
 document.getElementById("sub").textContent =
 	\`Work day \${from.toLocaleDateString("en-GB", { weekday: "short" })} \${hm(D.from)} → \${to.toLocaleDateString("en-GB", { weekday: "short" })} \${hm(D.to)}\${last}\${partial}. Everything that moved, not only what finished.\`;
-tiles();
-show("projects");
-document.querySelector(".tabs").addEventListener("click", (e) => { const b = e.target.closest("button[data-tab]"); if (b) show(b.dataset.tab); });
+show();
+document.querySelector(".tabs").addEventListener("click", (e) => { const b = e.target.closest("button[data-tab]"); if (b) { tab = b.dataset.tab; show(); } });
+document.getElementById("pick")?.addEventListener("click", (e) => { const b = e.target.closest("button[data-project]"); if (b) { project = b.dataset.project; show(); } });
 document.addEventListener("click", (e) => {
 	const b = e.target.closest(".ref");
 	if (!b) return;
