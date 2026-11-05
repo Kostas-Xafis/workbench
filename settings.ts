@@ -71,7 +71,15 @@ const DATA: Defs = {
 /* ---------- end: Data ---------- */
 
 /* ---------- Privacy and security ---------- */
+/** The lengths a share link can be started for, in hours; the most it may run (counting extensions) is one of them too. */
+export const SHARE_HOURS = [1, 2, 4, 8, 12, 24];
 const PRIVACY: Defs = {
+	// Used by the vault in the page (index.html), read whenever one of its timers starts.
+	"vault.lock-minutes": { about: "Vault locks after this many idle minutes", default: 5, check: int(1, 60) },
+	"vault.show-seconds": { about: "A shown secret hides after this many seconds", default: 20, check: int(5, 120) },
+	// share.ts. The start length is capped by the most at the moment of use, so the two never disagree.
+	"share.default-hours": { about: "Share links start at this many hours", default: 1, check: oneOf(...SHARE_HOURS) },
+	"share.max-hours": { about: "A share link runs at most this many hours", default: 8, check: oneOf(...SHARE_HOURS) },
 };
 /* ---------- end: Privacy and security ---------- */
 

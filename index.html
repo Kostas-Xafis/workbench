@@ -449,6 +449,43 @@ code.cmd { white-space: normal; overflow-wrap: anywhere; }
 /* end: Data */
 
 /* Settings → Privacy and security */
+.so-label .sdot { margin-top: 0; }
+.pv-reset .so-label { margin-bottom: 6px; }
+.pv-reset .caution { margin: 0 0 8px; }
+.pv-count { font-size: 11px; font-weight: 700; border-radius: 999px; padding: 0 7px; line-height: 17px; background: var(--warn-bg); color: var(--warn-ink); }
+.pv-share { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 4px 12px; align-items: start; }
+.pv-share > .sdot { margin-top: 5px; }
+.pv-share-main { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.pv-share-head { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.pv-share-head b { font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pv-share-head small, .pv-share-main > small { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.pv-url { font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pv-share .pv-err { color: var(--bug); white-space: normal; overflow-wrap: anywhere; }
+.pv-share-tools { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+.pv-share-tools button:disabled { opacity: .5; cursor: default; }
+.pv-facts { display: flex; flex-direction: column; gap: 0; padding-top: 4px; padding-bottom: 4px; }
+.pv-fact { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: start; padding: 7px 0; }
+.pv-fact + .pv-fact { border-top: 1px dashed var(--line); }
+.pv-fact b { font-size: 13px; font-weight: 600; }
+.pv-fact small { display: block; color: var(--muted); font-size: 12px; margin-top: 1px; }
+.pv-fact .st { padding-top: 1px; }
+.pv-fact .st:not(.ok):not(.warn):not(.bad) { font-weight: 500; }
+.pv-src { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 12px; align-items: start; }
+.pv-src-main { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.pv-src-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.pv-src-head b { font-size: 13.5px; }
+.pv-proj { color: var(--muted); font-size: 12px; }
+.pv-mode { font-size: 10.5px; font-weight: 600; border-radius: 999px; padding: 0 7px; line-height: 17px; border: 1px solid var(--line); color: var(--muted); }
+.pv-mode.rw { border-color: color-mix(in srgb, var(--review) 50%, var(--line)); color: var(--review); }
+.pv-base, .pv-path { font-size: 12px; overflow-wrap: anywhere; }
+.pv-src-main small { color: var(--muted); font-size: 12px; }
+.pv-src-rm { grid-column: 1 / -1; display: flex; flex-direction: column; gap: 5px; font-size: 12.5px; }
+@media (max-width: 760px) {
+	.pv-share { grid-template-columns: auto minmax(0, 1fr); }
+	.pv-share-tools { grid-column: 2; justify-content: flex-start; }
+	.pv-fact { grid-template-columns: auto minmax(0, 1fr); }
+	.pv-fact .st { grid-column: 2; grid-row: 2; padding-top: 0; }
+}
 /* end: Privacy and security */
 
 /* Settings → Appearance */
@@ -1910,6 +1947,13 @@ let shares = [];
 let shareCheck = null;
 let sharePoll = 0;
 let shareHours = 1;
+// The lengths share.ts allows (SHARE_HOURS in settings.ts). Settings → Privacy and security picks the most a link
+// runs (counting extensions) and the one the dialog starts on; read when used, like the server does.
+const SHARE_LENGTHS = [1, 2, 4, 8, 12, 24];
+const shareMax = () => setting("share.max-hours") ?? 8;
+const shareLengths = () => SHARE_LENGTHS.filter((h) => h <= shareMax());
+const shareStartHours = () => Math.min(setting("share.default-hours") ?? 1, shareMax());
+const hoursText = (h) => `${h} hour${h === 1 ? "" : "s"}`;
 const clock = (t) => new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 const shareOf = (id) => shares.find((s) => s.report === id);
 
@@ -1928,6 +1972,7 @@ async function openShare() {
 	if (!state.report) return;
 	$("#share-err").textContent = "";
 	shareCheck = null;
+	shareHours = shareStartHours();
 	renderShare();
 	shareDlg.showModal();
 	await refreshShares();
@@ -1956,7 +2001,7 @@ function renderShare() {
 				<div class="row"><button type="button" class="ghost sm" data-act="copy-url">Copy link</button><a class="ghost sm" href="${esc(s.url)}" target="_blank" rel="noreferrer">Open ↗</a></div>
 				<p class="hint">${s.reachable ? "The link answers." : "Checking that the link answers (a new address can take a few seconds to work)…"}</p>
 				<p>Sharing v${s.version}${s.version !== viewing ? ` (you're looking at v${viewing})` : ""} until <b>${clock(s.expiresAt)}</b>.</p>
-				<p class="hint">${atCap ? "That's the 8-hour limit." : `It can be extended up to ${clock(s.maxAt)}.`}</p>
+				<p class="hint">${atCap ? `That's the limit: a link runs at most ${hoursText(shareMax())}.` : `It can be extended up to ${clock(s.maxAt)}.`}</p>
 			</div></div>`;
 		}
 		actions.innerHTML = `${s.status === "ready" && !atCap ? `<button type="button" class="ghost" data-act="extend">Extend by 1 hour</button>` : ""}<button type="button" class="primary" data-act="stop">Stop sharing</button>`;
@@ -1978,12 +2023,13 @@ function renderShare() {
 		actions.innerHTML = `<button type="button" class="primary" data-act="recheck">Check again</button>`;
 		return;
 	}
+	if (!shareLengths().includes(shareHours)) shareHours = shareStartHours();
 	body.innerHTML = `${s?.status === "failed" ? `<div class="caution">The last attempt failed: ${esc(s.error)}</div>` : ""}
 		<p>Opens a temporary public link (a random <code>trycloudflare.com</code> address) to a read-only copy of this report. Anyone with the link can see:</p>
 		<ul><li>v${viewing} of this report</li><li>the ${project} items, notes and git state the report reads</li></ul>
 		<p>Nothing they do changes the board. The board itself, other projects, bookmarks and the vault stay off the link.
-		It ends at the time you pick (you can extend it while it runs, up to 8 hours) or when you stop it. Restarting the board or closing the laptop doesn't end it early, and it never outlives its time: a link that runs out while the computer sleeps closes as soon as it wakes.</p>
-		<label class="share-hours">Keep it up for <select id="share-hours">${[1, 2, 4, 8].map((h) => `<option value="${h}"${h === shareHours ? " selected" : ""}>${h} hour${h > 1 ? "s" : ""}</option>`).join("")}</select></label>
+		It ends at the time you pick (you can extend it while it runs, up to ${hoursText(shareMax())} in all) or when you stop it. Restarting the board or closing the laptop doesn't end it early, and it never outlives its time: a link that runs out while the computer sleeps closes as soon as it wakes.</p>
+		<label class="share-hours">Keep it up for <select id="share-hours">${shareLengths().map((h) => `<option value="${h}"${h === shareHours ? " selected" : ""}>${hoursText(h)}</option>`).join("")}</select></label>
 		<p class="hint">cloudflared ${esc(shareCheck.version)}</p>`;
 	$("#share-hours").onchange = (e) => { shareHours = Number(e.target.value); };
 	actions.innerHTML = `<button type="button" class="primary" data-act="start">Start sharing</button>`;
@@ -2031,14 +2077,16 @@ function refreshReport() {
 
 // Secrets are encrypted here in the browser, with a key derived from the vault password. The server keeps
 // ciphertext and a hash of an auth token derived next to the key, never the password. Unlocking shows the
-// names; every value asks for the password again. Leaving the vault, or 5 idle minutes, locks it.
+// names; every value asks for the password again. Leaving the vault, or a few idle minutes, locks it.
 const ITERATIONS = 600_000;
-const IDLE_LOCK = 5 * 60e3;
-const SHOW_FOR = 20e3;
+// Settings → Privacy and security; read each time a timer starts, so an open vault picks a change up on its next one.
+const lockMinutes = () => setting("vault.lock-minutes") ?? 5;
+const showSeconds = () => setting("vault.show-seconds") ?? 20;
 const te = new TextEncoder(), td = new TextDecoder();
 const b64 = (bytes) => btoa(Array.from(new Uint8Array(bytes), (b) => String.fromCharCode(b)).join(""));
 const unb64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
-const vault = { info: undefined, error: "", key: null, auth: null, secrets: [], shown: new Map(), idle: 0 };
+// `then` is what to do right after unlocking ("rekey" when Settings → Privacy and security sent you here).
+const vault = { info: undefined, error: "", key: null, auth: null, secrets: [], shown: new Map(), idle: 0, then: null };
 // WebCrypto exists only in a secure context: localhost, not the LAN address of `wb serve --lan`.
 const canVault = () => window.isSecureContext && !!crypto.subtle;
 const ICON = {
@@ -2077,6 +2125,7 @@ async function loadSecrets() {
 }
 
 function lockVault() {
+	vault.then = null;
 	clearTimeout(vault.idle);
 	for (const s of vault.shown.values()) clearTimeout(s.timer);
 	vault.shown.clear();
@@ -2088,7 +2137,7 @@ function lockVault() {
 }
 function touchVault() {
 	clearTimeout(vault.idle);
-	if (vault.key) vault.idle = setTimeout(lockVault, IDLE_LOCK);
+	if (vault.key) vault.idle = setTimeout(lockVault, lockMinutes() * 60e3);
 }
 
 async function openVault() {
@@ -2097,6 +2146,11 @@ async function openVault() {
 		try { vault.info = await api("/api/vault"); } catch (e) { vault.error = e.message; }
 	}
 	renderVault();
+}
+
+function vaultTimesText() {
+	const m = lockMinutes(), s = showSeconds();
+	return `Locks when you leave the vault or after ${m} idle minute${m === 1 ? "" : "s"}. A shown value hides again after ${s} seconds.`;
 }
 
 const vaultCard = (title, text, form = "") =>
@@ -2121,7 +2175,11 @@ function renderVault() {
 		return el.querySelector("input").focus();
 	}
 	if (!vault.key) {
-		el.innerHTML = vaultCard("The vault is locked", "Enter the vault password to see your secrets' names. Showing or copying a value asks for it again.",
+		el.innerHTML = vault.then === "rekey"
+			? vaultCard("Change the vault password", "Enter the current password first. Then you choose the new one, and every secret is encrypted again under it.",
+				`<form id="vault-unlock" autocomplete="off"><input class="pw-input" type="password" name="pw" required placeholder="Current password" autocomplete="off" aria-label="Current password">
+				<div class="error"></div><button class="primary">Continue</button></form>`)
+			: vaultCard("The vault is locked", "Enter the vault password to see your secrets' names. Showing or copying a value asks for it again.",
 			`<form id="vault-unlock" autocomplete="off"><input class="pw-input" type="password" name="pw" required placeholder="Vault password" autocomplete="off">
 				<div class="error"></div><button class="primary">Unlock</button></form>`);
 		return el.querySelector("input").focus();
@@ -2151,7 +2209,7 @@ function renderVault() {
 		<button class="ghost sm" data-act="rekey">Change password</button>
 		<button class="ghost sm" data-act="lock">${icon("lock")} Lock</button></div>
 		<div class="vault-body">${groups || `<div class="empty">No secrets ${state.project ? "for this project " : ""}yet.</div>`}
-		<p class="hint">Locks when you leave the vault or after 5 idle minutes. A shown value hides again after 20 seconds.</p></div>`;
+		<p class="hint">${esc(vaultTimesText())} <a href="#settings/privacy">Change</a></p></div>`;
 }
 
 // Asks for the vault password again; resolves to the derived key and token, or null if cancelled.
@@ -2200,7 +2258,7 @@ async function secretValue(s, why) {
 }
 function showSecret(id, value) {
 	clearTimeout(vault.shown.get(id)?.timer);
-	vault.shown.set(id, { value, timer: setTimeout(() => { vault.shown.delete(id); renderVault(); }, SHOW_FOR) });
+	vault.shown.set(id, { value, timer: setTimeout(() => { vault.shown.delete(id); renderVault(); }, showSeconds() * 1e3) });
 	renderVault();
 }
 let toastTimer;
@@ -2256,6 +2314,15 @@ secretDlg.addEventListener("close", closeSecret);
 
 const rekeyDlg = $("#rekey-dlg");
 const rekeyForm = $("#rekey-form");
+// `fresh`: the current password was typed a moment ago to unlock for this, so it isn't asked again.
+let rekeyFresh = false;
+function openRekey(fresh) {
+	rekeyFresh = fresh && !!vault.key;
+	rekeyForm.cur.hidden = rekeyForm.cur.disabled = rekeyFresh;
+	touchVault();
+	rekeyDlg.showModal();
+	(rekeyFresh ? rekeyForm.pw : rekeyForm.cur).focus();
+}
 rekeyForm.addEventListener("submit", async (e) => {
 	e.preventDefault();
 	const err = $("#rekey-err");
@@ -2265,7 +2332,7 @@ rekeyForm.addEventListener("submit", async (e) => {
 	btn.disabled = true;
 	err.textContent = "Re-encrypting…";
 	try {
-		const old = await deriveVault(rekeyForm.cur.value);
+		const old = rekeyFresh ? { key: vault.key, auth: vault.auth } : await deriveVault(rekeyForm.cur.value);
 		if (old.auth !== vault.auth) return (err.textContent = "The current password is wrong.");
 		const salt = newSalt();
 		const nu = await deriveVault(rekeyForm.pw.value, salt, ITERATIONS);
@@ -2285,6 +2352,8 @@ rekeyForm.addEventListener("submit", async (e) => {
 });
 function closeRekey() {
 	rekeyForm.reset();
+	rekeyFresh = false;
+	rekeyForm.cur.hidden = rekeyForm.cur.disabled = false;
 	$("#rekey-err").textContent = "";
 	if (rekeyDlg.open) rekeyDlg.close();
 }
@@ -2317,6 +2386,8 @@ vaultView.addEventListener("submit", async (e) => {
 		}
 		touchVault();
 		renderVault();
+		// Just typed for this, so the change asks only for the new password.
+		if (vault.then === "rekey") { vault.then = null; openRekey(true); }
 	} catch (e2) {
 		vault.key = vault.auth = null;
 		err.textContent = e2.message === "wrong password" ? "Wrong password." : e2.message;
@@ -2331,7 +2402,7 @@ vaultView.addEventListener("click", async (e) => {
 	if (act === "env") return openEnv();
 	if (act === "add") return openSecret({ project: state.project });
 	if (act === "lock") return lockVault();
-	if (act === "rekey") return rekeyDlg.showModal();
+	if (act === "rekey") return openRekey(false);
 	const s = vault.secrets.find((x) => x.id === Number(b.closest("[data-secret]")?.dataset.secret));
 	if (!s) return;
 	try {
@@ -2775,9 +2846,230 @@ async function setDataPoll() {}
 /* ---------- end: Data ---------- */
 
 /* ---------- Settings → Privacy and security (tab "privacy") ---------- */
-function setPrivacyRender() { return `<p class="set-intro">Coming soon.</p>`; }
-async function setPrivacyLoad() {}
-async function setPrivacyPoll() {}
+// What's exposed and how secrets behave: the vault's timers and password, share links (their lengths and every live
+// one), who can reach the board, and every project's data sources. /api/settings/privacy never carries a secret.
+const privacy = {
+	info: null,
+	shares: null,
+	error: "",
+	unsource: "",
+	// Separate so it can be swapped for a stub while trying the list out (never start a real share for that).
+	fetchShares: () => api("/api/shares"),
+};
+async function setPrivacyLoad() {
+	const [info, shares] = await Promise.allSettled([api("/api/settings/privacy"), privacy.fetchShares()]);
+	if (info.status === "fulfilled") privacy.info = info.value;
+	if (shares.status === "fulfilled") privacy.shares = shares.value;
+	const failed = [info, shares].find((r) => r.status === "rejected");
+	privacy.error = failed ? failed.reason.message : "";
+	renderSettings();
+}
+function setPrivacyPoll() { return setPrivacyLoad(); }
+
+const pvMin = (n) => `${n} minute${n === 1 ? "" : "s"}`;
+function pvLeft(ms) {
+	const m = Math.ceil(ms / 60e3);
+	if (m <= 1) return "under a minute left";
+	return m < 60 ? `${m} min left` : `${Math.floor(m / 60)} h${m % 60 ? ` ${m % 60} min` : ""} left`;
+}
+const pvFact = (status, mark, title, text) =>
+	`<div class="pv-fact"><span class="sdot ${status}" aria-hidden="true"></span><div><b>${title}</b><small>${text}</small></div><span class="st ${status === "off" ? "" : status}">${mark}</span></div>`;
+
+function pvVault(info) {
+	const v = info?.vault;
+	const status = !info
+		? optRow({ label: "Vault", hint: "Loading…", control: "" })
+		: v
+			? optRow({
+				label: `<span class="sdot ok" aria-hidden="true"></span>Set up`,
+				hint: `${v.secrets} secret${v.secrets === 1 ? "" : "s"} · password last set ${esc(ago(v.changed_at))}`,
+				control: `<button type="button" class="ghost sm" data-privacy="open-vault">Open vault</button><button type="button" class="ghost sm" data-privacy="rekey">Change password</button>`,
+			})
+			: optRow({
+				label: `<span class="sdot off" aria-hidden="true"></span>Not set up`,
+				hint: "Keep API keys and passwords here, encrypted with a password only you know.",
+				control: `<button type="button" class="primary sm" data-privacy="open-vault">Set up the vault</button>`,
+			});
+	const lock = setting("vault.lock-minutes"), show = setting("vault.show-seconds");
+	const rows = [
+		status,
+		optRow({
+			label: "Lock after",
+			hint: `Locks after ${pvMin(lock)} without a click or key press in the vault. Leaving the vault always locks it.`,
+			bind: { setting: "vault.lock-minutes" },
+			control: ctlNumber({ setting: "vault.lock-minutes" }, { min: 1, max: 60, unit: "idle minutes", label: "Lock the vault after this many idle minutes (1 to 60)" }),
+		}),
+		optRow({
+			label: "Hide a shown value after",
+			hint: `A value you show stays on screen ${show} seconds, then hides again.`,
+			bind: { setting: "vault.show-seconds" },
+			control: ctlNumber({ setting: "vault.show-seconds" }, { min: 5, max: 120, unit: "seconds", label: "Hide a shown value after this many seconds (5 to 120)" }),
+		}),
+	];
+	if (v)
+		rows.push(`<div class="so-wide pv-reset"><div class="so-label">Forgot the password?</div>
+			<p class="caution">Nobody can recover the secrets: not the board, not this computer. This command deletes the vault and <b>every secret in it</b>, for good, so you can set it up again.</p>
+			${cmdRow("wb vault reset --yes")}</div>`);
+	return optGroup("Vault", rows, "Secrets are encrypted in your browser with your password; the board keeps only the encrypted text.");
+}
+
+function pvShareRow(s) {
+	const now = Date.now();
+	const atCap = s.expiresAt >= s.maxAt;
+	const head = `<div class="pv-share-head"><b>${esc(s.title)}</b><small>${esc(projectName(s.project))} · v${s.version}</small></div>`;
+	if (s.status === "failed")
+		return `<div class="so-wide pv-share" data-report="${s.report}"><span class="sdot bad" aria-hidden="true"></span><div class="pv-share-main">${head}
+			<small class="pv-err">Failed: ${esc(s.error)}</small></div>
+			<div class="pv-share-tools"><button type="button" class="ghost sm" data-privacy="stop" data-report="${s.report}">Clear</button></div></div>`;
+	const link = s.url
+		? `<a class="pv-url" href="${esc(s.url)}" target="_blank" rel="noreferrer" title="Open the link">${esc(s.url.replace(/^https:\/\//, ""))}</a>`
+		: `<span class="pv-url muted">Starting…</span>`;
+	return `<div class="so-wide pv-share" data-report="${s.report}"><span class="sdot ${s.status === "ready" ? "ok" : "warn"}" aria-hidden="true"></span>
+		<div class="pv-share-main">${head}${link}
+			<small>Ends at ${esc(clockOf(s.expiresAt))} · ${pvLeft(s.expiresAt - now)}${atCap ? " · at the limit" : ""}</small></div>
+		<div class="pv-share-tools">
+			${s.url ? `<button type="button" class="ghost sm" data-copy="${esc(s.url)}" aria-label="Copy the link to ${esc(s.title)}">Copy</button><a class="ghost sm" href="${esc(s.url)}" target="_blank" rel="noreferrer" aria-label="Open the link to ${esc(s.title)}">Open ↗</a>` : ""}
+			<button type="button" class="ghost sm" data-privacy="extend" data-report="${s.report}"${atCap || s.status !== "ready" ? " disabled" : ""} title="${atCap ? esc(`A link runs at most ${hoursText(shareMax())}`) : `Until ${esc(clockOf(Math.min(s.expiresAt + 3600e3, s.maxAt)))}`}">Extend by 1 hour</button>
+			<button type="button" class="ghost sm danger" data-privacy="stop" data-report="${s.report}">Stop</button></div></div>`;
+}
+
+function pvSharing() {
+	const max = shareMax();
+	const lengths = shareLengths().map((h) => [h, hoursText(h)]);
+	const live = privacy.shares;
+	const running = live ? live.filter((s) => s.status !== "failed").length : 0;
+	const rows = [
+		optRow({
+			label: "Longest a link can run",
+			hint: "Counting extensions. Lowering it doesn't cut a running link short; it just can't be extended past it.",
+			bind: { setting: "share.max-hours" },
+			control: ctlSelect({ setting: "share.max-hours" }, SHARE_LENGTHS.map((h) => [h, hoursText(h)]), { label: "Longest a share link can run" }),
+		}),
+		optRow({
+			label: "New links start at",
+			hint: "What the share dialog picks first; you can change it there before starting.",
+			bind: { setting: "share.default-hours" },
+			control: ctlSelect({ setting: "share.default-hours" }, lengths, { label: "Length a new share link starts at" }),
+		}),
+		optRow({
+			label: `Live links${running ? ` <span class="pv-count">${running}</span>` : ""}`,
+			hint: "Every report shared right now. Anyone with a link sees that one report, read-only.",
+			control: live?.length ? `<button type="button" class="ghost sm danger" data-privacy="stop-all">Stop all</button>` : "",
+		}),
+		...(!live
+			? [`<div class="so-wide set-empty">Loading…</div>`]
+			: live.length
+				? live.map(pvShareRow)
+				: [`<div class="so-wide set-empty">Nothing is shared right now.</div>`]),
+	];
+	return optGroup("Sharing", rows, `“Share” in a report's bar opens a temporary public link to a read-only copy of it, for up to ${hoursText(max)}.`);
+}
+
+function pvReach(info) {
+	const live = (privacy.shares ?? []).filter((s) => s.status !== "failed").length;
+	const facts = [
+		!info
+			? pvFact("off", "", "The board", "Loading…")
+			: info.lan
+				? pvFact("warn", "Your network", "The board: items, reports, links, trackers", `Listens on your network (<code>wb serve --lan</code>): anyone on it can open and change the board, as there's no login. Settings → Health shows the address for your phone.`)
+				: pvFact("ok", "This computer", "The board: items, reports, links, trackers", `Listens on this computer only (localhost:${esc(info.port)}). <code>wb serve --lan</code> would open it to your network.`),
+		pvFact("ok", "This computer", "Vault", "Answers only this computer, and only with the password. Nothing in it is readable without the password, not even by the board."),
+		pvFact("ok", "This computer", "Data sources", "Called only by the board's own page on this computer: not from the phone, other websites or share links."),
+		pvFact("ok", "This computer", "Settings and starting shares", "Changing settings, projects and tracker commands, and starting or stopping a share, work only on this computer."),
+		pvFact("ok", "Sandboxed", "Reports", "Each runs in a sandbox: it reads the board only through <code>wb</code>, can't reach the vault, and changes nothing on the board but its own saved state."),
+		pvFact("ok", "Blocked", "Other websites", "Every change to the board must be sent as JSON, which a browser won't do from another site, so no other page can change the board."),
+		live
+			? pvFact("warn", `${live} public link${live === 1 ? "" : "s"}`, "Share links", "Each shows one report, read-only, to anyone with the link, until it ends. See Sharing above.")
+			: pvFact("off", "None", "Share links", "Nothing is shared. A link shows one report, read-only, to anyone who has it, and nothing else."),
+	];
+	return optGroup("Who can reach what", [`<div class="so-wide pv-facts">${facts.join("")}</div>`], "On this computer, right now.");
+}
+
+function pvSources(info) {
+	if (!info) return optGroup("Data sources", [`<div class="so-wide set-empty">Loading…</div>`]);
+	const list = info.sources, key = info.sourcesKey;
+	const keyRow = optRow({
+		label: `<span class="sdot ${key.exists ? "ok" : list.length ? "bad" : "off"}" aria-hidden="true"></span>Key file`,
+		hint: `<code class="pv-path">${esc(key.path)}</code> ·${key.exists ? "Seals their headers. Anyone who can read your home folder can use the sources." : list.length ? "Missing: the sources below can't be opened. Add them again with wb source add." : "Made by the first wb source add."}`,
+		control: `<span class="st ${key.exists ? "ok" : list.length ? "bad" : ""}">${key.exists ? "Present" : "Missing"}</span>`,
+	});
+	const row = (s) => {
+		const id = `${s.project}/${s.name}`;
+		const open = privacy.unsource === id;
+		return `<div class="so-wide pv-src"><div class="pv-src-main">
+			<div class="pv-src-head"><b>${esc(s.name)}</b><span class="pv-proj">${esc(projectName(s.project))}</span><span class="pv-mode ${s.write ? "rw" : ""}">${s.write ? "Read and write" : "Read-only"}</span></div>
+			<code class="pv-base">${esc(s.base_url)}</code>
+			<small>${s.header_names.length ? `Sends ${s.header_names.map((h) => `<code>${esc(h)}</code>`).join(", ")} (values hidden)` : "No headers"}</small></div>
+			<button type="button" class="ghost sm" data-privacy="unsource" data-src="${esc(id)}" aria-expanded="${open}">Remove…</button>
+			${open ? `<div class="pv-src-rm"><span class="muted">Remove it in a terminal (its sealed headers go with it; reports that call it get an error):</span>${cmdRow(`wb unsource ${s.name} --project ${s.project}`)}</div>` : ""}</div>`;
+	};
+	const rows = [
+		keyRow,
+		...(list.length
+			? list.map(row)
+			: [`<div class="so-wide set-empty">No data sources. A report can call an API that needs a secret through one, added with <code>wb source add</code> (<code>wb help</code> shows how).</div>`]),
+	];
+	return optGroup("Data sources", rows, "APIs that reports call through the board, which adds the secret headers itself. A page never sees them.");
+}
+
+function setPrivacyRender() {
+	const info = privacy.info;
+	return `<p class="set-intro">What's open to whom, and how long secrets and share links stay out.</p>
+		${privacy.error ? `<p class="error">${esc(privacy.error)}</p>` : ""}
+		${pvVault(info)}${pvSharing()}${pvReach(info)}${pvSources(info)}`;
+}
+
+onSettingsChange(async (key) => {
+	// The vault's hint shows the current times.
+	if ((!key || key.startsWith("vault.")) && vault.key && !$("#vault-view").hidden) renderVault();
+	// Lowering the most below where new links start moves the start down with it.
+	if (key === "share.max-hours" && canChangeBoard() && setting("share.default-hours") > shareMax()) {
+		try {
+			state.settings = await api("/api/settings", { method: "PATCH", body: JSON.stringify({ "share.default-hours": shareMax() }) });
+			toast(`Saved. New links now start at ${hoursText(shareMax())}`);
+		} catch (e) { toast(e.message); }
+		renderSettings();
+	}
+	// A refused value (out of range) puts the field back: the page is otherwise unchanged, so it wouldn't repaint.
+	const el = key && settings.tab === "privacy" && $(`#settings-view input[data-setting="${CSS.escape(key)}"]`);
+	if (el && String(el.value) !== String(setting(key))) $("#settings-view")._html = "";
+});
+
+$("#settings-view").addEventListener("click", async (e) => {
+	const b = e.target.closest("[data-privacy]");
+	if (!b) return;
+	const act = b.dataset.privacy;
+	const id = Number(b.dataset.report);
+	const s = privacy.shares?.find((x) => x.report === id);
+	if (act === "open-vault") return void (location.hash = "#vault");
+	if (act === "rekey") {
+		// Through the vault's own unlock: it asks the current password once, then the new one.
+		vault.then = "rekey";
+		return void (location.hash = "#vault");
+	}
+	if (act === "unsource") {
+		privacy.unsource = privacy.unsource === b.dataset.src ? "" : b.dataset.src;
+		return renderSettings();
+	}
+	try {
+		if (act === "extend") {
+			b.disabled = true;
+			const r = await api(`/api/reports/${id}/share/extend`, { method: "POST" });
+			toast(`Sharing until ${clockOf(r.expiresAt)}`);
+		} else if (act === "stop") {
+			if (s && s.status !== "failed" && !confirm(`Stop sharing “${s.title}”? The link stops working at once, for everyone who has it.`)) return;
+			await api(`/api/reports/${id}/share`, { method: "DELETE" });
+			if (s?.status !== "failed") toast("Stopped sharing");
+		} else if (act === "stop-all") {
+			const n = privacy.shares?.length ?? 0;
+			if (!confirm(`Stop all ${n} share link${n === 1 ? "" : "s"}? They stop working at once, for everyone who has them.`)) return;
+			await api("/api/shares/stop-all", { method: "POST" });
+			toast("Stopped every share");
+		} else return;
+	} catch (err) { toast(err.message); }
+	await setPrivacyLoad();
+	if (state.report) refreshShares();
+});
 /* ---------- end: Privacy and security ---------- */
 
 /* ---------- Settings → Appearance (tab "look") ---------- */
