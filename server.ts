@@ -219,7 +219,8 @@ export function serve({ lan = false } = {}) {
 		// The first look at pull requests per project can take gh several seconds.
 		idleTimeout: 30,
 		routes: {
-			"/": () => new Response(page, { headers: { "content-type": "text/html; charset=utf-8" } }),
+			// no-cache: the browser asks again each time (cheap, it gets 304), so an updated board shows at once.
+			"/": () => new Response(page, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-cache" } }),
 			"/favicon.svg": () =>
 				new Response(icon, { headers: { "content-type": "image/svg+xml", "cache-control": "max-age=3600" } }),
 			"/api/projects": {
