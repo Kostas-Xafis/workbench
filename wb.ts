@@ -33,6 +33,7 @@ import {
 	type ItemPatch,
 	type Status,
 } from "./db";
+import { backupsKeep, exportAll } from "./db";
 import { currentDay, dayData, dayPage, publishDay } from "./day";
 import { PORT } from "./server";
 import { addSource, KEY_PATH, listSources, removeSource } from "./sources";
@@ -107,8 +108,10 @@ Items are named wb-xxxx (e.g. wb-k3f9); commands take that, the bare k3f9, or an
                                    each) · "In review" · JSON. [--note "…"] [--resets YYYY-MM-DD]
   wb untrack <ref>                 delete a tracker and its history
   wb mcp                           MCP server on stdio, for agents (Claude Code: claude mcp add -s user wb -- wb mcp)
-  wb backup                        copy the database now (also done nightly by the board; newest 14 kept)
+  wb backup                        copy the database now (also done nightly by the board); keeps the newest 14,
+                                   or as many as Settings → Data says
   wb backups                       list them
+  wb export > file.json            everything on the board as JSON (not the vault, nor data sources' header values)
   wb vault                         whether the vault is set up, and how many secrets it holds
   wb vault reset --yes             forgot the password: delete the vault and every secret in it
   wb projects                      list projects
@@ -470,8 +473,8 @@ try {
 		}
 		case "backup": {
 			console.log(backup(db));
-			const pruned = pruneBackups();
-			if (pruned) console.log(`removed ${pruned} older backup${pruned > 1 ? "s" : ""}`);
+			const pruned = pruneBackups(backupsKeep(db));
+			if (pruned) console.log(`removed ${pruned} older backup${pruned > 1 ? "s" : ""} (keeping the newest ${backupsKeep(db)})`);
 			break;
 		}
 		case "backups": {
@@ -479,6 +482,12 @@ try {
 			if (!list.length) console.log(`no backups yet in ${BACKUP_DIR}`);
 			for (const b of list)
 				console.log(`${b.at.toISOString().slice(0, 16).replace("T", " ")}  ${(b.bytes / 1024).toFixed(0).padStart(6)} KB  ${b.file}`);
+			if (list.length) console.log(`${list.length} of at most ${backupsKeep(db)} kept (Settings → Data)`);
+			break;
+		}
+		case "export": {
+			if (process.stdout.isTTY) die("wb export writes JSON: send it to a file, e.g. wb export > workbench-export.json");
+			process.stdout.write(`${JSON.stringify(exportAll(db), null, 1)}\n`);
 			break;
 		}
 		case "note": {

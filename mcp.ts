@@ -666,7 +666,7 @@ const TOOLS: Tool[] = [
 	{
 		name: "drop_item",
 		title: "Drop an item",
-		description: "Won't be done: closes the item as dropped, with why. It stays in the history; nothing is deleted.",
+		description: "Won't be done: closes the item as dropped, with why. It stays in the history (unless Kostas has the board remove closed items after a while).",
 		input: obj({ ref: REF, reason: str("Why it's dropped.") }, ["ref"]),
 		hints: WRITE,
 		run(a, c) {

@@ -105,7 +105,22 @@ const NOTIFY: Defs = {
 /* ---------- end: Notifications ---------- */
 
 /* ---------- Data ---------- */
+// Read where they're used: server.ts (nightly backup and tidy), `wb backup`, trackers.ts (history), db.ts (tidy).
 const DATA: Defs = {
+	"backups.keep": { about: "Backups kept", default: 14, check: int(1, 90) },
+	// 0 = every version.
+	"keep.report-versions": { about: "Versions kept per report", default: 0, check: int(0, 500) },
+	"keep.tracker-history": { about: "Readings kept per tracker", default: 2000, check: int(100, 10000) },
+	// 0 = forever; under 30 days a finished item would vanish before anyone looked back at it.
+	"keep.closed-items-days": {
+		about: "Days to keep done and dropped items",
+		default: 0,
+		check: (v) => {
+			const n = int(0, 3650)(v);
+			if (n && n < 30) throw new Error("0 (keep them) or a whole number of days from 30 to 3650");
+			return n;
+		},
+	},
 };
 /* ---------- end: Data ---------- */
 

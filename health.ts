@@ -5,7 +5,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { homedir, networkInterfaces } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
-import { BACKUP_DIR, DB_PATH, listBackups, projects, type Db, type Project } from "./db";
+import { BACKUP_DIR, backupsKeep, DB_PATH, listBackups, projects, type Db, type Project } from "./db";
 import { qrSvg } from "./qr";
 import { checkShare } from "./share";
 import { KEY_PATH, listSources } from "./sources";
@@ -109,8 +109,8 @@ async function eas(db: Db): Promise<Check | null> {
 	return { ...base, status: "ok", detail: `Signed in as ${who}`, fix: [] };
 }
 
-function backups(): Check {
-	const base = { key: "backups", title: "Backups", use: "A copy of the database every day, the newest 14 kept" };
+function backups(db: Db): Check {
+	const base = { key: "backups", title: "Backups", use: `A copy of the database every day, the newest ${backupsKeep(db)} kept` };
 	const list = listBackups();
 	if (!list.length) return { ...base, status: "bad", detail: `None yet in ${BACKUP_DIR}.`, fix: [{ text: "Make one now:", cmd: "wb backup" }] };
 	const newest = list[0].at.getTime();
@@ -196,7 +196,7 @@ async function systemctl(...args: string[]) {
 	return r.out.trim().split("\n")[0] ?? "";
 }
 
-async function startup(): Promise<Health["startup"]> {
+export async function startup(): Promise<Health["startup"]> {
 	const supported = process.platform === "linux" && !!Bun.which("systemctl");
 	const unitPath = join(homedir(), ".config/systemd/user/workbench.service");
 	const server = resolve(import.meta.dir, "server.ts");
@@ -220,7 +220,7 @@ export async function health(db: Db, { port, lan }: { port: number; lan: boolean
 	const list = projects(db);
 	const archived = new Set(list.filter((p) => p.archived_at).map((p) => p.slug));
 	const checks = (
-		await Promise.all([git(), gh(db), cloudflared(), eas(db), backups(), trackers(db, archived), folders(list), sourcesKey(db)])
+		await Promise.all([git(), gh(db), cloudflared(), eas(db), backups(db), trackers(db, archived), folders(list), sourcesKey(db)])
 	).filter((c): c is Check => !!c);
 	const wbBin = Bun.which("wb", { PATH: await shellPath() });
 	const urls = lan ? lanUrls(port) : [];
