@@ -1,8 +1,9 @@
 import { projects, publishReport, reportHtml, type Db, type Item, type Project } from "./db";
 import { githubWeb } from "./git";
+import { dayStartHour, yourName } from "./settings";
 
-/** A work day runs from this hour to the same hour next morning, so late nights count as the day they belong to. */
-export const DAY_START_HOUR = 5;
+// A work day runs from the board's "day.start" hour to the same hour next morning, so late nights count as the day
+// they belong to. A page keeps the hours it was first published with (see publishDay).
 
 type DayNote = { at: string; author: string; text: string };
 type DayItem = Pick<Item, "ref" | "title" | "kind" | "owner" | "priority" | "branch"> & {
@@ -15,23 +16,25 @@ type DayItem = Pick<Item, "ref" | "title" | "kind" | "owner" | "priority" | "bra
 type DayCommit = { hash: string; short: string; at: string; author: string; subject: string; branch: string; url: string };
 type DayReport = { id: number; title: string; n: number; at: string };
 type DayProject = { slug: string; name: string; items: DayItem[]; commits: DayCommit[]; reports: DayReport[]; error?: string };
-export type DayData = { day: string; from: string; to: string; generated: string; projects: DayProject[] };
+/** `name`: who the owner "kostas" is, as the page says it. */
+export type DayData = { day: string; from: string; to: string; generated: string; name: string; projects: DayProject[] };
 
 const sqlTime = (d: Date) => d.toISOString().slice(0, 19).replace("T", " ");
 const isoFromSql = (s: string) => `${s.replace(" ", "T")}Z`;
 const localDate = (d: Date) =>
 	`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
-/** The work day that `now` falls in: before DAY_START_HOUR it is still yesterday. */
-export function currentDay(now = new Date()) {
-	return localDate(new Date(now.getTime() - DAY_START_HOUR * 3600_000));
+/** The work day that `now` falls in: before the day's start hour it is still the day before. */
+export function currentDay(db: Db, now = new Date()) {
+	return localDate(new Date(now.getTime() - dayStartHour(db) * 3600_000));
 }
 
-export function dayWindow(day: string) {
+/** From `startHour` on `day` to the same hour the next morning, local time. */
+export function dayWindow(day: string, startHour: number) {
 	if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) throw new Error(`"${day}" is not a date (YYYY-MM-DD)`);
 	const [y, m, d] = day.split("-").map(Number);
-	const from = new Date(y, m - 1, d, DAY_START_HOUR);
-	const to = new Date(y, m - 1, d + 1, DAY_START_HOUR);
+	const from = new Date(y, m - 1, d, startHour);
+	const to = new Date(y, m - 1, d + 1, startHour);
 	if (Number.isNaN(from.getTime()) || localDate(from) !== day) throw new Error(`no such date ${day}`);
 	return { from, to };
 }
@@ -69,9 +72,15 @@ async function commits(p: Project, from: Date, to: Date): Promise<DayCommit[]> {
 	return out.sort((a, b) => a.at.localeCompare(b.at));
 }
 
-/** Everything that moved in the work day: items added, started, noted, waiting, finished or dropped, commits, reports. */
-export async function dayData(db: Db, day: string, only?: string): Promise<DayData> {
-	const { from, to } = dayWindow(day);
+/** The date of `day` (at noon, clear of any DST jump), for what doesn't depend on the hours. */
+const dateOf = (day: string) => dayWindow(day, 12).from;
+
+/**
+ * Everything that moved in the work day: items added, started, noted, waiting, finished or dropped, commits,
+ * reports. The day starts at `startHour`, by default the board's setting now.
+ */
+export async function dayData(db: Db, day: string, only?: string, startHour = dayStartHour(db)): Promise<DayData> {
+	const { from, to } = dayWindow(day, startHour);
 	const range = { $from: sqlTime(from), $to: sqlTime(to) };
 	const touched = db
 		.query(
@@ -137,12 +146,11 @@ export async function dayData(db: Db, day: string, only?: string): Promise<DayDa
 		};
 		if (dp.items.length || dp.commits.length || dp.reports.length || error) out.push(dp);
 	}
-	return { day, from: from.toISOString(), to: to.toISOString(), generated: new Date().toISOString(), projects: out };
+	return { day, from: from.toISOString(), to: to.toISOString(), generated: new Date().toISOString(), name: yourName(db), projects: out };
 }
 
 export function dayTitle(day: string) {
-	const { from } = dayWindow(day);
-	return `Day · ${from.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", year: "numeric" })}`;
+	return `Day · ${dateOf(day).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", year: "numeric" })}`;
 }
 
 export function dayPage(data: DayData, sig = "") {
@@ -164,6 +172,12 @@ function daySig(data: DayData) {
 	return `${final ? "final" : "open"}:${PAGE_SIG()}:${Bun.hash(JSON.stringify({ ...data, generated: "" })).toString(36)}`;
 }
 const pageSig = (html: string) => html.match(/<meta name="wb-day" content="([^"]*)"/)?.[1] ?? "";
+/** The hour a published day page starts at, read from its data. */
+function pageStartHour(html: string) {
+	const from = html.match(/"from":"([^"]+)"/)?.[1];
+	const t = from ? new Date(from) : null;
+	return t && !Number.isNaN(t.getTime()) ? t.getHours() : undefined;
+}
 
 /**
  * Publishes one project's page for a work day, as `day-<date>` in its "Days" group: only when that project
@@ -174,9 +188,11 @@ export async function publishDay(db: Db, day: string, project: string, author = 
 	const existing = db.query("SELECT id FROM reports WHERE project = ? AND name = ?").get(project, `day-${day}`) as {
 		id: number;
 	} | null;
-	const before = existing ? pageSig(reportHtml(db, existing.id)?.html ?? "") : "";
+	const html = existing ? (reportHtml(db, existing.id)?.html ?? "") : "";
+	const before = pageSig(html);
 	if (before.startsWith(`final:${PAGE_SIG()}:`) && !force) return null;
-	const data = await dayData(db, day, project);
+	// A page already out keeps its hours: a changed day start applies from the next day's page on.
+	const data = await dayData(db, day, project, pageStartHour(html) ?? dayStartHour(db));
 	if (!data.projects.length) return null;
 	const sig = daySig(data);
 	if (sig === before) return null;
@@ -186,13 +202,13 @@ export async function publishDay(db: Db, day: string, project: string, author = 
 
 /** The work days before `day`, newest first. */
 export function daysBefore(day: string, n: number) {
-	const { from } = dayWindow(day);
+	const from = dateOf(day);
 	return Array.from({ length: n }, (_, i) => localDate(new Date(from.getFullYear(), from.getMonth(), from.getDate() - 1 - i)));
 }
 
 /** Brings every project's day pages up to date: today's, and the last `back` days not yet published as over. */
 export async function publishDays(db: Db, back = 7) {
-	const today = currentDay();
+	const today = currentDay(db);
 	const out: { project: string; day: string; id: number; n: number }[] = [];
 	for (const day of [today, ...daysBefore(today, back)])
 		for (const p of projects(db)) {
@@ -335,11 +351,13 @@ function events(it) {
 const pretty = (t) => t.replace(/session: [^·]*?→ (local_\\S+|—)/g, (_, s) => s === "—" ? "session cleared" : "session linked");
 const isPlain = (t) => t !== "created" && !/^(\\w+: .* → .*|body edited|options: .*)( · .*)?$/.test(t);
 const refBtn = (ref) => \`<button class="ref" data-ref="\${ref}" title="Open on the board">wb-\${ref}</button>\`;
-const who = (a) => a ? \`<span class="who \${a === "kostas" ? "kostas" : ""}">\${esc(a)}</span>\` : "";
+// The owner "kostas" by the name the board had when the page was made.
+const NAME = D.name || "Kostas";
+const who = (a) => a ? \`<span class="who \${a === "kostas" ? "kostas" : ""}">\${esc(a === "kostas" ? NAME : a)}</span>\` : "";
 
 function itemRow(it) {
 	const ev = events(it).map(([t, cls]) => \`<span class="chip \${cls}">\${esc(t)}</span>\`).join("");
-	const owner = it.owner === "kostas" && it.status !== "done" && it.status !== "dropped" ? '<span class="chip kostas">needs Kostas</span>' : "";
+	const owner = it.owner === "kostas" && it.status !== "done" && it.status !== "dropped" ? \`<span class="chip kostas">needs \${esc(NAME)}</span>\` : "";
 	const notes = it.notes.map((n) => \`<li><span class="time">\${hm(n.at)}</span><span class="text \${isPlain(n.text) ? "" : "meta"}">\${who(n.author)}\${esc(pretty(n.text))}</span></li>\`).join("");
 	const span = it.notes.length > 1 ? \`\${hm(it.notes[0].at)}–\${hm(it.notes.at(-1).at)}\` : hm(it.notes[0].at);
 	return \`<details class="item"><summary>\${refBtn(it.ref)}<span class="title"><span class="kind">\${esc(it.kind)}</span>\${esc(it.title)}</span>

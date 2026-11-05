@@ -55,8 +55,47 @@ export const clock = (v: unknown): string => {
 };
 
 /* ---------- You and your day ---------- */
+// Who the board is for, when their work day starts, and who gets a new item when nobody says. The owner value
+// stays "kostas" in the data and the APIs (filters, --owner, owner: …): only what people and agents read says `name`.
+
+/** Every kind in the board's order, with who gets a new one when nobody says (db.ts KINDS lists the same kinds). */
+export const OWNER_DEFAULTS = {
+	decision: "kostas",
+	setup: "kostas",
+	check: "kostas",
+	review: "kostas",
+	bug: "agent",
+	task: "agent",
+	idea: "agent",
+} as const;
 const YOU: Defs = {
+	name: { about: "Your name", default: "Kostas", check: text(40, { empty: false }) },
+	"day.start": { about: "A work day starts at", default: 5, check: int(0, 23) },
+	...Object.fromEntries(
+		Object.entries(OWNER_DEFAULTS).map(([kind, owner]) => [
+			`owner.${kind}`,
+			{ about: `Who gets a new ${kind}`, default: owner, check: oneOf("kostas", "agent") },
+		]),
+	),
 };
+
+/** The name people and agents read for the owner "kostas". */
+export const yourName = (db: Db) => getSetting<string>(db, "name");
+/** The hour (0–23) a work day starts: before it, it is still the day before. */
+export const dayStartHour = (db: Db) => getSetting<number>(db, "day.start");
+/** Who gets a new item of this kind when nobody says. */
+export const ownerFor = (db: Db, kind: string) => getSetting<"kostas" | "agent">(db, `owner.${kind}`);
+/** "decision, setup, check and review default to Kostas; bug, task and idea to agents." as the settings are now. */
+export function ownerDefaultsText(db: Db) {
+	const name = yourName(db);
+	const kinds = Object.keys(OWNER_DEFAULTS);
+	const mine = kinds.filter((k) => ownerFor(db, k) === "kostas");
+	const theirs = kinds.filter((k) => !mine.includes(k));
+	const list = (ks: string[]) => (ks.length > 1 ? `${ks.slice(0, -1).join(", ")} and ${ks.at(-1)}` : ks[0]);
+	if (!theirs.length) return `Every kind defaults to ${name}.`;
+	if (!mine.length) return "Every kind defaults to agents.";
+	return `${list(mine)} default${mine.length === 1 ? "s" : ""} to ${name}; ${list(theirs)} to agents.`;
+}
 /* ---------- end: You and your day ---------- */
 
 /* ---------- Notifications ---------- */

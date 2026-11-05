@@ -2,7 +2,7 @@ import { Database } from "bun:sqlite";
 import { timingSafeEqual } from "node:crypto";
 import { mkdirSync, readdirSync, rmSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { createSettingsTable } from "./settings";
+import { createSettingsTable, ownerFor } from "./settings";
 import { createTables as createTrackerTables } from "./trackers";
 
 export const KINDS = ["task", "check", "review", "decision", "setup", "bug", "idea"] as const;
@@ -414,6 +414,8 @@ export function getItem(db: Db, id: number): (Item & { notes: Note[] }) | undefi
 export function addItem(db: Db, item: ItemPatch & { title: string; project: string }, author = ""): number {
 	item = { ...item, ...normalize(item) };
 	validate(item);
+	// Nobody said who acts: the board's setting for the kind (Settings → You and your day).
+	item.owner ||= ownerFor(db, item.kind || "task");
 	const fields = EDITABLE.filter((k) => item[k] !== undefined);
 	const row = Object.fromEntries([...fields.map((k) => [k, item[k]]), ["ref", newRef(db)]]);
 	const { id } = db

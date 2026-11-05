@@ -440,6 +440,16 @@ code.cmd { white-space: normal; overflow-wrap: anywhere; }
 }
 
 /* Settings → You and your day */
+.you-today { display: block; margin-top: 5px; color: var(--ink); font-variant-numeric: tabular-nums; }
+.you-tab .so-label .kic .gl { width: 15px; height: 15px; }
+.you-owner .radios label { max-width: 150px; overflow: hidden; text-overflow: ellipsis; }
+.you-tab .so-main code { font-size: 11.5px; white-space: nowrap; }
+@media (max-width: 760px) {
+	/* The name field goes under its label, full width, instead of squeezing the hint into a column. */
+	.you-tab .so:has(input[type=text]) .so-main { flex-basis: 100%; }
+	.you-tab .so-ctl input[type=text] { width: 100%; }
+	.you-tab .so-ctl:has(input[type=text]) { flex: 1; }
+}
 /* end: You and your day */
 
 /* Settings → Notifications */
@@ -1619,6 +1629,8 @@ function openItem(item) {
 	const isNew = !item.id;
 	setOptions(form.project, state.allProjects.filter((p) => !p.archived_at || p.slug === item.project).map((p) => ({ value: p.slug, label: p.name })));
 	for (const k of ["title", "status", "owner", "kind", "priority", "project", "area", "branch", "session", "body"]) form[k].value = item[k] ?? "";
+	ownerPicked = false;
+	labelOwner();
 	const options = optionsOf(item);
 	form.options.value = options.join("\n");
 	showOptionsField();
@@ -1644,7 +1656,7 @@ function openItem(item) {
 	$("#session-link").hidden = !href;
 	if (href) $("#session-link").href = href;
 	$("#history").hidden = isNew;
-	$("#history ol").innerHTML = (item.notes || []).map((n) => `<li><time title="${esc(n.at)} UTC">${ago(n.at)}</time>${n.author ? `<span class="who">${esc(n.author)}</span>` : ""}${esc(n.text)}</li>`).join("");
+	$("#history ol").innerHTML = (item.notes || []).map((n) => `<li><time title="${esc(n.at)} UTC">${ago(n.at)}</time>${n.author ? `<span class="who">${esc(n.author === "kostas" ? setting("name") || "Kostas" : n.author)}</span>` : ""}${esc(n.text)}</li>`).join("");
 	$("#note").value = "";
 	if (!dlg.open) dlg.showModal();
 	if (isNew) form.title.focus();
@@ -1673,6 +1685,14 @@ async function save(extra = {}) {
 form.addEventListener("submit", (e) => { e.preventDefault(); save(); });
 function showOptionsField() { $("#options-field").hidden = form.kind.value !== "decision"; }
 form.kind.addEventListener("change", showOptionsField);
+// Who acts: the owner "kostas" goes by the name in Settings, and a new item goes to whoever Settings says for its
+// kind, following the kind until you pick someone yourself.
+let ownerPicked = false;
+function labelOwner() { form.owner.querySelector('option[value="kostas"]').textContent = setting("name") || "Kostas"; }
+form.owner.addEventListener("change", () => { ownerPicked = true; });
+form.kind.addEventListener("change", () => {
+	if (!state.current?.id && !ownerPicked) form.owner.value = setting(`owner.${form.kind.value}`) ?? form.owner.value;
+});
 async function answerFromDialog(text) {
 	if (!text.trim() || !state.current?.id) return;
 	try { openItem(await answer(state.current.id, text)); } catch (e) { $("#err").textContent = e.message; }
@@ -1706,7 +1726,7 @@ $("#add-note").onclick = addNote;
 $("#note").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); addNote(); } });
 
 $("#new").onclick = () => openItem({
-	title: "", status: "todo", owner: "kostas", kind: "task", priority: 2,
+	title: "", status: "todo", owner: setting("owner.task") ?? "agent", kind: "task", priority: 2,
 	project: state.project || state.report?.project || state.projects[0]?.slug || "", area: "", branch: "", session: "", body: "",
 });
 
@@ -2757,9 +2777,74 @@ function renderSettings() {
 
 /* ---------- Settings → You and your day (tab "you") ---------- */
 // Owned by the "You and your day" section. render returns the tab's HTML; load runs when the tab opens; poll every 10 s.
-function setYouRender() { return `<p class="set-intro">Coming soon.</p>`; }
-async function setYouLoad() {}
-async function setYouPoll() {}
+// Board settings: `name` (what people and agents read for the owner "kostas", which stays as it is in the data),
+// `day.start` (the hour a work day turns over, for day pages) and `owner.<kind>` (who gets a new item of that kind).
+const YOU_KIND_HINT = {
+	decision: "A question only you can answer",
+	setup: "Accounts, consoles, stores",
+	check: "Trying something on a device",
+	review: "Reading a wording or a design",
+	bug: "Something broken",
+	task: "Code work",
+	idea: "Later, maybe",
+};
+let youError = "";
+const youName = () => setting("name") || "Kostas";
+const youTime = (t) => t.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+// The work day it is now with this start hour, worked out like day.ts does: before the hour, it's still the day before.
+function youToday(hour) {
+	const d = new Date(Date.now() - hour * 3600e3);
+	const from = new Date(d.getFullYear(), d.getMonth(), d.getDate(), hour);
+	const to = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1, hour);
+	const at = (t) => `${t.toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" })}, ${youTime(t)}`;
+	return `Today runs from ${at(from)} to ${at(to)}`;
+}
+function setYouRender() {
+	if (!Object.keys(state.settingDefs).length) return youError ? `<p class="error">${esc(youError)}</p>` : `<div class="set-empty">Loading…</div>`;
+	const name = youName();
+	const hour = Number(setting("day.start"));
+	const hours = Array.from({ length: 24 }, (_, h) => [h, youTime(new Date(2000, 0, 1, h))]);
+	const owners = SECTIONS.map(([kind, label]) => optRow({
+		label: `${kindIcon(kind)}${esc(label)}`,
+		hint: esc(YOU_KIND_HINT[kind] ?? ""),
+		bind: { setting: `owner.${kind}` },
+		control: `<span class="you-owner">${ctlRadios({ setting: `owner.${kind}` }, [["kostas", name], ["agent", "An agent"]], { label: `Who gets a new ${kind}` })}</span>`,
+	}));
+	return `<div class="you-tab"><p class="set-intro">Who the board is for, when your day turns over, and who new work goes to.</p>
+		${optGroup("You", [optRow({
+			label: "Your name",
+			hint: "What agents, the <code>wb</code> command and day pages call you. In commands you stay <code>--owner kostas</code>.",
+			bind: { setting: "name" },
+			control: ctlText({ setting: "name" }, { placeholder: "Kostas", maxlength: 40, label: "Your name" }),
+		})])}
+		${optGroup("Your day", [optRow({
+			label: "A work day starts at",
+			hint: `Until then, late nights count as the day before. Applies from the next day page on; pages already made keep their hours.<span class="you-today" aria-live="polite">${esc(youToday(hour))}</span>`,
+			bind: { setting: "day.start" },
+			control: ctlSelect({ setting: "day.start" }, hours, { label: "A work day starts at" }),
+		})])}
+		${optGroup("Who gets new items", owners, "When nobody says who acts: the New button, agents and <code>wb add</code>. Items already on the board stay with whoever has them.")}</div>`;
+}
+async function setYouLoad() {
+	youError = "";
+	if (Object.keys(state.settingDefs).length) return;
+	await loadSettings();
+	if (!Object.keys(state.settingDefs).length) youError = "Settings couldn't be loaded. Is the board running?";
+	renderSettings();
+}
+// Keeps "Today runs from …" current across the turn of the day.
+async function setYouPoll() {
+	if (!Object.keys(state.settingDefs).length) return setYouLoad();
+	renderSettings();
+}
+onSettingsChange((key) => {
+	labelOwner();
+	// A new item's owner follows its kind until you pick one, now with the changed setting.
+	if (dlg.open && !state.current?.id && !ownerPicked) form.owner.value = setting(`owner.${form.kind.value}`) ?? form.owner.value;
+	// An empty or padded name is refused or trimmed, while the field would keep what was typed.
+	const input = $('#settings-view input[data-setting="name"]');
+	if (key === "name" && input) input.value = youName();
+});
 /* ---------- end: You and your day ---------- */
 
 /* ---------- Settings → Notifications (tab "notify") ---------- */

@@ -33,10 +33,11 @@ import {
 	type ItemPatch,
 	type Status,
 } from "./db";
-import { currentDay, dayData, dayPage, DAY_START_HOUR, publishDay } from "./day";
+import { currentDay, dayData, dayPage, publishDay } from "./day";
 import { PORT } from "./server";
 import { addSource, KEY_PATH, listSources, removeSource } from "./sources";
 import { PRESETS } from "./presets";
+import { dayStartHour, ownerDefaultsText, yourName } from "./settings";
 import {
 	addTracker,
 	cleanReading,
@@ -56,11 +57,12 @@ import {
 	type TrackerPatch,
 } from "./trackers";
 
-const HELP = `wb — the workbench. Tasks for agents, checks and decisions for Kostas, across projects.
+/** Says the board's name for the owner "kostas", day start and owner defaults as they are set now. */
+const help = (name = yourName(db), start = `${String(dayStartHour(db)).padStart(2, "0")}:00`) => `wb — the workbench. Tasks for agents, checks and decisions for ${name}, across projects.
 Items are named wb-xxxx (e.g. wb-k3f9); commands take that, the bare k3f9, or an old number.
 
   wb ls [--mine | --agents] [--all] [--project P] [--kind K] [-q text]
-                                   open items (--all includes done); --mine = Kostas's
+                                   open items (--all includes done); --mine = ${name}'s
   wb show <ref>                     an item with its history
   wb add "title" [options]         new item, prints its id
   wb start <ref> [--session S] [--branch B]   an agent picks it up (session defaults to the
@@ -82,7 +84,7 @@ Items are named wb-xxxx (e.g. wb-k3f9); commands take that, the bare k3f9, or an
   wb reports [--project P]         reports and their versions
   wb day [YYYY-MM-DD] [--project P] [--out file.html]
                                    publish each project's page of everything that moved that work day
-                                   (${DAY_START_HOUR}:00 to ${DAY_START_HOUR}:00 next morning; default: the current one), in its
+                                   (${start} to ${start} next morning; default: the current one), in its
                                    group Days. The board does this by itself; --out writes one page of every project
   wb unreport <id>                 delete a report with all its versions
   wb source add <name> <baseUrl> [--project P] [--write] --header "Name: value" ...
@@ -118,15 +120,16 @@ Items are named wb-xxxx (e.g. wb-k3f9); commands take that, the bare k3f9, or an
 
 Options for add/edit:
   --kind task|check|review|decision|setup|bug|idea   (default task)
-  --owner kostas|agent       who has to act (default agent; check/review/decision/setup default kostas)
+  --owner kostas|agent       who has to act (kostas = ${name}). Without it, by kind:
+                             ${ownerDefaultsText(db)}
   --project P                default: the project whose path contains the current folder
   --area A  --p 1|2|3  --body "markdown"  --branch B  --session S  --source "file:line"
-  --option "choice"          repeat for each choice of a decision; Kostas answers with one click
+  --option "choice"          repeat for each choice of a decision; ${name} answers with one click
                              (--option alone makes the item a decision)
   --status todo|doing|waiting|done|dropped
 
 Kinds: task = code work · check = try it on a device · review = read wording/design ·
-decision = a question only Kostas can answer · setup = accounts, consoles, stores · bug · idea = later/maybe.`;
+decision = a question only ${name} can answer · setup = accounts, consoles, stores · bug · idea = later/maybe.`;
 
 const { values: o, positionals: args } = parseArgs({
 	args: Bun.argv.slice(2),
@@ -228,7 +231,9 @@ const KIND_MARK: Record<string, string> = {
 
 function row(i: Item, showProject: boolean) {
 	const status = i.status === "todo" ? "" : `[${i.status}] `;
-	const who = i.owner === "kostas" ? "K" : "A";
+	// The initial of the board's name, unless it reads as A (agent).
+	const initial = yourName(db)[0].toUpperCase();
+	const who = i.owner === "kostas" ? (initial === "A" ? "Y" : initial) : "A";
 	const session = i.session.startsWith("local_") ? i.session.slice(0, 14) : i.session;
 	const where = [i.branch && `⎇ ${i.branch}`, session && `@ ${session}`].filter(Boolean).join("  ");
 	return [
@@ -248,7 +253,7 @@ function show(id: number) {
 	const i = getItem(db, id)!;
 	console.log(`wb-${i.ref}  ${i.title}`);
 	console.log(
-		`${i.project} · ${i.kind} · owner ${i.owner} · ${i.status} · P${i.priority}${i.area ? ` · ${i.area}` : ""}`,
+		`${i.project} · ${i.kind} · for ${i.owner === "kostas" ? yourName(db) : "an agent"} · ${i.status} · P${i.priority}${i.area ? ` · ${i.area}` : ""}`,
 	);
 	if (i.branch || i.session)
 		console.log([i.branch && `branch ${i.branch}`, i.session && `session ${i.session}`].filter(Boolean).join(" · "));
@@ -395,7 +400,7 @@ async function serverUp() {
 
 const cmd = args[0];
 if (!cmd || o.help || cmd === "help") {
-	console.log(HELP);
+	console.log(help());
 	process.exit(0);
 }
 
@@ -429,7 +434,6 @@ try {
 					...patch,
 					title,
 					kind,
-					owner: patch.owner ?? (["check", "review", "decision", "setup"].includes(kind) ? "kostas" : "agent"),
 					project: currentProject()!,
 				},
 				author,
@@ -553,7 +557,7 @@ try {
 			break;
 		}
 		case "day": {
-			const day = args[1] ?? currentDay();
+			const day = args[1] ?? currentDay(db);
 			if (o.out) {
 				await Bun.write(o.out, dayPage(await dayData(db, day, o.project)));
 				console.log(o.out);
