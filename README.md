@@ -22,6 +22,7 @@ wb help        # everything else
 - **Secrets** live in the vault (the lock button at the top; see below).
 - **Agents** use the same `wb` command, or the workbench's MCP server (see below); the rules they follow are in each project's AGENTS.md ("Docs and tracking"). `wb start` records the desktop-app session, and the item's dialog links back to it.
 - **From the phone:** `wb serve --lan` listens on the LAN. There is no login, so only do that on a network you trust.
+- **Other web pages can't change the board:** every write to its API must be JSON, and a browser won't send that from another site (or from a report page) without asking the board first, which it never allows. Anything else gets 415.
 - **Start on login** (optional): a user service.
 
 ```ini

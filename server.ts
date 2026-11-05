@@ -62,12 +62,19 @@ import {
 
 export const PORT = Number(process.env.WB_PORT ?? 4321);
 const COMMAND_LOCAL = "a tracker's command can be set only from the board on this computer (localhost), or with wb tracker";
-// A POST with a JSON content type needs a CORS preflight from another site (or a sandboxed report page), which
-// the board never grants: so other pages can't write trackers, whatever else they can reach.
-const notJson = (req: Request) =>
-	(req.headers.get("content-type") ?? "").toLowerCase().startsWith("application/json")
-		? null
-		: Response.json({ error: "send JSON (content-type: application/json)" }, { status: 415 });
+
+/**
+ * Every write to the API is JSON. A browser sends a write from another site without asking first only as a form or
+ * a no-cors text/plain fetch; with application/json it asks first (a CORS preflight), which the board never grants.
+ * So no web page, and no sandboxed report page, can change the board, whatever it can reach. The board's own page
+ * always sends JSON; the CLI and agents don't use this API.
+ */
+function jsonOnly<R extends Request>(handler: (req: R, srv: Server<unknown>) => Response | Promise<Response>) {
+	return (req: R, srv: Server<unknown>): Response | Promise<Response> =>
+		(req.headers.get("content-type") ?? "").toLowerCase().startsWith("application/json")
+			? handler(req, srv)
+			: Response.json({ error: "the board takes writes as JSON only (content-type: application/json)" }, { status: 415 });
+}
 
 export function serve({ lan = false } = {}) {
 	const db = open();
@@ -209,7 +216,7 @@ export function serve({ lan = false } = {}) {
 					if (!getReport(db, id)) return json({ error: "not found" }, 404);
 					return new Response(reportState(db, id) ?? "null", { headers: { "content-type": "application/json" } });
 				},
-				PUT: async (req) => {
+				PUT: jsonOnly(async (req) => {
 					try {
 						if (Number(req.headers.get("content-length")) > REPORT_STATE_MAX) throw new Error("state is too big");
 						setReportState(db, Number(req.params.id), await req.text());
@@ -217,32 +224,30 @@ export function serve({ lan = false } = {}) {
 					} catch (e) {
 						return fail(e);
 					}
-				},
-				DELETE: (req) => {
+				}),
+				DELETE: jsonOnly((req) => {
 					try {
 						setReportState(db, Number(req.params.id), null);
 						return json({ ok: true });
 					} catch (e) {
 						return fail(e);
 					}
-				},
+				}),
 			},
 			// A report page's `wb.fetch`: its own project's data source, called here with the source's headers.
 			"/api/reports/:id/fetch": {
-				POST: async (req, srv) => {
+				POST: jsonOnly(async (req, srv) => {
 					if (!boardOnly(req, srv))
 						return json({ ok: false, status: 0, error: "data sources answer only the board on this computer (localhost)" }, 403);
 					const { name, path, opts } = await req.json().catch(() => ({}));
 					return json(await sourceFetch(db, Number(req.params.id), name, path, opts ?? {}));
-				},
+				}),
 			},
 			// Status trackers (trackers.ts). A command runs on this computer, so setting one is for the board's own
 			// page here only, like data sources; reading, recording and refreshing are open like the rest of the board.
 			"/api/trackers": {
 				GET: (req) => json(listTrackers(db, new URL(req.url).searchParams.get("project") || undefined)),
-				POST: async (req, srv) => {
-					const no = notJson(req);
-					if (no) return no;
+				POST: jsonOnly(async (req, srv) => {
 					try {
 						const body = await req.json();
 						if (body?.command && !boardOnly(req, srv)) return json({ error: COMMAND_LOCAL }, 403);
@@ -252,7 +257,7 @@ export function serve({ lan = false } = {}) {
 					} catch (e) {
 						return fail(e);
 					}
-				},
+				}),
 			},
 			"/api/tracker-presets": () =>
 				json(Object.fromEntries(Object.entries(PRESETS).map(([k, { read: _, ...p }]) => [k, p]))),
@@ -261,9 +266,7 @@ export function serve({ lan = false } = {}) {
 					const t = getTracker(db, Number(req.params.id));
 					return t ? json({ ...t, history: trackerHistory(db, t.id, 200) }) : json({ error: "not found" }, 404);
 				},
-				PATCH: async (req, srv) => {
-					const no = notJson(req);
-					if (no) return no;
+				PATCH: jsonOnly(async (req, srv) => {
 					try {
 						const id = Number(req.params.id);
 						const body = await req.json();
@@ -276,38 +279,34 @@ export function serve({ lan = false } = {}) {
 					} catch (e) {
 						return fail(e);
 					}
-				},
-				DELETE: (req) => {
+				}),
+				DELETE: jsonOnly((req) => {
 					try {
 						removeTracker(db, Number(req.params.id));
 						return json({ ok: true });
 					} catch (e) {
 						return fail(e);
 					}
-				},
+				}),
 			},
 			"/api/trackers/:id/refresh": {
-				POST: async (req) => {
-					const no = notJson(req);
-					if (no) return no;
+				POST: jsonOnly(async (req) => {
 					try {
 						return json(await refreshTracker(db, Number(req.params.id), "kostas"));
 					} catch (e) {
 						return fail(e);
 					}
-				},
+				}),
 			},
 			"/api/trackers/:id/reading": {
-				POST: async (req) => {
-					const no = notJson(req);
-					if (no) return no;
+				POST: jsonOnly(async (req) => {
 					try {
 						const { text, reading } = await req.json();
 						return json(recordReading(db, Number(req.params.id), reading ?? String(text ?? ""), "kostas"));
 					} catch (e) {
 						return fail(e);
 					}
-				},
+				}),
 			},
 			// MCP over Streamable HTTP, for agents on this computer (mcp.ts).
 			"/mcp": (req, srv) => mcpHttp(req, db, { loopback: loopback(req, srv) }),
@@ -333,7 +332,7 @@ export function serve({ lan = false } = {}) {
 			"/api/shares": (req, srv) =>
 				loopback(req, srv) ? json(listShares()) : json({ error: "sharing starts only on this computer" }, 403),
 			"/api/reports/:id/share": {
-				POST: async (req, srv) => {
+				POST: jsonOnly(async (req, srv) => {
 					if (!loopback(req, srv)) return json({ error: "sharing starts only on this computer" }, 403);
 					try {
 						const { version, hours } = await req.json().catch(() => ({}));
@@ -342,32 +341,32 @@ export function serve({ lan = false } = {}) {
 					} catch (e) {
 						return fail(e);
 					}
-				},
-				DELETE: (req, srv) => {
+				}),
+				DELETE: jsonOnly((req, srv) => {
 					if (!loopback(req, srv)) return json({ error: "sharing starts only on this computer" }, 403);
 					stopShare(Number(req.params.id));
 					return json(listShares());
-				},
+				}),
 			},
 			"/api/reports/:id/share/extend": {
-				POST: (req, srv) => {
+				POST: jsonOnly((req, srv) => {
 					if (!loopback(req, srv)) return json({ error: "sharing starts only on this computer" }, 403);
 					try {
 						return json(extendShare(Number(req.params.id)));
 					} catch (e) {
 						return fail(e);
 					}
-				},
+				}),
 			},
 			"/api/links": {
 				GET: () => json(listLinks(db)),
-				POST: async (req) => {
+				POST: jsonOnly(async (req) => {
 					try {
 						return json({ id: addLink(db, await req.json()) }, 201);
 					} catch (e) {
 						return fail(e);
 					}
-				},
+				}),
 			},
 			// Fetched once and kept in the database; a failed lookup is retried after a day.
 			"/api/links/:id/icon": async (req) => {
@@ -389,32 +388,32 @@ export function serve({ lan = false } = {}) {
 				});
 			},
 			"/api/links/icons/refresh": {
-				POST: () => {
+				POST: jsonOnly(() => {
 					clearIcon(db);
 					return json(listLinks(db));
-				},
+				}),
 			},
 			"/api/links/:id": {
-				PATCH: async (req) => {
+				PATCH: jsonOnly(async (req) => {
 					try {
 						updateLink(db, Number(req.params.id), await req.json());
 						return json(listLinks(db));
 					} catch (e) {
 						return fail(e);
 					}
-				},
-				DELETE: (req) => {
+				}),
+				DELETE: jsonOnly((req) => {
 					try {
 						removeLink(db, Number(req.params.id));
 						return json(listLinks(db));
 					} catch (e) {
 						return fail(e);
 					}
-				},
+				}),
 			},
 			"/api/vault": {
 				GET: async (req, srv) => (await vaultGate(req, srv, { auth: false })) ?? json(vaultInfo(db)),
-				POST: async (req, srv) => {
+				POST: jsonOnly(async (req, srv) => {
 					const no = await vaultGate(req, srv, { auth: false });
 					if (no) return no;
 					try {
@@ -423,10 +422,10 @@ export function serve({ lan = false } = {}) {
 					} catch (e) {
 						return fail(e);
 					}
-				},
+				}),
 			},
 			"/api/vault/rekey": {
-				POST: async (req, srv) => {
+				POST: jsonOnly(async (req, srv) => {
 					const no = await vaultGate(req, srv);
 					if (no) return no;
 					try {
@@ -436,11 +435,11 @@ export function serve({ lan = false } = {}) {
 					} catch (e) {
 						return fail(e);
 					}
-				},
+				}),
 			},
 			"/api/secrets": {
 				GET: async (req, srv) => (await vaultGate(req, srv)) ?? json(listSecrets(db)),
-				POST: async (req, srv) => {
+				POST: jsonOnly(async (req, srv) => {
 					const no = await vaultGate(req, srv);
 					if (no) return no;
 					try {
@@ -448,7 +447,7 @@ export function serve({ lan = false } = {}) {
 					} catch (e) {
 						return fail(e);
 					}
-				},
+				}),
 			},
 			"/api/secrets/:id": {
 				GET: async (req, srv) => {
@@ -457,7 +456,7 @@ export function serve({ lan = false } = {}) {
 					const value = secretValue(db, Number(req.params.id));
 					return value ? json({ value }) : json({ error: "not found" }, 404);
 				},
-				PATCH: async (req, srv) => {
+				PATCH: jsonOnly(async (req, srv) => {
 					const no = await vaultGate(req, srv);
 					if (no) return no;
 					try {
@@ -466,8 +465,8 @@ export function serve({ lan = false } = {}) {
 					} catch (e) {
 						return fail(e);
 					}
-				},
-				DELETE: async (req, srv) => {
+				}),
+				DELETE: jsonOnly(async (req, srv) => {
 					const no = await vaultGate(req, srv);
 					if (no) return no;
 					try {
@@ -476,7 +475,7 @@ export function serve({ lan = false } = {}) {
 					} catch (e) {
 						return fail(e);
 					}
-				},
+				}),
 			},
 			"/api/git": async (req) => {
 				const only = new URL(req.url).searchParams.get("project");
@@ -494,31 +493,31 @@ export function serve({ lan = false } = {}) {
 					};
 					return json(listItems(db, f));
 				},
-				POST: async (req) => {
+				POST: jsonOnly(async (req) => {
 					try {
 						const body = await req.json();
 						return json({ id: addItem(db, body, "web") }, 201);
 					} catch (e) {
 						return fail(e);
 					}
-				},
+				}),
 			},
 			"/api/items/:id": {
 				GET: (req) => {
 					const id = resolveItem(db, req.params.id);
 					return id === undefined ? json({ error: "not found" }, 404) : json(getItem(db, id));
 				},
-				PATCH: async (req) => {
+				PATCH: jsonOnly(async (req) => {
 					try {
 						updateItem(db, itemId(req.params.id), await req.json(), "web");
 						return json(getItem(db, itemId(req.params.id)));
 					} catch (e) {
 						return fail(e);
 					}
-				},
+				}),
 			},
 			"/api/items/:id/answer": {
-				POST: async (req) => {
+				POST: jsonOnly(async (req) => {
 					try {
 						const { answer } = await req.json();
 						answerItem(db, itemId(req.params.id), String(answer ?? ""), "kostas");
@@ -526,7 +525,7 @@ export function serve({ lan = false } = {}) {
 					} catch (e) {
 						return fail(e);
 					}
-				},
+				}),
 			},
 			"/api/code": async (req) => {
 				const only = new URL(req.url).searchParams.get("project");
@@ -534,7 +533,7 @@ export function serve({ lan = false } = {}) {
 				return json(Object.assign({}, ...all));
 			},
 			"/api/items/:id/notes": {
-				POST: async (req) => {
+				POST: jsonOnly(async (req) => {
 					try {
 						const { text } = await req.json();
 						if (!text?.trim()) throw new Error("empty note");
@@ -543,7 +542,7 @@ export function serve({ lan = false } = {}) {
 					} catch (e) {
 						return fail(e);
 					}
-				},
+				}),
 			},
 		},
 		fetch: () => new Response("not found", { status: 404 }),
