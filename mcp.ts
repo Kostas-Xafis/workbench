@@ -47,6 +47,7 @@ import {
 } from "./db";
 import { repoState } from "./git";
 import { PRESETS } from "./presets";
+import { ownerDefaultsText, yourName } from "./settings";
 import { listSources } from "./sources";
 import {
 	addTracker,
@@ -85,19 +86,40 @@ const SERVER_INFO = {
 	name: "workbench",
 	title: "Workbench",
 	version: VERSION,
-	description: "Kostas's board of open work across projects: items, status trackers, reports and links.",
+	description: "{{name}}'s board of open work across projects: items, status trackers, reports and links.",
 	icons: [{ src: ICON, mimeType: "image/svg+xml", sizes: ["any"] }],
 	websiteUrl: BOARD,
 };
 const CAPABILITIES = { tools: {}, resources: {}, prompts: {}, completions: {} };
 
-const INSTRUCTIONS = `The workbench is Kostas's local board of open work across his projects. Open work lives here, never in markdown lists.
+// {{name}} and {{owner-defaults}} in what agents read are filled in per request (personal), from the board's settings.
+const INSTRUCTIONS = `The workbench is {{name}}'s local board of open work across their projects. Open work lives here, never in markdown lists.
 - Items are named wb-xxxx (e.g. wb-k3f9). When a prompt names one, get_item first: its body and notes are the brief.
-- Kinds: task and bug (code), check (Kostas tries it on a device: write the steps), review (wording or design for him), decision (a question only he can answer: options plus your recommendation), setup (accounts, consoles, stores), idea. check, review, decision and setup default to Kostas; the rest to agents.
-- When you start work Kostas gave you: find its item (list_items with q) and start_item it, or add_item one and start it. One item per piece of work he would recognise.
-- finish_item with a note on what changed and where (commit, branch). wait_item when blocked. Everything you leave for Kostas is its own item.
+- Kinds: task and bug (code), check ({{name}} tries it on a device: write the steps), review (wording or design for {{name}}), decision (a question only {{name}} can answer: options plus your recommendation), setup (accounts, consoles, stores), idea. {{owner-defaults}} The owner value for {{name}} is kostas.
+- When you start work {{name}} gave you: find its item (list_items with q) and start_item it, or add_item one and start it. One item per piece of work {{name}} would recognise.
+- finish_item with a note on what changed and where (commit, branch). wait_item when blocked. Everything you leave for {{name}} is its own item.
 - Status trackers are live readings shown on the board, such as build quotas or CI minutes left. Check list_trackers before something that uses up a quota, refresh_trackers after.
 - Tools default to the project of the folder this server runs in; pass project (a slug from list_projects) to work elsewhere.`;
+
+/**
+ * Fills {{name}} (Settings → "Your name") and {{owner-defaults}} (who gets each kind) into text agents read, as the
+ * settings are at this request: they can change while the board, or a stdio server, runs.
+ */
+function personal<T>(v: T, c: Conn): T {
+	const name = yourName(c.db);
+	let defaults: string | undefined;
+	const fill = (t: string) =>
+		t.replaceAll("{{name}}", () => name).replaceAll("{{owner-defaults}}", () => (defaults ??= ownerDefaultsText(c.db)));
+	const walk = (x: unknown): unknown =>
+		typeof x === "string"
+			? fill(x)
+			: Array.isArray(x)
+				? x.map(walk)
+				: x && typeof x === "object"
+					? Object.fromEntries(Object.entries(x).map(([k, y]) => [k, walk(y)]))
+					: x;
+	return walk(v) as T;
+}
 
 /* ---------- JSON-RPC plumbing ---------- */
 
@@ -280,14 +302,14 @@ const itemId = (c: Conn, ref: string) => {
 	return id;
 };
 
-const WHO = (o: string) => (o === "kostas" ? "Kostas" : "agent");
+const WHO = (c: Conn, o: string) => (o === "kostas" ? yourName(c.db) : "agent");
 
-function itemLine(i: Item, withProject: boolean) {
+function itemLine(c: Conn, i: Item, withProject: boolean) {
 	const bits = [
 		`wb-${i.ref}`,
 		`P${i.priority}`,
 		i.kind,
-		`for ${WHO(i.owner)}`,
+		`for ${WHO(c, i.owner)}`,
 		i.status,
 		withProject ? `[${i.project}]` : "",
 		i.area ? `(${i.area})` : "",
@@ -296,10 +318,10 @@ function itemLine(i: Item, withProject: boolean) {
 	return `${bits.join(" ")}: ${i.title}${extra ? ` · ${extra}` : ""}`;
 }
 
-function itemText(i: Item & { notes: Note[] }) {
+function itemText(c: Conn, i: Item & { notes: Note[] }) {
 	const lines = [
 		`wb-${i.ref}: ${i.title}`,
-		`${i.project} · ${i.kind} · for ${WHO(i.owner)} · ${i.status} · P${i.priority}${i.area ? ` · ${i.area}` : ""}`,
+		`${i.project} · ${i.kind} · for ${WHO(c, i.owner)} · ${i.status} · P${i.priority}${i.area ? ` · ${i.area}` : ""}`,
 	];
 	if (i.branch || i.session) lines.push([i.branch && `branch ${i.branch}`, i.session && `session ${i.session}`].filter(Boolean).join(" · "));
 	if (i.sources) lines.push(`from: ${i.sources}`);
@@ -347,10 +369,10 @@ async function overview(c: Conn, slug: string) {
 	const open = listItems(c.db, { project: slug, status: OPEN });
 	const mine = open.filter((i) => i.owner === "kostas").length;
 	const out = [`# ${p.name} (${p.slug})`, p.path ? `Folder: ${p.path}` : "", ""];
-	out.push(`## Open items: ${open.length} (${mine} for Kostas, ${open.length - mine} for agents)`);
+	out.push(`## Open items: ${open.length} (${mine} for ${yourName(c.db)}, ${open.length - mine} for agents)`);
 	for (const kind of SECTION_ORDER) {
 		const list = open.filter((i) => i.kind === kind);
-		if (list.length) out.push(`${kind}:`, ...list.map((i) => `- ${itemLine(i, false)}`));
+		if (list.length) out.push(`${kind}:`, ...list.map((i) => `- ${itemLine(c, i, false)}`));
 	}
 	const trackers = listTrackers(c.db, slug);
 	out.push("", "## Trackers", ...(trackers.length ? trackers.map((t) => `- ${trackerBlock(t)}`) : ["none"]));
@@ -404,7 +426,7 @@ const itemLink = (i: Pick<Item, "ref" | "title">) => ({ uri: `wb://item/wb-${i.r
 
 function changed(c: Conn, id: number, verb: string): Out {
 	const i = getItem(c.db, id)!;
-	return { text: `${verb} ${itemLine(i, true)}`, data: { item: itemJson(i) }, links: [itemLink(i)] };
+	return { text: `${verb} ${itemLine(c, i, true)}`, data: { item: itemJson(i) }, links: [itemLink(i)] };
 }
 
 function readingFrom(a: { reading: string | Meter[]; note?: string; resets_at?: string }): Reading {
@@ -430,7 +452,7 @@ const TOOLS: Tool[] = [
 	{
 		name: "list_projects",
 		title: "List projects",
-		description: "The projects on the workbench: slug, name, folder, and how many open items wait on Kostas and on agents.",
+		description: "The projects on the workbench: slug, name, folder, and how many open items wait on {{name}} and on agents.",
 		input: obj({}),
 		hints: RO,
 		run(_, c) {
@@ -446,7 +468,7 @@ const TOOLS: Tool[] = [
 			});
 			return {
 				text: list
-					.map((p) => `${p.slug}${p.current ? " (current)" : ""}${p.archived ? " (archived)" : ""}: ${p.name} · ${p.path || "no folder"} · ${p.open_for_kostas} for Kostas, ${p.open_for_agents} for agents`)
+					.map((p) => `${p.slug}${p.current ? " (current)" : ""}${p.archived ? " (archived)" : ""}: ${p.name} · ${p.path || "no folder"} · ${p.open_for_kostas} for ${yourName(c.db)}, ${p.open_for_agents} for agents`)
 					.join("\n"),
 				data: { projects: list },
 			};
@@ -475,7 +497,7 @@ const TOOLS: Tool[] = [
 			const r = search(c.db, a.q.trim(), project);
 			const text = [
 				`items (${r.items.length}):`,
-				...r.items.map((i) => `- ${itemLine(i, !project)}`),
+				...r.items.map((i) => `- ${itemLine(c, i, !project)}`),
 				`reports (${r.reports.length}):`,
 				...r.reports.map((x) => `- #${x.id} ${x.title} [${x.project}]${x.snippet ? `: ${x.snippet}` : ""}`),
 				`links (${r.links.length}):`,
@@ -491,7 +513,7 @@ const TOOLS: Tool[] = [
 			"Items of a project (default: open ones, the current project), most urgent first: doing, todo, waiting, then by priority. Filter by who acts, kind, status or words.",
 		input: obj({
 			project: str('Project slug, or "*" for every project. Default: the current project.'),
-			owner: { type: "string", enum: OWNERS, description: "Who has to act: kostas or agent." },
+			owner: { type: "string", enum: OWNERS, description: "Who has to act: kostas ({{name}}) or agent." },
 			kind: { type: "string", enum: KINDS },
 			status: {
 				anyOf: [
@@ -511,7 +533,7 @@ const TOOLS: Tool[] = [
 			const all = listItems(c.db, { project, owner: a.owner, kind: a.kind, status, q: a.q });
 			const items = all.slice(0, a.limit ?? 50);
 			const head = `${all.length} item${all.length === 1 ? "" : "s"}${project ? ` in ${project}` : ""}${all.length > items.length ? ` (first ${items.length})` : ""}`;
-			return { text: [head, ...items.map((i) => `- ${itemLine(i, !project)}`)].join("\n"), data: { total: all.length, items: items.map(itemJson) } };
+			return { text: [head, ...items.map((i) => `- ${itemLine(c, i, !project)}`)].join("\n"), data: { total: all.length, items: items.map(itemJson) } };
 		},
 	},
 	{
@@ -522,24 +544,24 @@ const TOOLS: Tool[] = [
 		hints: RO,
 		run(a, c) {
 			const i = getItem(c.db, itemId(c, a.ref))!;
-			return { text: itemText(i), data: { item: { ...itemJson(i), body: i.body, sources: i.sources || undefined, notes: i.notes.map(({ at, author, text }) => ({ at, author, text })) } }, links: [itemLink(i)] };
+			return { text: itemText(c, i), data: { item: { ...itemJson(i), body: i.body, sources: i.sources || undefined, notes: i.notes.map(({ at, author, text }) => ({ at, author, text })) } }, links: [itemLink(i)] };
 		},
 	},
 	{
 		name: "add_item",
 		title: "Add an item",
 		description:
-			"Files a new item. kind: task or bug (code work, for agents), check (Kostas tries it on a device: write the steps in body), review (wording or design for Kostas), decision (a question only Kostas can answer: give options and your recommendation in body), setup (accounts, consoles, stores), idea. check, review, decision and setup go to Kostas unless owner says otherwise. Returns the new wb-xxxx.",
+			"Files a new item. kind: task or bug (code work), check ({{name}} tries it on a device: write the steps in body), review (wording or design for {{name}}), decision (a question only {{name}} can answer: give options and your recommendation in body), setup (accounts, consoles, stores), idea. Who acts, unless owner says: {{owner-defaults}} Returns the new wb-xxxx.",
 		input: obj(
 			{
-				title: str("Short and specific, as Kostas would recognise it.", { minLength: 1, maxLength: 300 }),
+				title: str("Short and specific, as {{name}} would recognise it.", { minLength: 1, maxLength: 300 }),
 				kind: { type: "string", enum: KINDS, description: "Default task (decision when options are given)." },
-				owner: { type: "string", enum: OWNERS, description: "Who has to act. Default by kind." },
+				owner: { type: "string", enum: OWNERS, description: "Who has to act: kostas ({{name}}) or agent. Default by kind: {{owner-defaults}}" },
 				project: PROJECT,
 				priority: { type: "integer", enum: [1, 2, 3], description: "1 launch blocker, 2 before launch (default), 3 later." },
 				area: str("A short area tag, e.g. billing."),
 				body: str("Details in markdown: steps, context, links."),
-				options: { type: "array", items: { type: "string", minLength: 1 }, maxItems: 12, description: "The choices of a decision; Kostas answers with one click." },
+				options: { type: "array", items: { type: "string", minLength: 1 }, maxItems: 12, description: "The choices of a decision; {{name}} answers with one click." },
 				branch: str("The git branch the work is on."),
 				source: str('Where it came from, e.g. "src/app.ts:42".'),
 				status: { type: "string", enum: STATUSES, description: "Default todo." },
@@ -549,13 +571,13 @@ const TOOLS: Tool[] = [
 		hints: WRITE,
 		run(a, c) {
 			const kind = a.kind ?? (a.options?.length ? "decision" : "task");
-			const owner = a.owner ?? (["check", "review", "decision", "setup"].includes(kind) ? "kostas" : "agent");
 			const id = addItem(
 				c.db,
 				{
 					title: a.title.trim(),
 					kind,
-					owner,
+					// Without one, the board's setting for the kind.
+					owner: a.owner,
 					project: projectOf(c, a.project)!,
 					priority: a.priority,
 					area: a.area,
@@ -658,7 +680,7 @@ const TOOLS: Tool[] = [
 	{
 		name: "add_note",
 		title: "Add a note",
-		description: "Adds a line to an item's history: progress, a result, a finding, or Kostas's own words when he reports or decides something in the conversation.",
+		description: "Adds a line to an item's history: progress, a result, a finding, or {{name}}'s own words when they report or decide something in the conversation.",
 		input: obj({ ref: REF, text: str("The note.", { minLength: 1 }) }, ["ref", "text"]),
 		hints: WRITE,
 		run(a, c) {
@@ -669,10 +691,10 @@ const TOOLS: Tool[] = [
 	},
 	{
 		name: "answer_decision",
-		title: "Record Kostas's answer",
+		title: "Record {{name}}'s answer",
 		description:
-			"Records the answer to a decision and hands it back to the agents. Only with an answer Kostas gave in the conversation: never decide for him. answer is one of the item's options (or its number) or his own words.",
-		input: obj({ ref: REF, answer: str("His answer.", { minLength: 1 }) }, ["ref", "answer"]),
+			"Records the answer to a decision and hands it back to the agents. Only with an answer {{name}} gave in the conversation: never decide for them. answer is one of the item's options (or its number) or their own words.",
+		input: obj({ ref: REF, answer: str("{{name}}'s answer.", { minLength: 1 }) }, ["ref", "answer"]),
 		hints: { ...WRITE, idempotentHint: true },
 		run(a, c) {
 			const id = itemId(c, a.ref);
@@ -860,7 +882,7 @@ const TOOLS: Tool[] = [
 		title: "Define a tracker",
 		description: `Adds a status tracker, or changes the one with that name. How it reads (kind):
 - manual: someone records readings (record_tracker).
-- command: a shell command the board runs every interval in the project folder; what it prints is the reading ("12/15", "Android 12/15" per line, or JSON {value, max, unit, label} / [meters] / {meters, note, resets_at, url}). It runs on Kostas's computer on a schedule: only add one he asked for.
+- command: a shell command the board runs every interval in the project folder; what it prints is the reading ("12/15", "Android 12/15" per line, or JSON {value, max, unit, label} / [meters] / {meters, note, resets_at, url}). It runs on {{name}}'s computer on a schedule: only add one {{name}} asked for.
 - ${Object.entries(PRESETS)
 			.map(([k, p]) => `${k}: ${p.about}. params: ${Object.entries(p.options).map(([o, d]) => `${o} (${d.about})`).join("; ")}`)
 			.join("\n- ")}
@@ -904,7 +926,7 @@ Meters with a max warn at 75% and turn bad at 90% unless warn/bad say otherwise 
 	{
 		name: "remove_tracker",
 		title: "Remove a tracker",
-		description: "Deletes a tracker and its history. Only when Kostas asks.",
+		description: "Deletes a tracker and its history. Only when {{name}} asks.",
 		input: obj({ tracker: TRACKER, project: PROJECT }, ["tracker"]),
 		hints: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
 		run(a, c) {
@@ -963,7 +985,7 @@ function allResources(c: Conn): Resource[] {
 	for (const p of projects(c.db))
 		out.push({ uri: `wb://project/${p.slug}`, name: p.slug, title: `${p.name} overview`, description: `Open items, trackers, git, reports and links of ${p.name}.`, mimeType: "text/markdown" });
 	for (const i of listItems(c.db, { status: OPEN }))
-		out.push({ uri: `wb://item/wb-${i.ref}`, name: `wb-${i.ref}`, title: i.title, description: `${i.project} · ${i.kind} for ${WHO(i.owner)} · ${i.status}`, mimeType: "text/markdown" });
+		out.push({ uri: `wb://item/wb-${i.ref}`, name: `wb-${i.ref}`, title: i.title, description: `${i.project} · ${i.kind} for ${WHO(c, i.owner)} · ${i.status}`, mimeType: "text/markdown" });
 	for (const r of listReports(c.db).filter((r) => !r.name.startsWith("day-")))
 		out.push({ uri: `wb://report/${r.id}`, name: `${r.project}/${r.name}`, title: r.title, description: `Report in ${r.project}, v${r.version}`, mimeType: "text/html" });
 	return out;
@@ -997,7 +1019,7 @@ async function readResource(uri: string, c: Conn, era: Era) {
 	if (kind === "item" && arg) {
 		const id = resolveItem(c.db, decodeURIComponent(arg));
 		if (id === undefined) throw notFound();
-		return text(itemText(getItem(c.db, id)!), "text/markdown");
+		return text(itemText(c, getItem(c.db, id)!), "text/markdown");
 	}
 	if (kind === "report" && /^\d+$/.test(arg)) {
 		const page = reportHtml(c.db, Number(arg));
@@ -1019,9 +1041,9 @@ type Prompt = {
 
 const TRACKING = `Track it on the workbench with this server's tools:
 - start_item now (it links this session to the item); add the branch once you have one.
-- add_note for what Kostas should know along the way; wait_item when you're blocked, saying on what.
+- add_note for what {{name}} should know along the way; wait_item when you're blocked, saying on what.
 - finish_item with a note on what changed and where (commit, branch, PR).
-- Anything you leave for Kostas (a device check, a wording, a question) is its own item: add_item with kind check, review or decision.`;
+- Anything you leave for {{name}} (a device check, a wording, a question) is its own item: add_item with kind check, review or decision.`;
 
 const PROMPTS: Prompt[] = [
 	{
@@ -1034,7 +1056,7 @@ const PROMPTS: Prompt[] = [
 			if (id === undefined) throw new RpcError(-32602, `no item "${a.ref}"`);
 			const i = getItem(c.db, id)!;
 			const p = projects(c.db).find((x) => x.slug === i.project);
-			return `Work on wb-${i.ref} in ${p?.name ?? i.project}${p?.path ? ` (${p.path})` : ""}. Its body and notes are the brief.\n\n${itemText(i)}\n\n${TRACKING}`;
+			return `Work on wb-${i.ref} in ${p?.name ?? i.project}${p?.path ? ` (${p.path})` : ""}. Its body and notes are the brief.\n\n${itemText(c, i)}\n\n${personal(TRACKING, c)}`;
 		},
 	},
 	{
@@ -1045,14 +1067,14 @@ const PROMPTS: Prompt[] = [
 		get(a, c) {
 			const slug = projectOrRpc(c, a.project);
 			const items = listItems(c.db, { project: slug, owner: "agent", status: OPEN });
-			const list = items.length ? items.map((i) => `- ${itemLine(i, false)}`).join("\n") : "(nothing open for agents)";
-			return `Here is the open agent work in ${slug}, most urgent first (doing, then todo by priority, then waiting):\n\n${list}\n\nPick the item to do next: one already in progress in this session, else the most urgent todo. Read it with get_item, tell me which one you picked and why in a sentence, then do it.\n\n${TRACKING}`;
+			const list = items.length ? items.map((i) => `- ${itemLine(c, i, false)}`).join("\n") : "(nothing open for agents)";
+			return `Here is the open agent work in ${slug}, most urgent first (doing, then todo by priority, then waiting):\n\n${list}\n\nPick the item to do next: one already in progress in this session, else the most urgent todo. Read it with get_item, tell me which one you picked and why in a sentence, then do it.\n\n${personal(TRACKING, c)}`;
 		},
 	},
 	{
 		name: "status",
 		title: "Project status",
-		description: "Where a project stands (open items, what waits on Kostas, trackers, git) for a short status write-up.",
+		description: "Where a project stands (open items, what waits on {{name}}, trackers, git) for a short status write-up.",
 		arguments: [{ name: "project", description: "Project slug (default: the current one)" }],
 		async get(a, c) {
 			const slug = projectOrRpc(c, a.project);
@@ -1111,20 +1133,20 @@ async function dispatch(m: Rpc, c: Conn): Promise<Json | null> {
 		const version = typeof asked === "string" && LEGACY.includes(asked) ? asked : LEGACY[0];
 		if (c.transport === "stdio") c.legacy = version;
 		const era = { version, modern: false };
-		return { protocolVersion: version, capabilities: CAPABILITIES, serverInfo: serverInfo(era), instructions: INSTRUCTIONS };
+		return { protocolVersion: version, capabilities: CAPABILITIES, serverInfo: personal(serverInfo(era), c), instructions: personal(INSTRUCTIONS, c) };
 	}
 	const era = eraOf(m, c);
 	switch (method) {
 		case "server/discover":
 			return shape(
 				{ ...era, modern: true },
-				{ supportedVersions: SUPPORTED, capabilities: CAPABILITIES, instructions: INSTRUCTIONS, _meta: { [`${M}serverInfo`]: SERVER_INFO } },
+				personal({ supportedVersions: SUPPORTED, capabilities: CAPABILITIES, instructions: INSTRUCTIONS, _meta: { [`${M}serverInfo`]: SERVER_INFO } }, c),
 				CACHE_STATIC,
 			);
 		case "ping":
 			return shape(era, {});
 		case "tools/list":
-			return shape(era, { tools: TOOLS.map((t) => toolDef(t, era)) }, CACHE_STATIC);
+			return shape(era, { tools: personal(TOOLS.map((t) => toolDef(t, era)), c) }, CACHE_STATIC);
 		case "tools/call":
 			return shape(era, await callTool(params, c, era));
 		case "resources/list": {
@@ -1145,7 +1167,7 @@ async function dispatch(m: Rpc, c: Conn): Promise<Json | null> {
 		case "prompts/list":
 			return shape(
 				era,
-				{ prompts: PROMPTS.map(({ get: _, title, ...p }) => (since(era, "2025-06-18") ? { ...p, title } : p)) },
+				{ prompts: personal(PROMPTS.map(({ get: _, title, ...p }) => (since(era, "2025-06-18") ? { ...p, title } : p)), c) },
 				CACHE_STATIC,
 			);
 		case "prompts/get": {
@@ -1154,7 +1176,7 @@ async function dispatch(m: Rpc, c: Conn): Promise<Json | null> {
 			const args = (params.arguments ?? {}) as Record<string, string>;
 			for (const a of p.arguments) if (a.required && !String(args[a.name] ?? "").trim()) throw new RpcError(-32602, `${a.name} is required`);
 			const text = await p.get(args, c);
-			return shape(era, { description: p.description, messages: [{ role: "user", content: { type: "text", text } }] });
+			return shape(era, { description: personal(p.description, c), messages: [{ role: "user", content: { type: "text", text } }] });
 		}
 		case "completion/complete":
 			return shape(era, complete(params, c));
