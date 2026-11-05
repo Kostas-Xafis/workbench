@@ -49,6 +49,10 @@ import { publishDays } from "./day";
 import { codeLinks, repoState, type CodeLinks } from "./git";
 import { candidateFolders, checkFolder, folderState, health } from "./health";
 import { getSettings, settingDefs, updateSettings } from "./settings";
+// Settings → Data
+import { BACKUP_DIR, backupFile, backupsKeep, compactDb, dbStats, exportAll, restoreSteps, shellWord, tidy, tidyCount, tidyKeep, type TidyKeep } from "./db";
+import { startup } from "./health";
+import { SETTINGS } from "./settings";
 import { findIcon } from "./icons";
 import { forgetLogo, projectLogo } from "./logo";
 import { REPORT_CSP, withBridge } from "./reports";
@@ -127,13 +131,15 @@ export function serve({ lan = false } = {}) {
 		return links;
 	};
 
-	// A backup when the newest is a day old: checked at start and every hour.
+	// A backup when the newest is a day old: checked at start and every hour. Right after it, what Settings → Data
+	// says not to keep goes (old backups, report versions, tracker readings, closed items), so the backup still has it.
 	const nightly = () => {
 		try {
 			const last = listBackups()[0];
 			if (last && Date.now() - last.at.getTime() < 23 * 3600e3) return;
 			console.log(`backup: ${backup(db)}`);
-			pruneBackups();
+			const gone = tidy(db);
+			if (Object.values(gone).some(Boolean)) console.log(`tidy: ${JSON.stringify(gone)}`);
 		} catch (e) {
 			console.error(`backup failed: ${(e as Error).message}`);
 		}
@@ -269,6 +275,120 @@ export function serve({ lan = false } = {}) {
 			// end: Notifications routes
 
 			// Settings → Data: routes
+			...(() => {
+				// A backup or an export hands over everything on the board: only to this computer, and never to another
+				// site's page, not even one that points its own name at 127.0.0.1 (DNS rebinding). Opening the link
+				// from the board, or typing it, is fine.
+				const localRead = (req: Request, srv: Server<unknown>) => {
+					const site = req.headers.get("sec-fetch-site");
+					return (
+						loopback(req, srv) &&
+						/^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/.test(req.headers.get("host") ?? "") &&
+						(!site || site === "same-origin" || site === "none")
+					);
+				};
+				const local = () => json({ error: SETTINGS_LOCAL }, 403);
+				const overview = () => {
+					const keep = tidyKeep(db);
+					const list = listBackups().map((b) => ({ name: b.file.slice(b.file.lastIndexOf("/") + 1), at: b.at.getTime(), bytes: b.bytes }));
+					return { db: dbStats(db), backups: { dir: BACKUP_DIR, list }, keep, tidy: tidyCount(db, keep) };
+				};
+				// The tidy settings as they are, with any given in the query string tried instead (for "would remove").
+				const keepFrom = (u: URLSearchParams): TidyKeep => {
+					const keep = tidyKeep(db);
+					const map = { "backups.keep": "backups", "keep.report-versions": "reportVersions", "keep.tracker-history": "trackerHistory", "keep.closed-items-days": "closedItemsDays" } as const;
+					for (const [key, field] of Object.entries(map)) {
+						const v = u.get(key);
+						if (v === null) continue;
+						try {
+							keep[field] = SETTINGS[key].check(v) as number;
+						} catch (e) {
+							throw new Error(`${SETTINGS[key].about}: ${(e as Error).message}`);
+						}
+					}
+					return keep;
+				};
+				const attachment = (name: string, type: string) => ({
+					"content-type": type,
+					"content-disposition": `attachment; filename="${name}"`,
+					"cache-control": "no-store",
+					"x-content-type-options": "nosniff",
+				});
+				return {
+					"/api/data": (req: Request, srv: Server<unknown>) => (loopback(req, srv) ? json(overview()) : local()),
+					"/api/data/tidy": {
+						// What the tidy settings (or the values in the query) would remove right now.
+						GET: (req: Request, srv: Server<unknown>) => {
+							if (!loopback(req, srv)) return local();
+							try {
+								const keep = keepFrom(new URL(req.url).searchParams);
+								return json({ keep, counts: tidyCount(db, keep) });
+							} catch (e) {
+								return fail(e);
+							}
+						},
+						// Applies them now (they also run every night after the backup). When rows would go, a backup
+						// is made first, so this can always be undone.
+						POST: jsonOnly((req, srv) => {
+							if (!boardOnly(req, srv)) return local();
+							try {
+								const { backups: _, ...rows } = tidyCount(db, tidyKeep(db));
+								const saved = Object.values(rows).some(Boolean) ? backup(db) : null;
+								const removed = tidy(db);
+								return json({ removed, backup: saved && saved.slice(saved.lastIndexOf("/") + 1), ...overview() });
+							} catch (e) {
+								return fail(e);
+							}
+						}),
+					},
+					"/api/data/backups": {
+						POST: jsonOnly((req, srv) => {
+							if (!boardOnly(req, srv)) return local();
+							try {
+								const file = backup(db);
+								const pruned = pruneBackups(backupsKeep(db));
+								return json({ name: file.slice(file.lastIndexOf("/") + 1), pruned, ...overview() }, 201);
+							} catch (e) {
+								return fail(e);
+							}
+						}),
+					},
+					"/api/data/backups/:name": (req: Request & { params: { name: string } }, srv: Server<unknown>) => {
+						if (!localRead(req, srv)) return local();
+						const file = backupFile(req.params.name);
+						if (!file) return json({ error: "no such backup" }, 404);
+						return new Response(Bun.file(file), { headers: attachment(req.params.name, "application/vnd.sqlite3") });
+					},
+					// The commands that restore this backup on this computer; the board can't swap its own database.
+					"/api/data/backups/:name/restore": async (req: Request & { params: { name: string } }, srv: Server<unknown>) => {
+						if (!loopback(req, srv)) return local();
+						const file = backupFile(req.params.name);
+						if (!file) return json({ error: "no such backup" }, 404);
+						const su = await startup();
+						const env = ["WB_DB", "WB_PORT", "WB_BACKUPS", "WB_SOURCES_KEY"].filter((k) => process.env[k]).map((k) => `${k}=${shellWord(process.env[k]!)}`);
+						const start = [...env, ...process.argv.map(shellWord)].join(" ");
+						return json(restoreSteps(file, { systemd: su.underSystemd, pid: process.pid, start }));
+					},
+					"/api/data/export": (req: Request, srv: Server<unknown>) => {
+						if (!localRead(req, srv)) return local();
+						const d = new Date();
+						const day = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+						return new Response(JSON.stringify(exportAll(db), null, 1), {
+							headers: attachment(`workbench-export-${day}.json`, "application/json; charset=utf-8"),
+						});
+					},
+					"/api/data/compact": {
+						POST: jsonOnly((req, srv) => {
+							if (!boardOnly(req, srv)) return local();
+							try {
+								return json({ ...compactDb(db), ...overview() });
+							} catch (e) {
+								return json({ error: (e as Error).message }, /busy/.test((e as Error).message) ? 409 : 400);
+							}
+						}),
+					},
+				};
+			})(),
 			// end: Data routes
 
 			// Settings → Privacy and security: routes

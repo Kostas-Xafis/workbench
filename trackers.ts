@@ -14,6 +14,7 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import type { Db } from "./db";
 import { PRESETS, type PresetContext } from "./presets";
+import { getSetting } from "./settings";
 
 export const TRACKER_KINDS = ["manual", "command", ...Object.keys(PRESETS)] as const;
 export type TrackerKind = string;
@@ -98,7 +99,8 @@ export type TrackerPatch = Partial<Omit<TrackerInput, "name">> & { name?: string
 
 export const RUN_TIMEOUT_MS = 60_000;
 const OUTPUT_MAX = 1024 * 1024;
-const HISTORY_KEEP = 2000;
+// Readings kept per tracker: Settings → Data ("keep.tracker-history"), read at each store.
+const historyKeep = (db: Db) => getSetting<number>(db, "keep.tracker-history");
 /** A run that hasn't finished after this long is taken to have died with its process. */
 const LEASE_MINUTES = 5;
 export const EVERY_MIN = 60;
@@ -611,7 +613,7 @@ function store(db: Db, id: number, reading: Reading, author: string, rev?: numbe
 		db.query("INSERT INTO tracker_history (tracker_id, reading, author) VALUES (?, ?, ?)").run(id, json, author);
 		db.query(
 			`DELETE FROM tracker_history WHERE tracker_id = $id AND id <= (SELECT id FROM tracker_history WHERE tracker_id = $id
-			ORDER BY id DESC LIMIT 1 OFFSET ${HISTORY_KEEP})`,
+			ORDER BY id DESC LIMIT 1 OFFSET ${historyKeep(db)})`,
 		).run({ id });
 		return true;
 	})();
@@ -644,7 +646,7 @@ export type HistoryPoint = { at: string; reading: Reading; author: string };
 export function trackerHistory(db: Db, id: number, limit = 200): HistoryPoint[] {
 	const rows = db
 		.query("SELECT at, reading, author FROM tracker_history WHERE tracker_id = ? ORDER BY id DESC LIMIT ?")
-		.all(id, Math.max(1, Math.min(limit, HISTORY_KEEP))) as { at: string; reading: string; author: string }[];
+		.all(id, Math.max(1, Math.min(limit, historyKeep(db)))) as { at: string; reading: string; author: string }[];
 	return rows.reverse().flatMap((r) => {
 		try {
 			return [{ at: r.at, reading: JSON.parse(r.reading) as Reading, author: r.author }];

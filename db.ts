@@ -1,8 +1,8 @@
 import { Database } from "bun:sqlite";
 import { timingSafeEqual } from "node:crypto";
-import { mkdirSync, readdirSync, rmSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, rmSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { createSettingsTable } from "./settings";
+import { createSettingsTable, getSetting, getSettings } from "./settings";
 import { createTables as createTrackerTables } from "./trackers";
 
 export const KINDS = ["task", "check", "review", "decision", "setup", "bug", "idea"] as const;
@@ -839,14 +839,17 @@ export function answerItem(db: Db, id: number, answer: string, author = "kostas"
 	updateItem(db, id, { answer: text, owner: "agent", status: item.status === "doing" ? "doing" : "todo" }, author);
 }
 
-// Backups: whole-database copies next to it, newest 14 kept. VACUUM INTO is safe while others write.
+// Backups: whole-database copies next to it, the newest `backups.keep` kept (Settings → Data; 14 unless changed).
+// VACUUM INTO is safe while others write.
 export const BACKUP_DIR = process.env.WB_BACKUPS ?? join(dirname(DB_PATH), "backups");
-const BACKUP_NAME = /^workbench-\d{4}-\d{2}-\d{2}-\d{6}\.db$/;
+export const BACKUP_NAME = /^workbench-\d{4}-\d{2}-\d{2}-\d{6}\.db$/;
 
 export function backup(db: Db, dir = BACKUP_DIR): string {
 	mkdirSync(dir, { recursive: true });
 	const stamp = new Date().toISOString().slice(0, 19).replace("T", "-").replaceAll(":", "");
 	const file = join(dir, `workbench-${stamp}.db`);
+	// Names go by the second: one made this very second is as current as a new one would be.
+	if (existsSync(file)) return file;
 	db.run(`VACUUM INTO '${file.replaceAll("'", "''")}'`);
 	return file;
 }
@@ -866,8 +869,201 @@ export function listBackups(dir = BACKUP_DIR): { file: string; at: Date; bytes: 
 		.sort((a, b) => b.at.getTime() - a.at.getTime());
 }
 
-export function pruneBackups(keep = 14, dir = BACKUP_DIR): number {
-	const old = listBackups(dir).slice(keep);
+/** How many backups to keep: the board's setting. */
+export const backupsKeep = (db: Db) => getSetting<number>(db, "backups.keep");
+
+/** Removes all but the newest `keep` (at least one stays). Callers pass backupsKeep(db). */
+export function pruneBackups(keep: number, dir = BACKUP_DIR): number {
+	const old = listBackups(dir).slice(Math.max(1, keep));
 	for (const b of old) rmSync(b.file);
 	return old.length;
+}
+
+/** A backup's file by its name only (never a path), or undefined when there's no such backup. */
+export function backupFile(name: string, dir = BACKUP_DIR): string | undefined {
+	if (!BACKUP_NAME.test(name)) return undefined;
+	const file = join(dir, name);
+	try {
+		return statSync(file).isFile() ? file : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
+/* ---------- Settings → Data: size, compacting, tidying, export ---------- */
+
+const fileSize = (f: string) => {
+	try {
+		return statSync(f).size;
+	} catch {
+		return 0;
+	}
+};
+
+/** The database's size on disk, and the counts that explain it. */
+export function dbStats(db: Db) {
+	const one = (sql: string) => db.query(sql).get() as { n: number; bytes: number };
+	return {
+		path: DB_PATH,
+		bytes: fileSize(DB_PATH),
+		wal: fileSize(`${DB_PATH}-wal`),
+		items: one("SELECT COUNT(*) AS n, COALESCE(SUM(length(title) + length(body)), 0) AS bytes FROM items"),
+		notes: one("SELECT COUNT(*) AS n, COALESCE(SUM(length(text)), 0) AS bytes FROM notes"),
+		reportVersions: one("SELECT COUNT(*) AS n, COALESCE(SUM(length(html) + length(text)), 0) AS bytes FROM report_versions"),
+		trackerReadings: one("SELECT COUNT(*) AS n, COALESCE(SUM(length(reading)), 0) AS bytes FROM tracker_history"),
+		linkIcons: one("SELECT COUNT(icon) AS n, COALESCE(SUM(length(icon)), 0) AS bytes FROM links"),
+	};
+}
+
+/**
+ * Writes the WAL back into the database and rebuilds it without its free pages, so the file shrinks to what it
+ * holds. VACUUM needs a moment when nobody else writes; when an agent or `wb` keeps it busy past the busy timeout,
+ * it says so in words.
+ */
+export function compactDb(db: Db): { before: number; after: number } {
+	const size = () => fileSize(DB_PATH) + fileSize(`${DB_PATH}-wal`);
+	const before = size();
+	try {
+		db.run("PRAGMA wal_checkpoint(TRUNCATE)");
+		db.run("VACUUM");
+		// VACUUM writes the rebuilt pages through the WAL; this moves them into the file and empties the WAL.
+		db.run("PRAGMA wal_checkpoint(TRUNCATE)");
+	} catch (e) {
+		if (/busy|locked/i.test((e as Error).message))
+			throw new Error("the database is busy (an agent or wb is using it): try again in a moment");
+		throw e;
+	}
+	return { before, after: size() };
+}
+
+export type TidyKeep = { backups: number; reportVersions: number; trackerHistory: number; closedItemsDays: number };
+export type TidyCounts = { backups: number; reportVersions: number; trackerReadings: number; items: number; notes: number };
+
+/** What Settings → Data → "Keeping things tidy" keeps now. */
+export function tidyKeep(db: Db): TidyKeep {
+	return {
+		backups: backupsKeep(db),
+		reportVersions: getSetting<number>(db, "keep.report-versions"),
+		trackerHistory: getSetting<number>(db, "keep.tracker-history"),
+		closedItemsDays: getSetting<number>(db, "keep.closed-items-days"),
+	};
+}
+
+// Rows past the newest N of their report or tracker. N ≥ 1, so a report's latest version is never one of them.
+const OLD_VERSIONS =
+	"SELECT id FROM (SELECT id, ROW_NUMBER() OVER (PARTITION BY report_id ORDER BY n DESC) AS k FROM report_versions) WHERE k > $keep";
+const OLD_READINGS =
+	"SELECT id FROM (SELECT id, ROW_NUMBER() OVER (PARTITION BY tracker_id ORDER BY id DESC) AS k FROM tracker_history) WHERE k > $keep";
+// Closed longer ago than N days. done_at is set when an item closes; updated_at stands in for a row without it.
+const OLD_ITEMS =
+	"SELECT id FROM items WHERE status IN ('done', 'dropped') AND COALESCE(done_at, updated_at) < datetime('now', '-' || $days || ' days')";
+
+/** What tidying with `keep` would remove right now. Changes nothing. */
+export function tidyCount(db: Db, keep: TidyKeep): TidyCounts {
+	const count = (sql: string, p: Record<string, number>) =>
+		(db.query(`SELECT COUNT(*) AS n FROM (${sql})`).get(p) as { n: number }).n;
+	const days = keep.closedItemsDays;
+	return {
+		backups: Math.max(0, listBackups().length - Math.max(1, keep.backups)),
+		reportVersions: keep.reportVersions ? count(OLD_VERSIONS, { keep: keep.reportVersions }) : 0,
+		trackerReadings: count(OLD_READINGS, { keep: keep.trackerHistory }),
+		items: days ? count(OLD_ITEMS, { days }) : 0,
+		notes: days ? count(`SELECT id FROM notes WHERE item_id IN (${OLD_ITEMS})`, { days }) : 0,
+	};
+}
+
+/** Removes what the board's settings say not to keep (see tidyCount), backups included. Returns what went. */
+export function tidy(db: Db): TidyCounts {
+	const keep = tidyKeep(db);
+	const days = keep.closedItemsDays;
+	const run = (sql: string, p: Record<string, number>) => db.query(sql).run(p).changes;
+	const out = db.transaction(() => ({
+		backups: 0,
+		reportVersions: keep.reportVersions ? run(`DELETE FROM report_versions WHERE id IN (${OLD_VERSIONS})`, { keep: keep.reportVersions }) : 0,
+		trackerReadings: run(`DELETE FROM tracker_history WHERE id IN (${OLD_READINGS})`, { keep: keep.trackerHistory }),
+		// Notes first: counted here, rather than left to ON DELETE CASCADE.
+		notes: days ? run(`DELETE FROM notes WHERE item_id IN (${OLD_ITEMS})`, { days }) : 0,
+		items: days ? run(`DELETE FROM items WHERE id IN (${OLD_ITEMS})`, { days }) : 0,
+	}))();
+	out.backups = pruneBackups(keep.backups);
+	return out;
+}
+
+export const EXPORT_FORMAT = 1;
+
+/**
+ * Everything on the board as plain JSON, to keep or to take elsewhere. Left out: the vault and its secrets
+ * (ciphertext only your password opens), data sources' header values, and link icons (fetched again by themselves).
+ */
+export function exportAll(db: Db) {
+	const all = (sql: string) => db.query(sql).all() as Record<string, unknown>[];
+	const parse = (s: unknown) => {
+		try {
+			return typeof s === "string" ? JSON.parse(s) : s;
+		} catch {
+			return s;
+		}
+	};
+	const byParent = (rows: Record<string, unknown>[], key: string) => {
+		const m = new Map<unknown, Record<string, unknown>[]>();
+		for (const { [key]: parent, ...rest } of rows) m.set(parent, [...(m.get(parent) ?? []), rest]);
+		return m;
+	};
+	const notes = byParent(all("SELECT item_id, at, author, text FROM notes ORDER BY at, id"), "item_id");
+	const versions = byParent(all("SELECT report_id, n, at, author, html FROM report_versions ORDER BY report_id, n"), "report_id");
+	const history = byParent(
+		all("SELECT tracker_id, at, reading, author FROM tracker_history ORDER BY tracker_id, id").map((h) => ({ ...h, reading: parse(h.reading) })),
+		"tracker_id",
+	);
+	return {
+		format: EXPORT_FORMAT,
+		exported_at: new Date().toISOString(),
+		projects: all("SELECT * FROM projects ORDER BY sort, name"),
+		items: all("SELECT * FROM items ORDER BY id").map((i) => ({ ...i, notes: notes.get(i.id) ?? [] })),
+		links: all("SELECT id, project, grp, label, url, icon_url, sort FROM links ORDER BY project, grp, sort, id"),
+		reports: all("SELECT * FROM reports ORDER BY project, name").map((r) => ({ ...r, versions: versions.get(r.id) ?? [] })),
+		report_state: all("SELECT project, name, json, updated_at FROM report_state ORDER BY project, name").map(({ json, ...r }) => ({
+			...r,
+			state: parse(json),
+		})),
+		trackers: all("SELECT * FROM trackers ORDER BY project, sort, name").map(({ running_since: _, rev: __, ...t }) => ({
+			...t,
+			options: parse(t.options),
+			reading: parse(t.reading),
+			history: history.get(t.id) ?? [],
+		})),
+		settings: getSettings(db),
+		sources: all("SELECT project, name, base_url, write, header_names, created_at, updated_at FROM sources ORDER BY project, name").map(
+			(s) => ({ ...s, write: !!s.write, header_names: String(s.header_names || "").split("\n").filter(Boolean) }),
+		),
+	};
+}
+
+/** A word for the shell, quoted when it needs to be. */
+export const shellWord = (s: string) => (/^[\w@%+=:,./-]+$/.test(s) ? s : `'${s.replaceAll("'", `'\\''`)}'`);
+
+/**
+ * The commands that put backup `file` in place of the database on this computer, step by step. The board can't
+ * swap its own database while it runs, so a person runs these: stop the board, keep the current database next to
+ * it, copy the backup over it, drop the old WAL, start the board again.
+ */
+export function restoreSteps(file: string, how: { systemd: boolean; pid: number; start: string }) {
+	const stamp = new Date().toISOString().slice(0, 19).replace("T", "-").replaceAll(":", "");
+	const keep = DB_PATH.replace(/(\.db)?$/, `-before-restore-${stamp}.db`);
+	const steps = [
+		how.systemd
+			? { text: "Stop the board (it runs as the workbench user service):", cmd: "systemctl --user stop workbench" }
+			: // Waits until it's gone, so the copies below don't race its last write.
+				{ text: "Stop the board you started (Ctrl+C where it runs, or this):", cmd: `kill ${how.pid} && while kill -0 ${how.pid} 2>/dev/null; do sleep 0.2; done` },
+		{
+			text: "Keep a copy of the database as it is now, next to it:",
+			cmd: `cp ${shellWord(DB_PATH)} ${shellWord(keep)} && { [ ! -f ${shellWord(`${DB_PATH}-wal`)} ] || cp ${shellWord(`${DB_PATH}-wal`)} ${shellWord(`${keep}-wal`)}; }`,
+		},
+		{ text: "Copy the backup over the database:", cmd: `cp ${shellWord(file)} ${shellWord(DB_PATH)}` },
+		{ text: "Remove the old database's WAL files, so they aren't replayed into the backup:", cmd: `rm -f ${shellWord(`${DB_PATH}-wal`)} ${shellWord(`${DB_PATH}-shm`)}` },
+		how.systemd
+			? { text: "Start the board again:", cmd: "systemctl --user start workbench" }
+			: { text: "Start the board again, the way it was started:", cmd: how.start },
+	];
+	return { db: DB_PATH, backup: file, keep, steps, all: steps.map((s) => s.cmd).join("\n") };
 }
