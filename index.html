@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Workbench</title>
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<!-- Settings → Appearance: the theme picked in this browser, set before the first paint so a reload doesn't flash. -->
+<script>try { const t = JSON.parse(localStorage.getItem("wb.pref.look.theme")); if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; } catch {}</script>
 <style>
 :root {
 	--bg: #f6f5f2; --card: #ffffff; --ink: #1d1c1a; --muted: #6f6b64; --line: #e3e0da; --hover: #efede8;
@@ -14,8 +16,9 @@
 	--rail-bg: #edebe6; --shadow: 0 14px 36px rgb(0 0 0 / .16);
 	color-scheme: light;
 }
+/* Dark follows the system unless Settings → Appearance picks one (data-theme on <html>). */
 @media (prefers-color-scheme: dark) {
-	:root {
+	:root:not([data-theme="light"]) {
 		--bg: #151514; --card: #1f1f1d; --ink: #ecebe8; --muted: #a29e96; --line: #33322f; --hover: #2a2a27;
 		--accent: #8c9eff; --accent-ink: #10132b;
 		--decision: #b794f6; --setup: #7aa7ff; --check: #5fcf86; --review: #f0b45a; --bug: #ff7b7b; --task: #b5b0a8; --idea: #8e8a84;
@@ -23,6 +26,14 @@
 		--rail-bg: #10100f; --shadow: 0 14px 36px rgb(0 0 0 / .5);
 		color-scheme: dark;
 	}
+}
+:root[data-theme="dark"] {
+	--bg: #151514; --card: #1f1f1d; --ink: #ecebe8; --muted: #a29e96; --line: #33322f; --hover: #2a2a27;
+	--accent: #8c9eff; --accent-ink: #10132b;
+	--decision: #b794f6; --setup: #7aa7ff; --check: #5fcf86; --review: #f0b45a; --bug: #ff7b7b; --task: #b5b0a8; --idea: #8e8a84;
+	--warn-bg: #3a2c10; --warn-ink: #ffcf7a; --p1: #ff9a5c;
+	--rail-bg: #10100f; --shadow: 0 14px 36px rgb(0 0 0 / .5);
+	color-scheme: dark;
 }
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
@@ -100,7 +111,8 @@ summary::-webkit-details-marker { display: none; }
 .tile { width: 24px; height: 24px; border-radius: 7px; display: grid; place-items: center; font-size: 11px; font-weight: 700; background: var(--hover); color: var(--muted); border: 1px solid var(--line); }
 [aria-current="true"] > .tile { border-color: var(--accent); color: var(--accent); }
 .fav { width: 16px; height: 16px; flex: none; border-radius: 3px; object-fit: contain; }
-@media (prefers-color-scheme: dark) { img.fav { background: #f4f3f0; padding: 1.5px; border-radius: 4px; } }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) img.fav { background: #f4f3f0; padding: 1.5px; border-radius: 4px; } }
+:root[data-theme="dark"] img.fav { background: #f4f3f0; padding: 1.5px; border-radius: 4px; }
 .fav.letter { display: inline-grid; place-items: center; background: var(--hover); color: var(--muted); font-size: 10px; font-weight: 700; }
 #rail.editing a.ritem.link { outline: 1px dashed var(--line); outline-offset: -1px; }
 #rail.editing a.ritem.link::after { content: "✎"; color: var(--muted); font-size: 11px; }
@@ -443,6 +455,13 @@ code.cmd { white-space: normal; overflow-wrap: anywhere; }
 /* end: You and your day */
 
 /* Settings → Notifications */
+.nt-status { display: flex; gap: 7px; align-items: flex-start; }
+.nt-status .sdot { margin-top: 4px; }
+.nt-presets button { border: 0; background: transparent; padding: 3px 11px; border-radius: 6px; font-size: 12.5px; color: var(--muted); white-space: nowrap; }
+.nt-presets button:hover { color: var(--ink); }
+.nt-presets button[aria-pressed="true"] { background: var(--card); color: var(--ink); box-shadow: 0 0 0 1px var(--line); font-weight: 600; }
+.nt-presets button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.so-ctl .ghost:disabled { opacity: .5; cursor: default; background: transparent; }
 /* end: Notifications */
 
 /* Settings → Data */
@@ -452,6 +471,33 @@ code.cmd { white-space: normal; overflow-wrap: anywhere; }
 /* end: Privacy and security */
 
 /* Settings → Appearance */
+.so.lk-sec { gap: 10px; padding: 6px 14px 6px 8px; }
+.lk-sec .kic .gl { width: 16px; height: 16px; stroke-width: 1.5; }
+.lk-name { font-size: 13.5px; font-weight: 500; }
+.lk-keys { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 9px 18px; margin: 0; align-items: center; }
+.lk-keys dt { display: flex; align-items: center; gap: 3px; }
+.lk-keys dd { margin: 0; font-size: 13px; }
+.lk-keys kbd { font: 11.5px ui-monospace, SFMono-Regular, Menlo, monospace; min-width: 22px; text-align: center; color: var(--ink); background: var(--bg);
+	border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5px; padding: 1px 6px; }
+.lk-plus, .lk-or { color: var(--muted); font-size: 11.5px; }
+.lk-or { margin: 0 3px; }
+/* On a phone a row of choices goes under its label, instead of squeezing the label into a narrow column. */
+@media (max-width: 760px) { .so:has(> .so-ctl .radios) > .so-main { flex-basis: 100%; } }
+/* Compact density (body.compact): the same board, tighter. */
+body.compact #board { padding-top: 8px; }
+body.compact .board-bar { margin-bottom: 2px; }
+body.compact .sec > summary { padding: 7px 2px; font-size: 14px; }
+body.compact .cards { gap: 6px; padding-bottom: 6px; }
+body.compact .card { padding: 6px 10px; gap: 9px; border-radius: 8px; }
+body.compact .card .meta { margin-top: 1px; }
+body.compact .tick { width: 18px; height: 18px; }
+body.compact .later > summary, body.compact .more > summary { padding-bottom: 7px; }
+body.compact .rail-head { padding-top: 9px; padding-bottom: 4px; }
+body.compact .rsec > summary { padding: 3px 8px; }
+body.compact .ritem { padding: 3px 8px 3px 10px; }
+body.compact .trk { padding: 3px 8px 4px 10px; }
+body.compact #prail { gap: 2px; padding: 8px 0; }
+body.compact .pbtn { padding: 2px 0 1px; }
 /* end: Appearance */
 
 /* Decisions, code, notifications */
@@ -771,7 +817,7 @@ const WHO = [["all", "Everything"], ["kostas", "Needs you"], ["agent", "With age
 const $ = (s, el = document) => el.querySelector(s);
 const solo = new URLSearchParams(location.search).has("solo");
 const state = {
-	project: localGet("project") || "", who: localGet("who") || "all", items: [], projects: [], allProjects: [], links: [], reports: [], repos: [],
+	project: localGet("project") || "", who: startWho(), items: [], projects: [], allProjects: [], links: [], reports: [], repos: [],
 	code: {}, sources: [], trackers: [], current: null, report: null, reportV: null, collapsed: narrow() || localGet("rail") === "collapsed",
 };
 // On a phone the rail opens over the page, so it starts folded and its state isn't remembered.
@@ -1511,7 +1557,7 @@ function renderBoard() {
 	const mineOnly = (i) => state.who === "all" || i.owner === state.who;
 	const shown = open.filter(mineOnly);
 
-	let html = SECTIONS.map(([kind, label, def]) => {
+	let html = sectionOrder().map(([kind, label, def]) => {
 		const list = shown.filter((i) => i.kind === kind);
 		if (!list.length) return "";
 		const mine = list.filter((i) => i.owner === "kostas").length;
@@ -1816,7 +1862,7 @@ async function showReport(id, v) {
 	const hash = `#report/${id}${v ? `/v${v}` : ""}`;
 	$("#r-newtab").href = `/?solo${hash}`;
 	$("#r-home").href = `/${hash}`;
-	const src = `/r/${id}${v ? `?v=${v}` : ""}`;
+	const src = withFrameTheme(`/r/${id}${v ? `?v=${v}` : ""}`);
 	if (frame.dataset.src !== src) { frame.dataset.src = src; frame.src = src; }
 	frame.dataset.version = shown;
 	document.title = `${r.title} · Workbench`;
@@ -2418,42 +2464,107 @@ envDlg.addEventListener("close", closeEnv);
 /* ---------- Notifications ---------- */
 
 // Off by default. Checked every 20 s even when the tab is in the background; shown only while it's not in front.
+// The bell and the switch in Settings → Notifications are the same thing (wb.notify); what pops up, and when, is
+// chosen there (prefs notify.*).
 const notify = { on: localGet("notify") === "on", items: null, reports: null, trackers: null };
+// Kinds of event, each a switch in Settings → Notifications, on by default: [key, label, hint].
+const NOTIFY_KINDS = [
+	["needs", "Something new needs you", "An item handed to you: a decision, a check, a review or a setup step"],
+	["done", "An agent finished", "Work an agent marked done"],
+	["stuck", "An agent got stuck", "An agent is waiting on something"],
+	["reports", "Reports", "A new report, or a new version of one"],
+	["trackers", "Status trackers", "One starts to warn, turns bad or stops reading"],
+];
+const notifyWants = (kind) => pref(`notify.${kind}`, true) !== false;
+const notifyOn = () => notify.on && window.Notification?.permission === "granted";
+// Quiet hours: from–to wraps past midnight when from is later than to; "All weekend too" adds Saturday and Sunday.
+const minutesOf = (hhmm, def) => {
+	const m = /^(\d{1,2}):(\d{2})$/.exec(hhmm || "") || /^(\d{1,2}):(\d{2})$/.exec(def);
+	return Number(m[1]) * 60 + Number(m[2]);
+};
+function quietAt(d = new Date()) {
+	if (!pref("notify.quiet", false)) return false;
+	if (pref("notify.quiet-weekend", false) && (d.getDay() === 0 || d.getDay() === 6)) return true;
+	const from = minutesOf(pref("notify.quiet-from", "22:00"), "22:00"), to = minutesOf(pref("notify.quiet-to", "08:00"), "08:00");
+	const now = d.getHours() * 60 + d.getMinutes();
+	if (from === to) return false;
+	return from < to ? now >= from && now < to : now >= from || now < to;
+}
 function renderNotify() {
 	const b = $("#notify");
 	b.hidden = !("Notification" in window);
-	const on = notify.on && window.Notification?.permission === "granted";
+	const on = notifyOn();
 	b.setAttribute("aria-pressed", on);
-	b.title = on ? "Desktop notifications on: what needs you, finished work, new report versions" : "Turn on desktop notifications";
+	b.title = on ? `Desktop notifications on${quietAt() ? ", quiet hours now" : ""}. Settings → Notifications chooses which` : "Turn on desktop notifications";
 }
-$("#notify").onclick = async () => {
-	if (!notify.on && Notification.permission !== "granted" && (await Notification.requestPermission()) !== "granted")
-		return toast("Notifications are blocked for this page in the browser settings");
-	notify.on = !notify.on;
-	localSet("notify", notify.on ? "on" : "off");
+async function setNotifyOn(on) {
+	if (on && Notification.permission !== "granted" && (await Notification.requestPermission()) !== "granted") {
+		renderNotify();
+		renderSettings();
+		return toast(Notification.permission === "denied" ? "Notifications are blocked for this page in the browser settings" : "Notifications stay off: the browser wasn't allowed to show them");
+	}
+	notify.on = on;
+	localSet("notify", on ? "on" : "off");
 	notify.items = notify.reports = notify.trackers = null;
 	renderNotify();
-	toast(notify.on ? "Notifications on" : "Notifications off");
-};
+	renderSettings();
+	toast(on ? "Notifications on" : "Notifications off");
+}
+$("#notify").onclick = () => setNotifyOn(!notifyOn());
+// Desktops show a Notification right away; Chrome on Android only from an installed app, so it throws there.
 function ping(title, body, tag, open) {
-	const n = new Notification(title, { body, tag, icon: "/favicon.svg" });
-	n.onclick = () => { window.focus(); open(); n.close(); };
+	try {
+		const n = new Notification(title, { body, tag, icon: "/favicon.svg" });
+		n.onclick = () => { window.focus(); open?.(); n.close(); };
+		return true;
+	} catch (e) {
+		console.warn(e);
+		return false;
+	}
+}
+// What a notification opens, kept as data so events held through quiet hours can still open it later.
+function openTarget(o) {
+	if (o?.item) api(`/api/items/${o.item}`).then(openItem).catch((e) => toast(e.message));
+	else if (o?.report) location.hash = `#report/${o.report}`;
+	else if (o?.tracker) openTracker(o.tracker);
+}
+// Events that happened during quiet hours, newest per item/report/tracker, until one summary when they end.
+function heldGet() { try { return JSON.parse(localGet("notify.held") || "[]"); } catch { return []; } }
+function heldSet(list) {
+	if (list.length) localSet("notify.held", JSON.stringify(list.slice(-50)));
+	else try { localStorage.removeItem("wb.notify.held"); } catch {}
+}
+function summarise(held) {
+	if (!held.length) return;
+	if (held.length === 1) return ping(held[0].title, held[0].body, held[0].tag, () => openTarget(held[0].open));
+	const n = (k) => held.filter((h) => h.kind === k).length;
+	const s = (c) => (c === 1 ? "" : "s");
+	const parts = [
+		n("needs") && (n("needs") === 1 ? "1 thing needs you" : `${n("needs")} things need you`),
+		n("done") && (n("done") === 1 ? "1 finished by an agent" : `${n("done")} finished by agents`),
+		n("stuck") && (n("stuck") === 1 ? "1 agent is waiting" : `${n("stuck")} agents are waiting`),
+		n("reports") && `${n("reports")} report${s(n("reports"))} added or updated`,
+		n("trackers") && `${n("trackers")} tracker${s(n("trackers"))} to look at`,
+	].filter(Boolean);
+	const first = held.find((h) => h.kind === "needs");
+	ping("While you were away", parts.join(" · ") + (first ? `\n${first.body}` : ""), "wb-away", first ? () => openTarget(first.open) : null);
 }
 async function notifyCheck() {
-	if (!notify.on || window.Notification?.permission !== "granted") return;
+	if (!notifyOn()) return;
 	const [items, reports, trackers] = await Promise.all([api("/api/items"), api("/api/reports"), api("/api/trackers")]);
 	const away = document.visibilityState !== "visible" || !document.hasFocus();
 	const mine = (i) => i && i.owner === "kostas" && OPEN.includes(i.status);
 	for (const [id, at] of localChanges) if (Date.now() - at > 60e3) localChanges.delete(id);
+	const events = [];
+	const ev = (kind, title, body, tag, open) => events.push({ kind, title, body, tag, open });
 	if (notify.items && away) {
 		for (const i of items) {
 			const was = notify.items.get(i.id);
 			if (localChanges.has(i.id) || (was && was.updated_at === i.updated_at)) continue;
 			const where = projectName(i.project);
-			const openIt = async () => openItem(await api(`/api/items/${i.id}`));
-			if (mine(i) && !mine(was)) ping(`Needs you · ${where}`, `${i.kind}: ${i.title}`, `wb-${i.ref}`, openIt);
-			else if (i.owner === "agent" && i.status === "done" && was && was.status !== "done") ping(`Done · ${where}`, i.title, `wb-${i.ref}`, openIt);
-			else if (i.owner === "agent" && i.status === "waiting" && was && was.status !== "waiting") ping(`Agent waiting · ${where}`, i.title, `wb-${i.ref}`, openIt);
+			if (mine(i) && !mine(was)) ev("needs", `Needs you · ${where}`, `${i.kind}: ${i.title}`, `wb-${i.ref}`, { item: i.id });
+			else if (i.owner === "agent" && i.status === "done" && was && was.status !== "done") ev("done", `Done · ${where}`, i.title, `wb-${i.ref}`, { item: i.id });
+			else if (i.owner === "agent" && i.status === "waiting" && was && was.status !== "waiting") ev("stuck", `Agent waiting · ${where}`, i.title, `wb-${i.ref}`, { item: i.id });
 		}
 		// Day pages are made by the board itself every 30 min, so they don't ping.
 		// A tracker that starts to warn, turns bad, or stops reading.
@@ -2462,21 +2573,36 @@ async function notifyCheck() {
 			const was = notify.trackers?.get(t.id);
 			if (!was) continue;
 			const where = t.project ? projectName(t.project) : "every project";
-			const openIt = () => openTracker(t.id);
 			const worst = t.reading?.meters.filter((m) => m.level === t.level).map(meterPlain).join(" · ") ?? "";
-			if (RANK[t.level] > RANK[was.level] && RANK[t.level] >= 2) ping(`${t.level === "bad" ? "Tracker bad" : "Tracker warning"} · ${where}`, `${t.title}: ${worst}`, `trk-${t.id}`, openIt);
-			else if (t.error && !was.error) ping(`Tracker failing · ${where}`, `${t.title}: ${t.error}`, `trk-${t.id}`, openIt);
+			if (RANK[t.level] > RANK[was.level] && RANK[t.level] >= 2) ev("trackers", `${t.level === "bad" ? "Tracker bad" : "Tracker warning"} · ${where}`, `${t.title}: ${worst}`, `trk-${t.id}`, { tracker: t.id });
+			else if (t.error && !was.error) ev("trackers", `Tracker failing · ${where}`, `${t.title}: ${t.error}`, `trk-${t.id}`, { tracker: t.id });
 		}
 		for (const r of reports.filter((r) => !r.name.startsWith("day-"))) {
 			const was = notify.reports.get(r.id);
-			if (was !== undefined && r.version > was) ping(`Report updated · ${projectName(r.project)}`, `${r.title} (v${r.version})`, `report-${r.id}`, () => { location.hash = `#report/${r.id}`; });
-			else if (was === undefined) ping(`New report · ${projectName(r.project)}`, r.title, `report-${r.id}`, () => { location.hash = `#report/${r.id}`; });
+			if (was !== undefined && r.version > was) ev("reports", `Report updated · ${projectName(r.project)}`, `${r.title} (v${r.version})`, `report-${r.id}`, { report: r.id });
+			else if (was === undefined) ev("reports", `New report · ${projectName(r.project)}`, r.title, `report-${r.id}`, { report: r.id });
 		}
 	}
+	notifyEmit(events.filter((e) => notifyWants(e.kind)), away);
 	notify.items = new Map(items.map((i) => [i.id, i]));
 	notify.reports = new Map(reports.map((r) => [r.id, r.version]));
 	notify.trackers = new Map(trackers.map((t) => [t.id, { level: t.level, error: t.error }]));
 }
+// During quiet hours nothing pops up: events wait, and the first check after they end sums them up in one
+// notification (if the board still isn't in front; if it is, you're already looking at them).
+function notifyEmit(events, away, now = new Date()) {
+	if (quietAt(now)) {
+		if (events.length) heldSet([...heldGet().filter((h) => !events.some((e) => e.tag === h.tag)), ...events]);
+		return;
+	}
+	const held = heldGet();
+	if (held.length) {
+		heldSet([]);
+		if (away) summarise(held.filter((h) => notifyWants(h.kind)));
+	}
+	for (const e of events) ping(e.title, e.body, e.tag, () => openTarget(e.open));
+}
+setInterval(() => { renderNotify(); notifyCheck().catch(() => {}); }, 20000);
 setInterval(() => notifyCheck().catch(() => {}), 20000);
 
 /* ---------- Copy refs ---------- */
@@ -2763,9 +2889,101 @@ async function setYouPoll() {}
 /* ---------- end: You and your day ---------- */
 
 /* ---------- Settings → Notifications (tab "notify") ---------- */
-function setNotifyRender() { return `<p class="set-intro">Coming soon.</p>`; }
-async function setNotifyLoad() {}
-async function setNotifyPoll() {}
+// The switch is the bell's (setNotifyOn); the rest are prefs notifyCheck reads each time (notify.*).
+const NOTIFY_ONLY_NEEDS = ["needs", "stuck"];
+const browserScope = `<span class="scope browser" title="${SCOPE.browser[1]}">This browser</span>`;
+function notifyState() {
+	if (!("Notification" in window)) return window.isSecureContext
+		? ["bad", "This browser doesn't offer desktop notifications."]
+		: ["off", `Notifications need the board at localhost or over https. Opened over plain http, as from a phone on your network (${esc(location.host)}), the browser doesn't offer them.`];
+	const p = Notification.permission;
+	if (p === "denied") return ["bad", "Blocked for this page in the browser. To allow them, click the icon at the left of the address bar, set Notifications to Allow, then reload this page."];
+	if (p === "default") return ["off", "The browser hasn't been asked yet: turning them on asks it."];
+	return notify.on ? ["ok", `On, and allowed in this browser.${quietAt() ? " Quiet hours now." : ""}`] : ["off", "Allowed in this browser, and off."];
+}
+const fmtClock = (hhmm) => {
+	const m = minutesOf(hhmm, "00:00");
+	return new Date(2000, 0, 1, Math.floor(m / 60), m % 60).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+};
+function quietSummary() {
+	if (!pref("notify.quiet", false)) return "Off: things pop up at any hour.";
+	const from = pref("notify.quiet-from", "22:00"), to = pref("notify.quiet-to", "08:00");
+	const wk = pref("notify.quiet-weekend", false);
+	const span = minutesOf(from, "22:00") === minutesOf(to, "08:00") ? (wk ? "All weekend" : "Start and end are the same, so never") : `${fmtClock(from)} to ${fmtClock(to)}${minutesOf(from, "22:00") > minutesOf(to, "08:00") ? " the next morning" : ""}${wk ? ", and all weekend" : ""}`;
+	return `${span}. ${quietAt() ? "Quiet now." : "Not quiet now."}`;
+}
+function setNotifyRender() {
+	const supported = "Notification" in window;
+	const [dot, status] = notifyState();
+	const on = notifyOn();
+	const blocked = !supported || Notification.permission === "denied";
+	const master = optRow({
+		label: `Desktop notifications${browserScope}`,
+		hint: `<span class="nt-status"><span class="sdot ${dot}"></span><span>${status}</span></span>`,
+		control: `<label class="switch"><input type="checkbox" role="switch" data-notify-on${on ? " checked" : ""}${blocked ? " disabled" : ""} aria-label="Desktop notifications"><span></span></label>`,
+	});
+	const wants = Object.fromEntries(NOTIFY_KINDS.map(([k]) => [k, notifyWants(k)]));
+	const isAll = NOTIFY_KINDS.every(([k]) => wants[k]);
+	const isNeeds = NOTIFY_KINDS.every(([k]) => wants[k] === NOTIFY_ONLY_NEEDS.includes(k));
+	const presets = optRow({
+		label: "Quick pick",
+		hint: "Everything, or only what waits on you: new things that need you and agents that got stuck.",
+		control: `<div class="radios nt-presets" role="group" aria-label="Quick pick">
+			<button type="button" data-notify="all" aria-pressed="${isAll}">Everything</button>
+			<button type="button" data-notify="needs" aria-pressed="${isNeeds}">Only what needs me</button></div>`,
+	});
+	const kinds = NOTIFY_KINDS.map(([k, label, hint]) => optRow({ label, hint, bind: { pref: `notify.${k}`, def: true }, control: ctlToggle({ pref: `notify.${k}`, def: true }, { label }), off: !on }));
+	const quiet = pref("notify.quiet", false);
+	const quietRows = [
+		optRow({ label: "Keep quiet at set hours", hint: quietSummary(), bind: { pref: "notify.quiet", def: false }, control: ctlToggle({ pref: "notify.quiet", def: false }, { label: "Keep quiet at set hours" }) }),
+		optRow({ label: "From", bind: { pref: "notify.quiet-from", def: "22:00" }, control: ctlTime({ pref: "notify.quiet-from", def: "22:00" }, { label: "Quiet hours from" }), off: !quiet }),
+		optRow({ label: "Until", hint: "When it's earlier than the start, it's the next morning.", bind: { pref: "notify.quiet-to", def: "08:00" }, control: ctlTime({ pref: "notify.quiet-to", def: "08:00" }, { label: "Quiet hours until" }), off: !quiet }),
+		optRow({ label: "All weekend too", hint: "Saturday and Sunday, all day.", bind: { pref: "notify.quiet-weekend", def: false }, control: ctlToggle({ pref: "notify.quiet-weekend", def: false }, { label: "All weekend too" }), off: !quiet }),
+	];
+	const test = optRow({
+		label: "Send a test notification",
+		hint: on ? "Shows one now, even with the board in front, so you can see how they look." : "Turn notifications on first.",
+		control: `<button type="button" class="ghost sm" data-notify="test"${on ? "" : " disabled"}>Send a test</button>`,
+	});
+	return `<p class="set-intro">Notifications pop up only while the board isn't the window in front, and never for changes you make here yourself. Each browser has its own: turn them on wherever you want them.</p>
+		${optGroup("Notifications", [master, test])}
+		${optGroup("What to tell you about", [presets, ...kinds], on ? "" : "Saved now, used once notifications are on.")}
+		${optGroup("Quiet hours", quietRows, "Nothing pops up during quiet hours. When they end, one notification sums up what happened meanwhile, such as “While you were away: 3 things need you”, unless you're already looking at the board.")}`;
+}
+let notifyPermWatch = false;
+async function setNotifyLoad() {
+	if (notifyPermWatch || !navigator.permissions || !("Notification" in window)) return;
+	notifyPermWatch = true;
+	// Allowing or blocking in the browser's own settings shows here without a reload.
+	try { (await navigator.permissions.query({ name: "notifications" })).onchange = () => { renderNotify(); renderSettings(); }; } catch {}
+}
+async function setNotifyPoll() { renderNotify(); renderSettings(); }
+$("#settings-view").addEventListener("change", (e) => {
+	const t = e.target.closest("[data-notify-on]");
+	if (t) setNotifyOn(t.checked);
+});
+$("#settings-view").addEventListener("click", (e) => {
+	const b = e.target.closest("[data-notify]");
+	if (!b) return;
+	const what = b.dataset.notify;
+	if (what === "test") {
+		if (!notifyOn()) return toast("Turn notifications on first");
+		if (!ping("Workbench", "Notifications work. They look like this, and clicking one opens what it's about.", "wb-test", null))
+			toast("This browser shows notifications only from installed apps");
+		return;
+	}
+	// Everything = every kind back to its default (on); only-needs turns the others off.
+	for (const [k] of NOTIFY_KINDS) setPrefQuiet(`notify.${k}`, what === "all" || NOTIFY_ONLY_NEEDS.includes(k) ? null : false);
+	runSettingsHooks("notify.kinds");
+	renderSettings();
+	toast(what === "all" ? "You'll hear about everything" : "Only what needs you");
+});
+// Like setPref, without re-rendering for each key of a preset.
+function setPrefQuiet(key, value) {
+	if (value === null) { try { localStorage.removeItem(`wb.pref.${key}`); } catch {} }
+	else localSet(`pref.${key}`, JSON.stringify(value));
+}
+onSettingsChange((key) => { if (key === undefined || key.startsWith("notify.")) renderNotify(); });
 /* ---------- end: Notifications ---------- */
 
 /* ---------- Settings → Data (tab "data") ---------- */
@@ -2781,9 +2999,128 @@ async function setPrivacyPoll() {}
 /* ---------- end: Privacy and security ---------- */
 
 /* ---------- Settings → Appearance (tab "look") ---------- */
-function setLookRender() { return `<p class="set-intro">Coming soon.</p>`; }
+// All this browser's (look.*). The theme is also set by the inline script in <head>, before the first paint.
+const MAC = /Mac|iPhone|iPad/.test(navigator.userAgentData?.platform || navigator.platform || navigator.userAgent);
+const MOD = MAC ? "⌘" : "Ctrl";
+const osDark = matchMedia("(prefers-color-scheme: dark)");
+const lookTheme = () => { const t = pref("look.theme", "system"); return t === "light" || t === "dark" ? t : "system"; };
+// The board opens on the last filter used ("last"), or always on one. Runs while `state` is built, so nothing
+// declared with const below this point can be used here.
+function startWho() {
+	const START_WHO = ["all", "kostas", "agent"];
+	const v = pref("look.start", "last");
+	if (START_WHO.includes(v)) return v;
+	const last = localGet("who");
+	return START_WHO.includes(last) ? last : "all";
+}
+// SECTIONS in this browser's order; kinds missing from a saved order (a new kind) keep their place at the end.
+function sectionOrder() {
+	const saved = pref("look.sections", null);
+	if (!Array.isArray(saved)) return SECTIONS;
+	const by = new Map(SECTIONS.map((s) => [s[0], s]));
+	return [...saved.filter((k) => by.has(k)).map((k) => by.get(k)), ...SECTIONS.filter((s) => !saved.includes(s[0]))];
+}
+// A report in the frame gets the theme on its address (so its first paint is right) and by message when it changes.
+function withFrameTheme(src) {
+	const u = new URL(src, location.href), t = lookTheme();
+	if (t === "system") u.searchParams.delete("wbtheme"); else u.searchParams.set("wbtheme", t);
+	return u.pathname + u.search;
+}
+function applyLook() {
+	const t = lookTheme(), root = document.documentElement;
+	if (t === "system") delete root.dataset.theme; else root.dataset.theme = t;
+	document.body.classList.toggle("compact", pref("look.density", "comfortable") === "compact");
+	if (frame.dataset.src) {
+		frame.dataset.src = withFrameTheme(frame.dataset.src);
+		frame.contentWindow?.postMessage({ wb: 1, event: "theme", theme: t === "system" ? "" : t }, "*");
+	}
+}
+// The board's real shortcuts (see the keydown listeners), as [keys, what]; keys are joined with "+".
+const SHORTCUTS = () => [
+	[[[MOD, "K"]], "Search, from anywhere"],
+	[[["/"]], "Search, when you're not typing"],
+	[[["↑"], ["↓"]], "Move through search results"],
+	[[["Enter"]], "Open the search result you're on"],
+	[[["Esc"]], "Close the search results, then clear the search"],
+	[[["Esc"]], "Close a dialog"],
+	[[["Enter"]], "In an item: send your own answer, or add the note"],
+	[[[MOD, "Enter"]], "In a tracker: record the reading"],
+];
+const kbdKeys = (alts) => alts.map((combo) => combo.map((k) => `<kbd>${esc(k)}</kbd>`).join(`<span class="lk-plus">+</span>`)).join(`<span class="lk-or">or</span>`);
+function lookSectionRows() {
+	const list = sectionOrder();
+	return list.map(([kind, label], i) => `<div class="so lk-sec" data-kind="${kind}">
+		<div class="ord">
+			<button type="button" class="icon-btn" data-look="up" title="Move up" aria-label="Move ${esc(label)} up"${i ? "" : " disabled"}>${svg16('<path d="m4.5 10 3.5-3.5 3.5 3.5"/>')}</button>
+			<button type="button" class="icon-btn" data-look="down" title="Move down" aria-label="Move ${esc(label)} down"${i < list.length - 1 ? "" : " disabled"}>${svg16('<path d="m4.5 6 3.5 3.5 3.5-3.5"/>')}</button></div>
+		${kindIcon(kind)}<span class="lk-name">${esc(label)}</span></div>`).join("");
+}
+function setLookRender() {
+	const theme = optRow({
+		label: "Theme",
+		hint: `System follows your ${narrow() ? "phone" : "computer"}'s setting (${osDark.matches ? "dark" : "light"} now). Reports opened on the board follow the theme too.`,
+		bind: { pref: "look.theme", def: "system" },
+		control: ctlRadios({ pref: "look.theme", def: "system" }, [["light", "Light"], ["dark", "Dark"], ["system", "System"]], { label: "Theme" }),
+	});
+	const density = optRow({
+		label: "Density",
+		hint: "Compact fits more on screen: tighter cards, section headers and side lists.",
+		bind: { pref: "look.density", def: "comfortable" },
+		control: ctlRadios({ pref: "look.density", def: "comfortable" }, [["comfortable", "Comfortable"], ["compact", "Compact"]], { label: "Density" }),
+	});
+	const start = optRow({
+		label: "The board opens on",
+		hint: "Where I left it keeps the last of Everything, Needs you and With agents you picked.",
+		bind: { pref: "look.start", def: "last" },
+		control: ctlSelect({ pref: "look.start", def: "last" }, [["last", "Where I left it"], ["all", "Everything"], ["kostas", "Needs you"], ["agent", "With agents"]], { label: "The board opens on" }),
+	});
+	const order = optRow({
+		label: "Order of the sections",
+		hint: "Done lately and repositories stay at the end. Each section remembers by itself whether it's folded.",
+		bind: { pref: "look.sections", def: null },
+		control: "",
+	});
+	const keys = `<div class="so-wide"><dl class="lk-keys">${SHORTCUTS().map(([k, what]) => `<dt>${kbdKeys(k)}</dt><dd>${esc(what)}</dd>`).join("")}</dl></div>`;
+	return `<p class="set-intro">How the board looks in this browser. Your phone and your computer can each have their own.</p>
+		${optGroup("Look", [theme, density])}
+		${optGroup("Board", [start, order, lookSectionRows()])}
+		${optGroup("Keyboard shortcuts", [keys], narrow() ? "With a keyboard attached." : "")}`;
+}
 async function setLookLoad() {}
 async function setLookPoll() {}
+function moveSection(kind, dir) {
+	const order = sectionOrder().map((s) => s[0]);
+	const i = order.indexOf(kind), j = i + (dir === "up" ? -1 : 1);
+	if (i < 0 || j < 0 || j >= order.length) return;
+	[order[i], order[j]] = [order[j], order[i]];
+	setPref("look.sections", order.join() === SECTIONS.map((s) => s[0]).join() ? null : order);
+	// Keep the keyboard on the row that moved, on the other arrow once it reaches an end.
+	const row = $(`#settings-view .lk-sec[data-kind="${CSS.escape(kind)}"]`);
+	const btn = row?.querySelector(`[data-look="${dir}"]`);
+	(btn && !btn.disabled ? btn : row?.querySelector(`[data-look="${dir === "up" ? "down" : "up"}"]`))?.focus();
+}
+$("#settings-view").addEventListener("click", (e) => {
+	const b = e.target.closest("[data-look]");
+	if (b) moveSection(b.closest("[data-kind]")?.dataset.kind, b.dataset.look);
+});
+onSettingsChange((key) => {
+	if (key === undefined || key.startsWith("look.")) applyLook();
+	if (key === "look.sections") renderBoard();
+	// Picking a starting filter shows it now, too.
+	if (key === "look.start") { state.who = startWho(); renderBoard(); }
+});
+// Another tab of this browser changed a setting: follow it here.
+addEventListener("storage", (e) => {
+	if (e.key === "wb.notify") { notify.on = e.newValue === "on"; notify.items = notify.reports = notify.trackers = null; renderNotify(); }
+	if (!e.key?.startsWith("wb.pref.") && e.key !== "wb.notify") return;
+	applyLook();
+	renderBoard();
+	renderNotify();
+	renderSettings();
+});
+osDark.addEventListener("change", () => renderSettings());
+$(".search-wrap kbd").textContent = `${MOD} K`;
+applyLook();
 /* ---------- end: Appearance ---------- */
 
 async function afterProjectChange() {
