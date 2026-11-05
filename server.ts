@@ -48,6 +48,7 @@ import type { Server } from "bun";
 import { publishDays } from "./day";
 import { codeLinks, repoState, type CodeLinks } from "./git";
 import { candidateFolders, checkFolder, folderState, health } from "./health";
+import { getSettings, settingDefs, updateSettings } from "./settings";
 import { findIcon } from "./icons";
 import { forgetLogo, projectLogo } from "./logo";
 import { REPORT_CSP, withBridge } from "./reports";
@@ -246,6 +247,36 @@ export function serve({ lan = false } = {}) {
 					}
 				}),
 			},
+			// Board-wide settings (settings.ts). Anyone who can open the board reads them (nothing secret); they change
+			// only from the board's own page on this computer, like projects.
+			"/api/settings": {
+				GET: () => json(getSettings(db)),
+				PATCH: jsonOnly(async (req, srv) => {
+					if (!boardOnly(req, srv)) return json({ error: SETTINGS_LOCAL }, 403);
+					try {
+						return json(updateSettings(db, await req.json()));
+					} catch (e) {
+						return fail(e);
+					}
+				}),
+			},
+			"/api/settings/defs": () => json(settingDefs()),
+
+			// Settings → You and your day: routes
+			// end: You and your day routes
+
+			// Settings → Notifications: routes
+			// end: Notifications routes
+
+			// Settings → Data: routes
+			// end: Data routes
+
+			// Settings → Privacy and security: routes
+			// end: Privacy and security routes
+
+			// Settings → Appearance: routes
+			// end: Appearance routes
+
 			// Settings: projects with their folder and what points at them, folders that could be projects, and health.
 			"/api/settings/projects": (req, srv) =>
 				loopback(req, srv)

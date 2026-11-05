@@ -2,6 +2,7 @@ import { Database } from "bun:sqlite";
 import { timingSafeEqual } from "node:crypto";
 import { mkdirSync, readdirSync, rmSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { createSettingsTable } from "./settings";
 import { createTables as createTrackerTables } from "./trackers";
 
 export const KINDS = ["task", "check", "review", "decision", "setup", "bug", "idea"] as const;
@@ -183,6 +184,8 @@ export function open(path = DB_PATH) {
 	)`);
 	// Status trackers (see trackers.ts).
 	createTrackerTables(db);
+	// Board-wide settings (see settings.ts).
+	createSettingsTable(db);
 	return db;
 }
 

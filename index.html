@@ -382,6 +382,78 @@ code.cmd { white-space: normal; overflow-wrap: anywhere; }
 	.set-row .meta, .set-row .main code { display: none; }
 }
 
+/* Settings: tabs, and the option rows every section uses */
+.set-layout { display: grid; grid-template-columns: 196px minmax(0, 1fr); gap: 24px; margin-top: 16px; align-items: start; }
+.set-tabs { display: flex; flex-direction: column; gap: 2px; position: sticky; top: 0; }
+.set-tabs a { color: var(--muted); text-decoration: none; padding: 6px 10px; border-radius: 8px; font-size: 13.5px; display: flex; align-items: center; gap: 9px; }
+.set-tabs a svg { width: 16px; height: 16px; flex: none; }
+.set-tabs a:hover { background: var(--hover); color: var(--ink); }
+.set-tabs a[aria-current="page"] { background: var(--card); color: var(--ink); font-weight: 600; box-shadow: inset 0 0 0 1px var(--line); }
+.set-tabs a[aria-current="page"] svg { color: var(--accent); }
+.set-tabs .tab-n { margin-left: auto; font-size: 11px; font-weight: 700; border-radius: 999px; padding: 0 6px; line-height: 17px; background: var(--warn-bg); color: var(--warn-ink); }
+.set-panel { min-width: 0; }
+.set-panel > .set-sec:first-child, .set-panel > .so-group:first-child { margin-top: 0; }
+.set-intro { color: var(--muted); font-size: 13px; margin: 0 0 16px; }
+.so-group { margin: 0 0 24px; }
+.so-group > h3 { margin: 0 0 3px; font-size: 15px; }
+.so-group > .hint { margin: 0 0 8px; font-size: 12.5px; }
+.so-list { background: var(--card); border: 1px solid var(--line); border-radius: 10px; margin-top: 8px; }
+.so { display: flex; gap: 16px; align-items: center; padding: 11px 14px; }
+.so + .so { border-top: 1px solid var(--line); }
+.so-main { flex: 1; min-width: 0; }
+.so-label { font-size: 13.5px; font-weight: 500; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.so-main > small { display: block; color: var(--muted); font-size: 12px; margin-top: 2px; }
+.so-ctl { flex: none; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.so.off { opacity: .55; }
+.so-wide { padding: 11px 14px; }
+.so-wide + .so, .so + .so-wide { border-top: 1px solid var(--line); }
+.scope { font-size: 10.5px; font-weight: 600; letter-spacing: .2px; border-radius: 999px; padding: 0 7px; line-height: 17px; color: var(--muted); border: 1px solid var(--line); cursor: help; }
+.scope.browser { border-style: dashed; }
+.reset-btn { border: 0; background: transparent; color: var(--accent); font-size: 12px; padding: 0; }
+.reset-btn:hover { text-decoration: underline; }
+.so-ctl select, .so-ctl input[type=text], .so-ctl input[type=number], .so-ctl input[type=time] {
+	border: 1px solid var(--line); background: var(--bg); border-radius: 7px; padding: 5px 8px; font-size: 13px; color: var(--ink); min-width: 0; }
+.so-ctl input[type=number] { width: 78px; }
+.so-ctl input[type=text] { width: 200px; }
+.so-ctl .so-unit { color: var(--muted); font-size: 12.5px; }
+.switch { position: relative; display: inline-block; width: 36px; height: 20px; flex: none; }
+.switch input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; z-index: 1; }
+.switch > span { position: absolute; inset: 0; border-radius: 999px; background: color-mix(in srgb, var(--muted) 45%, var(--line)); transition: background .15s; pointer-events: none; }
+.switch > span::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff;
+	box-shadow: 0 1px 2px rgb(0 0 0 / .3); transition: translate .15s; }
+.switch input:checked + span { background: var(--accent); }
+.switch input:checked + span::after { translate: 16px 0; }
+.switch input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
+.switch input:disabled { cursor: default; }
+.radios { display: inline-flex; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 2px; gap: 2px; }
+.radios label { position: relative; padding: 3px 11px; border-radius: 6px; font-size: 12.5px; cursor: pointer; color: var(--muted); white-space: nowrap; }
+.radios input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; }
+.radios label:has(input:checked) { background: var(--card); color: var(--ink); box-shadow: 0 0 0 1px var(--line); font-weight: 600; }
+.radios label:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 1px; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+@media (max-width: 760px) {
+	.set-layout { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+	.set-tabs { flex-direction: row; overflow-x: auto; position: static; scrollbar-width: none; margin: 0 -12px; padding: 0 12px; }
+	.set-tabs a { white-space: nowrap; }
+	.so { flex-wrap: wrap; }
+	.so-ctl { justify-content: flex-start; }
+}
+
+/* Settings → You and your day */
+/* end: You and your day */
+
+/* Settings → Notifications */
+/* end: Notifications */
+
+/* Settings → Data */
+/* end: Data */
+
+/* Settings → Privacy and security */
+/* end: Privacy and security */
+
+/* Settings → Appearance */
+/* end: Appearance */
+
 /* Decisions, code, notifications */
 .opts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 7px; }
 .opt { border: 1px solid color-mix(in srgb, var(--decision) 45%, var(--line)); background: color-mix(in srgb, var(--decision) 8%, var(--card)); color: var(--ink);
@@ -801,7 +873,7 @@ function renderProjects() {
 	const total = state.projects.reduce((n, p) => n + p.mine, 0);
 	const btn = (p) => `<button class="pbtn" data-project="${esc(p.slug)}" aria-current="${p.slug === state.project}"
 		title="${esc(p.name)}${p.mine ? ` · ${p.mine} waiting on you` : ""}">${logo(p)}<span class="pname">${esc(p.slug ? p.name : "All")}</span>${p.mine ? `<span class="badge">${p.mine}</span>` : ""}</button>`;
-	const settingsBtn = `<button type="button" class="pbtn set-pbtn" id="settings-btn" title="Settings" aria-label="Settings" aria-pressed="${location.hash === "#settings"}">
+	const settingsBtn = `<button type="button" class="pbtn set-pbtn" id="settings-btn" title="Settings" aria-label="Settings" aria-pressed="${inSettings()}">
 		<span class="set-ic"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2.5 4.5h6M11.5 4.5h2M2.5 11.5h2M7.5 11.5h6"/><circle cx="10" cy="4.5" r="1.5"/><circle cx="6" cy="11.5" r="1.5"/></svg></span><span class="pname">Settings</span></button>`;
 	paint($("#prail"), btn({ slug: "", name: "All projects", mine: total }) + `<div class="prail-sep"></div>` + state.projects.map(btn).join("") + settingsBtn);
 	const p = state.projects.find((p) => p.slug === state.project);
@@ -829,7 +901,7 @@ function setProject(slug) {
 	loadRepos();
 }
 $("#prail").addEventListener("click", (e) => {
-	if (e.target.closest("#settings-btn")) return location.hash === "#settings" ? goBoard() : (location.hash = "#settings");
+	if (e.target.closest("#settings-btn")) return inSettings() ? goBoard() : (location.hash = "#settings");
 	const b = e.target.closest("[data-project]");
 	if (b) setProject(b.dataset.project);
 });
@@ -1720,12 +1792,12 @@ function showView(name) {
 function route() {
 	const m = location.hash.match(/^#report\/(\d+)(?:\/v(\d+))?$/);
 	if (m) return showReport(Number(m[1]), m[2] ? Number(m[2]) : null);
-	const view = location.hash === "#vault" ? "vault" : location.hash === "#settings" ? "settings" : "board";
+	const view = location.hash === "#vault" ? "vault" : inSettings() ? "settings" : "board";
 	showView(view);
 	document.title = { vault: "Vault · Workbench", settings: "Settings · Workbench", board: "Workbench" }[view];
 	renderRail();
 	if (view === "vault") openVault();
-	if (view === "settings") openSettings();
+	if (view === "settings") openSettings(location.hash.split("/")[1]);
 }
 
 async function showReport(id, v) {
@@ -2411,9 +2483,130 @@ setInterval(() => notifyCheck().catch(() => {}), 20000);
 
 /* ---------- Settings ---------- */
 
-// The whole workbench's settings (#settings): projects and a health check. They open only on this computer:
-// a project's folder decides where git and tracker commands run, and the checks look at this machine.
-const settings = { projects: null, folders: [], health: null, checking: false, checkedAt: 0, error: "" };
+// The whole workbench's settings (#settings/<tab>). Two kinds of setting, and each row says which:
+// - board: kept in the workbench's database (settings.ts), the same in every browser and for the CLI and agents.
+//   Read with setting(key), changed with saveSetting(key, value); they change only from this computer.
+// - browser: kept in this browser (localStorage), so a phone and a laptop can differ. pref(key, default), setPref.
+// Tabs marked `local` need the board on this computer (localhost); the others work from the phone too.
+const settings = { tab: "projects", projects: null, folders: [], health: null, checking: false, checkedAt: 0, error: "" };
+state.settings = {};
+state.settingDefs = {};
+const inSettings = () => location.hash === "#settings" || location.hash.startsWith("#settings/");
+const setting = (key) => state.settings[key] ?? state.settingDefs[key]?.default;
+function pref(key, def) {
+	const raw = localGet(`pref.${key}`);
+	if (raw == null) return def;
+	try { return JSON.parse(raw); } catch { return def; }
+}
+// Code that depends on a setting registers here; it runs with the key that changed, or undefined after a load.
+const settingsHooks = [];
+const onSettingsChange = (fn) => settingsHooks.push(fn);
+function runSettingsHooks(key) {
+	for (const fn of settingsHooks) try { fn(key); } catch (e) { console.error(e); }
+}
+async function loadSettings() {
+	try {
+		const [values, defs] = await Promise.all([api("/api/settings"), Object.keys(state.settingDefs).length ? state.settingDefs : api("/api/settings/defs")]);
+		const changed = JSON.stringify(values) !== JSON.stringify(state.settings);
+		state.settingDefs = defs;
+		state.settings = values;
+		if (changed) { runSettingsHooks(); renderSettings(); }
+	} catch {}
+}
+async function saveSetting(key, value) {
+	const before = state.settings;
+	state.settings = { ...before, [key]: value ?? state.settingDefs[key]?.default };
+	try {
+		state.settings = await api("/api/settings", { method: "PATCH", body: JSON.stringify({ [key]: value }) });
+		toast(value === null ? "Back to the default" : "Saved");
+	} catch (e) {
+		state.settings = before;
+		toast(e.message);
+	}
+	runSettingsHooks(key);
+	renderSettings();
+}
+function setPref(key, value) {
+	if (value === undefined || value === null) { try { localStorage.removeItem(`wb.pref.${key}`); } catch {} }
+	else localSet(`pref.${key}`, JSON.stringify(value));
+	runSettingsHooks(key);
+	renderSettings();
+}
+
+// Option rows. `bind` is { setting: key } or { pref: key, def }; it names what the control saves, labels the row
+// "This board" or "This browser", and offers "Default" when the value isn't the default.
+const SCOPE = {
+	board: ["This board", "Saved in the workbench: the same in every browser, and for the CLI and agents"],
+	browser: ["This browser", "Saved in this browser only, so your phone and laptop can differ"],
+};
+const bindAttr = (b) => (b.setting ? `data-setting="${esc(b.setting)}"` : `data-pref="${esc(b.pref)}"`);
+const bindValue = (b) => (b.setting ? setting(b.setting) : pref(b.pref, b.def));
+const bindDefault = (b) => (b.setting ? state.settingDefs[b.setting]?.default : b.def);
+function optRow({ label, hint = "", bind, control, off = false, id = "" }) {
+	const scope = bind?.setting ? "board" : "browser";
+	const changed = bind && JSON.stringify(bindValue(bind)) !== JSON.stringify(bindDefault(bind)) && bindDefault(bind) !== undefined;
+	const reset = changed ? `<button type="button" class="reset-btn" data-reset="${bind.setting ? `setting:${esc(bind.setting)}` : `pref:${esc(bind.pref)}`}" title="Back to the default (${esc(JSON.stringify(bindDefault(bind)))})">Default</button>` : "";
+	return `<div class="so${off ? " off" : ""}"${id ? ` id="${esc(id)}"` : ""}><div class="so-main"><div class="so-label">${label}${bind ? `<span class="scope ${scope}" title="${SCOPE[scope][1]}">${SCOPE[scope][0]}</span>` : ""}${reset}</div>${hint ? `<small>${hint}</small>` : ""}</div><div class="so-ctl">${control}</div></div>`;
+}
+const optGroup = (title, rows, note = "") => `<section class="so-group"><h3>${title}</h3>${note ? `<p class="hint">${note}</p>` : ""}<div class="so-list">${rows.join("")}</div></section>`;
+// Controls. The page saves them on change (see the listener below); `label` is for screen readers when the row's
+// own label isn't next to the control.
+function ctlToggle(b, { label = "", disabled = false } = {}) {
+	return `<label class="switch"><input type="checkbox" role="switch" ${bindAttr(b)} data-type="bool"${bindValue(b) ? " checked" : ""}${disabled ? " disabled" : ""}${label ? ` aria-label="${esc(label)}"` : ""}><span></span></label>`;
+}
+function ctlSelect(b, options, { label = "" } = {}) {
+	const v = bindValue(b);
+	const type = typeof options[0]?.[0] === "number" ? "number" : "string";
+	return `<select ${bindAttr(b)} data-type="${type}"${label ? ` aria-label="${esc(label)}"` : ""}>${options.map(([value, text]) => `<option value="${esc(value)}"${value === v ? " selected" : ""}>${esc(text)}</option>`).join("")}</select>`;
+}
+function ctlRadios(b, options, { label = "" } = {}) {
+	const v = bindValue(b);
+	const type = typeof options[0]?.[0] === "number" ? "number" : "string";
+	const name = `r-${b.setting ?? b.pref}`;
+	return `<div class="radios" role="radiogroup"${label ? ` aria-label="${esc(label)}"` : ""}>${options.map(([value, text]) =>
+		`<label><input type="radio" name="${esc(name)}" value="${esc(value)}" ${bindAttr(b)} data-type="${type}"${value === v ? " checked" : ""}>${esc(text)}</label>`).join("")}</div>`;
+}
+function ctlNumber(b, { min, max, step = 1, unit = "", label = "" } = {}) {
+	return `<input type="number" ${bindAttr(b)} data-type="number" value="${esc(bindValue(b))}"${min != null ? ` min="${min}"` : ""}${max != null ? ` max="${max}"` : ""} step="${step}"${label ? ` aria-label="${esc(label)}"` : ""}>${unit ? `<span class="so-unit">${esc(unit)}</span>` : ""}`;
+}
+function ctlText(b, { placeholder = "", maxlength = 80, label = "" } = {}) {
+	return `<input type="text" ${bindAttr(b)} data-type="string" value="${esc(bindValue(b))}" placeholder="${esc(placeholder)}" maxlength="${maxlength}"${label ? ` aria-label="${esc(label)}"` : ""}>`;
+}
+function ctlTime(b, { label = "" } = {}) {
+	return `<input type="time" ${bindAttr(b)} data-type="string" value="${esc(bindValue(b))}"${label ? ` aria-label="${esc(label)}"` : ""}>`;
+}
+function readControl(el) {
+	const t = el.dataset.type;
+	if (t === "bool") return el.checked;
+	if (t === "number") return el.value === "" ? null : Number(el.value);
+	if (t === "json") return JSON.parse(el.value);
+	return el.value;
+}
+// Board settings change only from this computer; elsewhere their controls are shown but locked.
+const canChangeBoard = () => CAN_SHARE;
+
+const TAB_IC = {
+	projects: '<path d="M2 4.25a1 1 0 0 1 1-1h3.2l1.5 1.5H13a1 1 0 0 1 1 1v6.5a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1z"/>',
+	notify: '<path d="M4 11V7a4 4 0 0 1 8 0v4l1.5 1.5h-11zM6.5 13.5a1.5 1.5 0 0 0 3 0"/>',
+	health: '<path d="M1.5 8.5h3l1.5-4 3 8 1.5-4h4"/>',
+	you: '<circle cx="8" cy="5.5" r="2.75"/><path d="M2.75 14a5.25 5.25 0 0 1 10.5 0"/>',
+	data: '<ellipse cx="8" cy="3.75" rx="5.25" ry="2"/><path d="M2.75 3.75v8.5c0 1.1 2.35 2 5.25 2s5.25-.9 5.25-2v-8.5M2.75 8c0 1.1 2.35 2 5.25 2s5.25-.9 5.25-2"/>',
+	privacy: '<path d="M8 1.75 2.75 3.75v4c0 3.2 2.2 5.6 5.25 6.5 3.05-.9 5.25-3.3 5.25-6.5v-4z"/><path d="m5.9 8 1.5 1.5 2.8-3"/>',
+	look: '<circle cx="8" cy="8" r="6.25"/><path d="M8 1.75v12.5a6.25 6.25 0 0 0 0-12.5z" fill="currentColor" stroke="none"/>',
+};
+// In order. render() returns the tab's HTML; load() runs when the tab opens; poll() runs every 10 s while it's open.
+const SET_TABS = [
+	{ key: "projects", label: "Projects", local: true, render: projectsTab, load: loadSettingsProjects, poll: loadSettingsProjects },
+	{ key: "notify", label: "Notifications", local: false, render: setNotifyRender, load: setNotifyLoad, poll: setNotifyPoll },
+	{ key: "health", label: "Health", local: true, render: healthTab, load: () => (Date.now() - settings.checkedAt > 30e3 ? checkHealth() : null), poll: () => {} },
+	{ key: "you", label: "You and your day", local: true, render: setYouRender, load: setYouLoad, poll: setYouPoll },
+	{ key: "data", label: "Data", local: true, render: setDataRender, load: setDataLoad, poll: setDataPoll },
+	{ key: "privacy", label: "Privacy and security", local: true, render: setPrivacyRender, load: setPrivacyLoad, poll: setPrivacyPoll },
+	{ key: "look", label: "Appearance", local: false, render: setLookRender, load: setLookLoad, poll: setLookPoll },
+];
+const currentTab = () => SET_TABS.find((t) => t.key === settings.tab) ?? SET_TABS[0];
+const localOnlyCard = (what) => `<div class="vault-card" style="margin-top:0"><div class="vault-ic">${svg16(SLIDERS)}</div><h2>${esc(what)} opens on this computer</h2>
+	<p>It changes the board for every device, so it opens only where the board runs, at <a href="http://localhost:${esc(location.port)}/#settings/${esc(settings.tab)}">localhost</a>. Notifications and Appearance work here.</p></div>`;
 const projDlg = $("#proj-dlg");
 const projForm = $("#proj-form");
 let currentProj = null;
@@ -2429,11 +2622,17 @@ function runningFor(ms) {
 	return m < 60 ? `${m} min` : m < 2880 ? `${Math.round(m / 60)} h` : `${Math.round(m / 1440)} days`;
 }
 
-async function openSettings() {
-	if (!CAN_SHARE) return renderSettings();
+async function openSettings(tab) {
+	const known = SET_TABS.find((t) => t.key === tab);
+	// On the phone, start on a tab that works there.
+	settings.tab = known ? known.key : CAN_SHARE ? "projects" : "notify";
+	if (!known && tab !== undefined) history.replaceState(null, "", `#settings/${settings.tab}`);
 	settings.error = "";
 	renderSettings();
-	await Promise.all([loadSettingsProjects(), Date.now() - settings.checkedAt > 30e3 ? checkHealth() : null]);
+	const t = currentTab();
+	if (t.local && !CAN_SHARE) return;
+	await Promise.all([loadSettings(), CAN_SHARE ? loadSettingsProjects() : null, t.load?.()]);
+	renderSettings();
 }
 async function loadSettingsProjects() {
 	if (!CAN_SHARE) return;
@@ -2516,34 +2715,76 @@ function healthCards(h) {
 	return `<div class="set-grid">${agents}${phone}${startup}${about}</div>`;
 }
 
+function projectsTab() {
+	const ps = settings.projects;
+	const active = ps ? ps.filter((p) => !p.archived_at) : [];
+	const archived = ps ? ps.filter((p) => p.archived_at) : [];
+	return `<section class="set-sec" aria-labelledby="set-projects-h">
+		<div class="set-sec-head"><h3 id="set-projects-h">Projects</h3><small>Their order down the left edge, names and folders. Archive one when it's finished.</small>
+			<span class="spacer"></span><button type="button" class="primary sm" data-act="add">+ Add project</button></div>
+		${!ps ? `<div class="set-empty">Loading…</div>` : active.map(projectRow).join("") || `<div class="set-empty">No projects yet. Add the folder of one you work on.</div>`}
+		${archived.length ? `<details class="set-archived fold" data-key="set-archived"${isOpen("set-archived")}><summary>Archived (${archived.length})</summary>${archived.map(projectRow).join("")}</details>` : ""}
+	</section>`;
+}
+
+const healthProblems = () => (settings.health ? settings.health.checks.filter((c) => c.status === "warn" || c.status === "bad").length : 0);
+function healthTab() {
+	const h = settings.health, problems = healthProblems();
+	const status = settings.checking ? "Checking…" : h ? `${problems ? `${problems} need${problems === 1 ? "s" : ""} a look` : "All good"} · checked at ${clockOf(settings.checkedAt)}` : "";
+	return `<section class="set-sec" aria-labelledby="set-health-h">
+		<div class="set-sec-head"><h3 id="set-health-h">Health</h3><small>${esc(status)}</small>
+			<span class="spacer"></span><button type="button" class="ghost sm" data-act="check"${settings.checking ? " disabled" : ""}>Check again</button></div>
+		${h ? h.checks.map(checkRow).join("") + healthCards(h) : `<div class="set-empty">${settings.checking ? "Checking the tools the board uses…" : ""}</div>`}
+	</section>`;
+}
+
 function renderSettings() {
 	const el = $("#settings-view");
 	if (el.hidden) return;
-	if (!CAN_SHARE) {
-		return paint(el, `<div class="vault-card"><div class="vault-ic">${svg16(SLIDERS)}</div><h2>Settings open on this computer</h2>
-			<p>Projects and health checks are for the board on the computer it runs on, at <a href="http://localhost:${esc(location.port)}/#settings">localhost</a>.</p></div>
-			<button type="button" class="ghost sm vault-back" data-act="board">← Back to the board</button>`);
-	}
-	const ps = settings.projects, h = settings.health;
-	const active = ps ? ps.filter((p) => !p.archived_at) : [];
-	const archived = ps ? ps.filter((p) => p.archived_at) : [];
-	const problems = h ? h.checks.filter((c) => c.status === "warn" || c.status === "bad").length : 0;
-	const status = settings.checking ? "Checking…" : h ? `${problems ? `${problems} need${problems === 1 ? "s" : ""} a look` : "All good"} · checked at ${clockOf(settings.checkedAt)}` : "";
+	const t = currentTab();
+	const nav = SET_TABS.map((x) => {
+		const n = x.key === "health" ? healthProblems() : 0;
+		return `<a href="#settings/${x.key}"${x.key === t.key ? ' aria-current="page"' : ""}>${svg16(TAB_IC[x.key] ?? "", 1.4)}<span>${esc(x.label)}</span>${n ? `<span class="tab-n" title="${n} need a look">${n}</span>` : ""}</a>`;
+	}).join("");
+	let body;
+	try { body = t.local && !CAN_SHARE ? localOnlyCard(t.label) : t.render(); }
+	catch (e) { console.error(e); body = `<p class="error">This tab couldn't be drawn: ${esc(e.message)}</p>`; }
 	paint(el, `<div class="set-wrap">
 		<div class="vault-head"><button type="button" class="ghost sm" data-act="board">← Board</button><div><h2>Settings</h2><small>For the whole workbench</small></div></div>
-		${settings.error ? `<p class="error">${esc(settings.error)}</p>` : ""}
-		<section class="set-sec" aria-labelledby="set-projects-h">
-			<div class="set-sec-head"><h3 id="set-projects-h">Projects</h3><small>Their order down the left edge, names and folders. Archive one when it's finished.</small>
-				<span class="spacer"></span><button type="button" class="primary sm" data-act="add">+ Add project</button></div>
-			${!ps ? `<div class="set-empty">Loading…</div>` : active.map(projectRow).join("") || `<div class="set-empty">No projects yet. Add the folder of one you work on.</div>`}
-			${archived.length ? `<details class="set-archived fold" data-key="set-archived"${isOpen("set-archived")}><summary>Archived (${archived.length})</summary>${archived.map(projectRow).join("")}</details>` : ""}
-		</section>
-		<section class="set-sec" aria-labelledby="set-health-h">
-			<div class="set-sec-head"><h3 id="set-health-h">Health</h3><small>${esc(status)}</small>
-				<span class="spacer"></span><button type="button" class="ghost sm" data-act="check"${settings.checking ? " disabled" : ""}>Check again</button></div>
-			${h ? h.checks.map(checkRow).join("") + healthCards(h) : `<div class="set-empty">${settings.checking ? "Checking the tools the board uses…" : ""}</div>`}
-		</section></div>`);
+		<div class="set-layout"><nav class="set-tabs" aria-label="Settings sections">${nav}</nav>
+		<div class="set-panel">${settings.error ? `<p class="error">${esc(settings.error)}</p>` : ""}${body}</div></div></div>`);
 }
+
+/* ---------- Settings → You and your day (tab "you") ---------- */
+// Owned by the "You and your day" section. render returns the tab's HTML; load runs when the tab opens; poll every 10 s.
+function setYouRender() { return `<p class="set-intro">Coming soon.</p>`; }
+async function setYouLoad() {}
+async function setYouPoll() {}
+/* ---------- end: You and your day ---------- */
+
+/* ---------- Settings → Notifications (tab "notify") ---------- */
+function setNotifyRender() { return `<p class="set-intro">Coming soon.</p>`; }
+async function setNotifyLoad() {}
+async function setNotifyPoll() {}
+/* ---------- end: Notifications ---------- */
+
+/* ---------- Settings → Data (tab "data") ---------- */
+function setDataRender() { return `<p class="set-intro">Coming soon.</p>`; }
+async function setDataLoad() {}
+async function setDataPoll() {}
+/* ---------- end: Data ---------- */
+
+/* ---------- Settings → Privacy and security (tab "privacy") ---------- */
+function setPrivacyRender() { return `<p class="set-intro">Coming soon.</p>`; }
+async function setPrivacyLoad() {}
+async function setPrivacyPoll() {}
+/* ---------- end: Privacy and security ---------- */
+
+/* ---------- Settings → Appearance (tab "look") ---------- */
+function setLookRender() { return `<p class="set-intro">Coming soon.</p>`; }
+async function setLookLoad() {}
+async function setLookPoll() {}
+/* ---------- end: Appearance ---------- */
 
 async function afterProjectChange() {
 	await Promise.all([loadSettingsProjects(), loadProjects()]);
@@ -2658,6 +2899,24 @@ $("#proj-remove").onclick = async () => {
 	} catch (err) { $("#proj-err").textContent = err.message; }
 };
 $("#proj-cancel").onclick = () => projDlg.close();
+// Every control with data-setting / data-pref saves itself when it changes.
+$("#settings-view").addEventListener("change", (e) => {
+	const el = e.target.closest("[data-setting], [data-pref]");
+	if (!el) return;
+	let v;
+	try { v = readControl(el); } catch { return toast("That value doesn't read right"); }
+	if (el.dataset.setting) {
+		if (!canChangeBoard()) { renderSettings(); return toast("Board settings change only on this computer"); }
+		saveSetting(el.dataset.setting, v);
+	} else setPref(el.dataset.pref, v);
+});
+$("#settings-view").addEventListener("click", (e) => {
+	const r = e.target.closest("[data-reset]");
+	if (r) {
+		const [kind, key] = r.dataset.reset.split(/:(.*)/s);
+		return kind === "setting" ? saveSetting(key, null) : setPref(key, null);
+	}
+});
 $("#settings-view").addEventListener("click", (e) => {
 	const b = e.target.closest("[data-act], [data-tracker]");
 	if (!b) return;
@@ -2703,7 +2962,7 @@ async function start() {
 		$("#r-back").hidden = true;
 		$("#r-home").hidden = false;
 	}
-	await loadProjects();
+	await Promise.all([loadProjects(), loadSettings()]);
 	renderRail();
 	await Promise.all([loadItems(), loadLinks(), loadReports(), loadSources(), loadTrackers()]);
 	route();
@@ -2716,7 +2975,8 @@ start();
 // Agents write through the `wb` CLI, so the page polls; it pauses while a dialog is open.
 setInterval(() => {
 	if (document.visibilityState !== "visible" || dlg.open || linkDlg.open || projDlg.open) return;
-	if (!$("#settings-view").hidden) loadSettingsProjects();
+	loadSettings();
+	if (!$("#settings-view").hidden && !(currentTab().local && !CAN_SHARE)) currentTab().poll?.();
 	loadProjects();
 	loadItems();
 	loadRepos();
