@@ -662,9 +662,8 @@ dialog::backdrop { background: rgb(0 0 0 / .35); }
 		<div class="board-bar">
 			<div class="seg" id="who" role="group" aria-label="Who acts"></div>
 			<span class="spacer"></span>
-			<button class="icon-btn" id="unfold-all" title="Open all sections" aria-label="Open all sections"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m4.5 6 3.5-3.5L11.5 6M4.5 10l3.5 3.5 3.5-3.5"/></svg></button>
+			<button class="icon-btn" id="fold-toggle" title="Fold all sections" aria-label="Fold all sections"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m4.5 2.5 3.5 3.5 3.5-3.5M4.5 13.5 8 10l3.5 3.5"/></svg></button>
 			<button class="icon-btn" id="notify" title="Desktop notifications" aria-label="Desktop notifications" aria-pressed="false" hidden><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M4 11V7a4 4 0 0 1 8 0v4l1.5 1.5h-11zM6.5 13.5a1.5 1.5 0 0 0 3 0"/></svg></button>
-			<button class="icon-btn" id="fold-all" title="Fold all sections" aria-label="Fold all sections"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m4.5 2.5 3.5 3.5 3.5-3.5M4.5 13.5 8 10l3.5 3.5"/></svg></button>
 		</div>
 		<div id="sections"></div>
 	</main>
@@ -1665,6 +1664,7 @@ function renderBoard() {
 			`<div class="repos">${repos.map(repoCard).join("")}</div>`);
 	}
 	paint($("#sections"), html);
+	syncFoldToggle();
 	$("#areas").innerHTML = [...new Set(state.items.map((i) => i.area).filter(Boolean))].sort().map((a) => `<option value="${esc(a)}">`).join("");
 }
 
@@ -1700,8 +1700,25 @@ $("#who").addEventListener("click", (e) => {
 	localSet("who", state.who);
 	renderBoard();
 });
-for (const [id, open] of [["#fold-all", false], ["#unfold-all", true]])
-	$(id).onclick = () => { for (const d of document.querySelectorAll("#sections details.sec")) d.open = open; };
+// One button for every section: it folds them all while any is open, and opens them all once all are folded.
+const FOLD_IC = { fold: '<path d="m4.5 2.5 3.5 3.5 3.5-3.5M4.5 13.5 8 10l3.5 3.5"/>', open: '<path d="m4.5 6 3.5-3.5L11.5 6M4.5 10l3.5 3.5 3.5-3.5"/>' };
+const anySectionOpen = () => [...document.querySelectorAll("#sections details.sec")].some((d) => d.open);
+function syncFoldToggle() {
+	const b = $("#fold-toggle");
+	const fold = anySectionOpen();
+	const label = fold ? "Fold all sections" : "Open all sections";
+	if (b.title === label) return;
+	b.title = label;
+	b.setAttribute("aria-label", label);
+	b.querySelector("svg").innerHTML = FOLD_IC[fold ? "fold" : "open"];
+}
+$("#fold-toggle").onclick = () => {
+	const open = !anySectionOpen();
+	for (const d of document.querySelectorAll("#sections details.sec")) d.open = open;
+	syncFoldToggle();
+};
+// A section folded or opened by hand changes what the button does next.
+document.addEventListener("toggle", (e) => { if (e.target.matches?.("#sections details.sec")) syncFoldToggle(); }, true);
 
 $("#sections").addEventListener("click", async (e) => {
 	const opt = e.target.closest("[data-answer]");
