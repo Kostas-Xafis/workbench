@@ -1,4 +1,4 @@
-import { projects, type Db, type Item, type Project } from "./db";
+import { projects, publishReport, reportHtml, type Db, type Item, type Project } from "./db";
 import { githubWeb } from "./git";
 
 /** A work day runs from this hour to the same hour next morning, so late nights count as the day they belong to. */
@@ -145,9 +145,61 @@ export function dayTitle(day: string) {
 	return `Day · ${from.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", year: "numeric" })}`;
 }
 
-export function dayPage(data: DayData) {
+export function dayPage(data: DayData, sig = "") {
 	const json = JSON.stringify(data).replace(/</g, "\\u003c");
-	return PAGE.replace("__TITLE__", dayTitle(data.day)).replace("__DATA__", json);
+	// Replaced by functions: a "$&" in a commit subject must stay as it is.
+	return PAGE.replace("__TITLE__", () => dayTitle(data.day))
+		.replace("__SIG__", () => sig)
+		.replace("__DATA__", () => json);
+}
+
+/**
+ * What a day's page shows, minus the time it was made, and which page code shows it: equal signatures mean
+ * nothing new to publish. "final" once the work day is over, so the last version of a day drops its "not over
+ * yet" line once; a change to the page code (a fix) makes every recent day publish again once.
+ */
+const PAGE_SIG = () => Bun.hash(PAGE).toString(36);
+function daySig(data: DayData) {
+	const final = new Date(data.generated) >= new Date(data.to);
+	return `${final ? "final" : "open"}:${PAGE_SIG()}:${Bun.hash(JSON.stringify({ ...data, generated: "" })).toString(36)}`;
+}
+const pageSig = (html: string) => html.match(/<meta name="wb-day" content="([^"]*)"/)?.[1] ?? "";
+
+/**
+ * Publishes one project's page for a work day, as `day-<date>` in its "Days" group: only when that project
+ * had something that day, and only as a new version when something changed. A day already published after
+ * it ended is left alone without being worked out again, unless forced.
+ */
+export async function publishDay(db: Db, day: string, project: string, author = "workbench", force = false) {
+	const existing = db.query("SELECT id FROM reports WHERE project = ? AND name = ?").get(project, `day-${day}`) as {
+		id: number;
+	} | null;
+	const before = existing ? pageSig(reportHtml(db, existing.id)?.html ?? "") : "";
+	if (before.startsWith(`final:${PAGE_SIG()}:`) && !force) return null;
+	const data = await dayData(db, day, project);
+	if (!data.projects.length) return null;
+	const sig = daySig(data);
+	if (sig === before) return null;
+	const r = publishReport(db, { project, name: `day-${day}`, html: dayPage(data, sig), title: dayTitle(day), grp: "Days" }, author);
+	return { ...r, items: data.projects[0].items.length, commits: data.projects[0].commits.length };
+}
+
+/** The work days before `day`, newest first. */
+export function daysBefore(day: string, n: number) {
+	const { from } = dayWindow(day);
+	return Array.from({ length: n }, (_, i) => localDate(new Date(from.getFullYear(), from.getMonth(), from.getDate() - 1 - i)));
+}
+
+/** Brings every project's day pages up to date: today's, and the last `back` days not yet published as over. */
+export async function publishDays(db: Db, back = 7) {
+	const today = currentDay();
+	const out: { project: string; day: string; id: number; n: number }[] = [];
+	for (const day of [today, ...daysBefore(today, back)])
+		for (const p of projects(db)) {
+			const r = await publishDay(db, day, p.slug);
+			if (r?.changed) out.push({ project: p.slug, day, id: r.id, n: r.n });
+		}
+	return out;
 }
 
 const PAGE = `<!doctype html>
@@ -155,6 +207,7 @@ const PAGE = `<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="wb-day" content="__SIG__">
 <title>__TITLE__</title>
 <style>
 body { margin: 0; background: var(--wb-bg, #f6f5f2); color: var(--wb-ink, #1d1c1a); font: 14px/1.5 var(--wb-font, system-ui, sans-serif); }
@@ -306,6 +359,7 @@ function count(fn) { return shown().reduce((n, p) => n + fn(p), 0); }
 
 function pick() {
 	const el = document.getElementById("pick");
+	if (!el) return;
 	if (D.projects.length < 2) return el.remove();
 	const btn = (slug, name, n) => \`<button data-project="\${slug}" aria-pressed="\${project === slug}">\${esc(name)}<span>\${n}</span></button>\`;
 	el.innerHTML = btn("*", "All projects", activity(D.projects)) + D.projects.map((p) => btn(p.slug, p.name, activity([p]))).join("");

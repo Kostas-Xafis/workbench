@@ -32,7 +32,7 @@ import {
 	type ItemPatch,
 	type Status,
 } from "./db";
-import { currentDay, dayData, dayPage, dayTitle, DAY_START_HOUR } from "./day";
+import { currentDay, dayData, dayPage, DAY_START_HOUR, publishDay } from "./day";
 import { PORT } from "./server";
 
 const HELP = `wb — the workbench. Tasks for agents, checks and decisions for Kostas, across projects.
@@ -60,8 +60,9 @@ Items are named wb-xxxx (e.g. wb-k3f9); commands take that, the bare k3f9, or an
                                    publish a report page (again under the same name = new version)
   wb reports [--project P]         reports and their versions
   wb day [YYYY-MM-DD] [--project P] [--out file.html]
-                                   publish a report of everything that moved that work day
-                                   (${DAY_START_HOUR}:00 to ${DAY_START_HOUR}:00 next morning; default: the current one), in group Days
+                                   publish each project's page of everything that moved that work day
+                                   (${DAY_START_HOUR}:00 to ${DAY_START_HOUR}:00 next morning; default: the current one), in its
+                                   group Days. The board does this by itself; --out writes one page of every project
   wb unreport <id>                 delete a report with all its versions
   wb backup                        copy the database now (also done nightly by the board; newest 14 kept)
   wb backups                       list them
@@ -371,17 +372,22 @@ try {
 		}
 		case "day": {
 			const day = args[1] ?? currentDay();
-			const data = await dayData(db, day, o.project);
-			const html = dayPage(data);
 			if (o.out) {
-				await Bun.write(o.out, html);
+				await Bun.write(o.out, dayPage(await dayData(db, day, o.project)));
 				console.log(o.out);
 				break;
 			}
-			const project = o.project ?? currentProject(false) ?? "workbench";
-			const r = publishReport(db, { project, name: `day-${day}`, html, title: dayTitle(day), grp: "Days" }, author);
-			const n = data.projects.reduce((a, p) => a + p.items.length, 0);
-			console.log(`report #${r.id} v${r.n}${r.changed ? "" : " (unchanged)"}  ${n} items, ${data.projects.reduce((a, p) => a + p.commits.length, 0)} commits  http://localhost:${PORT}/#report/${r.id}`);
+			// One page per project, in its own "Days" (the board also does this by itself every 30 min).
+			let any = false;
+			for (const slug of o.project ? [o.project] : projects(db).map((p) => p.slug)) {
+				const r = await publishDay(db, day, slug, author, true);
+				if (!r) continue;
+				any = true;
+				console.log(
+					`${slug.padEnd(14)} report #${r.id} v${r.n}${r.changed ? "" : " (unchanged)"}  ${r.items} items, ${r.commits} commits  http://localhost:${PORT}/#report/${r.id}`,
+				);
+			}
+			if (!any) console.log(`nothing new for ${day}`);
 			break;
 		}
 		case "reports": {

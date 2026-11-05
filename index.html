@@ -80,6 +80,7 @@ summary::-webkit-details-marker { display: none; }
 .lgroup > summary { display: flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 600; color: var(--muted); padding: 5px 8px 3px 10px; }
 .lgroup > summary span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lgroup > summary:hover { color: var(--ink); }
+.lgroup.more > summary { font-weight: 500; font-size: 11.5px; padding-left: 12px; }
 .ritem { display: flex; align-items: center; gap: 9px; padding: 5px 8px 5px 10px; border-radius: 7px; color: var(--ink); text-decoration: none; font-size: 13px; min-width: 0; }
 .ritem > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ritem > span.fav, .ritem > span.tile { flex: none; }
@@ -639,8 +640,13 @@ function railReports() {
 		if (!groups.has(label)) groups.set(label, []);
 		groups.get(label).push(r);
 	}
+	// Day pages newest first (by name, day-YYYY-MM-DD), not by title.
+	for (const rs of groups.values()) if (rs.every(isDay)) rs.sort((a, b) => b.name.localeCompare(a.name));
 	return [...groups].sort(([a], [b]) => (a === "") - (b === "") || a.localeCompare(b));
 }
+const isDay = (r) => /^day-\d{4}-\d{2}-\d{2}$/.test(r.name);
+// Each report group shows this many; the rest fold away.
+const GROUP_SHOWN = 4;
 const reportHref = (r) => `#report/${r.id}`;
 const isCurrent = (r) => state.report?.id === r.id;
 
@@ -658,8 +664,19 @@ function renderRail() {
 			links.flatMap((g) => g.links).map((l) => `<a class="ritem link" href="${esc(l.url)}" target="_blank" rel="noreferrer" data-link="${l.id}" title="${esc(l.label)}">${fav(l)}</a>`).join("");
 	} else {
 		const nReports = reports.reduce((n, [, rs]) => n + rs.length, 0);
-		const reportList = reports.map(([label, rs]) => (label ? `<div class="glabel">${esc(label)}</div>` : "") +
-			rs.map((r) => `<a class="ritem" href="${reportHref(r)}" title="${esc(r.title)} · v${r.version}" aria-current="${isCurrent(r)}">${DOC}<span>${esc(r.title)}</span><small>${esc(ago(r.updated_at).replace(" ago", ""))}</small></a>`).join("")).join("");
+		const ritem = (r) => `<a class="ritem" href="${reportHref(r)}" title="${esc(r.title)} · v${r.version}" aria-current="${isCurrent(r)}">${DOC}<span>${esc(r.title)}</span><small>${esc(ago(r.updated_at).replace(" ago", ""))}</small></a>`;
+		// Each group shows its first few (a Days group its newest days); the rest fold away, and the fold opens
+		// by itself when the report on screen is in it.
+		const reportList = reports.map(([label, rs]) => {
+			const head = label ? `<div class="glabel">${esc(label)}</div>` : "";
+			if (rs.length <= GROUP_SHOWN) return head + rs.map(ritem).join("");
+			const rest = rs.slice(GROUP_SHOWN);
+			const key = `more-${label}`;
+			const open = rest.some(isCurrent) ? " open" : isOpen(key, false);
+			const what = rs.every(isDay) ? `Older days (${rest.length})` : `${rest.length} more`;
+			return head + rs.slice(0, GROUP_SHOWN).map(ritem).join("") +
+				`<details class="lgroup fold more" data-key="${esc(key)}"${open}><summary><span>${what}</span></summary>${rest.map(ritem).join("")}</details>`;
+		}).join("");
 		const linkList = links.map((g) => {
 			const items = g.links.map((l) => `<a class="ritem link" href="${esc(l.url)}" target="_blank" rel="noreferrer" data-link="${l.id}" title="${esc(l.url)}">${fav(l)}<span>${esc(l.label)}</span></a>`).join("");
 			return g.label ? `<details class="lgroup fold" data-key="${esc(g.key)}"${isOpen(g.key, true)}><summary><span>${esc(g.label)}</span></summary>${items}</details>` : items;
@@ -1764,7 +1781,8 @@ async function notifyCheck() {
 			else if (i.owner === "agent" && i.status === "done" && was && was.status !== "done") ping(`Done · ${where}`, i.title, `wb-${i.ref}`, openIt);
 			else if (i.owner === "agent" && i.status === "waiting" && was && was.status !== "waiting") ping(`Agent waiting · ${where}`, i.title, `wb-${i.ref}`, openIt);
 		}
-		for (const r of reports) {
+		// Day pages are made by the board itself every 30 min, so they don't ping.
+		for (const r of reports.filter((r) => !r.name.startsWith("day-"))) {
 			const was = notify.reports.get(r.id);
 			if (was !== undefined && r.version > was) ping(`Report updated · ${projectName(r.project)}`, `${r.title} (v${r.version})`, `report-${r.id}`, () => { location.hash = `#report/${r.id}`; });
 			else if (was === undefined) ping(`New report · ${projectName(r.project)}`, r.title, `report-${r.id}`, () => { location.hash = `#report/${r.id}`; });

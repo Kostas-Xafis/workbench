@@ -39,6 +39,7 @@ import {
 	type Project,
 } from "./db";
 import type { Server } from "bun";
+import { publishDays } from "./day";
 import { codeLinks, repoState, type CodeLinks } from "./git";
 import { findIcon } from "./icons";
 import { projectLogo } from "./logo";
@@ -88,6 +89,23 @@ export function serve({ lan = false } = {}) {
 	};
 	nightly();
 	setInterval(nightly, 3600e3);
+
+	// Every project's day pages ("Days" in its sidebar): today's kept current every 30 min, and the last week's
+	// finished once their day is over (also after the board or the computer was off).
+	let daysRunning = false;
+	const days = async () => {
+		if (daysRunning) return;
+		daysRunning = true;
+		try {
+			for (const d of await publishDays(db)) console.log(`day: ${d.project} ${d.day} v${d.n}`);
+		} catch (e) {
+			console.error(`day pages failed: ${(e as Error).message}`);
+		} finally {
+			daysRunning = false;
+		}
+	};
+	setTimeout(days, 10e3);
+	setInterval(days, 30 * 60e3);
 
 	const itemId = (s: string) => {
 		const id = resolveItem(db, s);
