@@ -2871,8 +2871,6 @@ async function openSettings(tab) {
 	if (!known && tab !== undefined) history.replaceState(null, "", `#settings/${settings.tab}`);
 	settings.error = "";
 	renderSettings();
-	// On a phone the tabs scroll sideways: bring the open one into view.
-	$("#settings-view .set-tabs [aria-current]")?.scrollIntoView({ block: "nearest", inline: "nearest" });
 	const t = currentTab();
 	if (t.local && !CAN_SHARE) return;
 	await Promise.all([loadSettings(), CAN_SHARE ? loadSettingsProjects() : null, t.load?.()]);
@@ -2993,10 +2991,18 @@ function renderSettings() {
 	let body;
 	try { body = t.local && !CAN_SHARE ? localOnlyCard(t.label) : t.render(); }
 	catch (e) { console.error(e); body = `<p class="error">This tab couldn't be drawn: ${esc(e.message)}</p>`; }
+	// On a phone the tabs scroll sideways: a redraw keeps where they were, and a newly opened tab comes into view.
+	const scrolled = el.querySelector(".set-tabs")?.scrollLeft ?? 0;
 	paint(el, `<div class="set-wrap">
 		<div class="vault-head"><button type="button" class="ghost sm" data-act="board">← Board</button><div><h2>Settings</h2><small>For the whole workbench</small></div></div>
 		<div class="set-layout"><nav class="set-tabs" aria-label="Settings sections">${nav}</nav>
 		<div class="set-panel">${settings.error ? `<p class="error">${esc(settings.error)}</p>` : ""}${body}</div></div></div>`);
+	const tabs = el.querySelector(".set-tabs");
+	if (tabs) tabs.scrollLeft = scrolled;
+	if (settings.shownTab !== t.key) {
+		settings.shownTab = t.key;
+		tabs?.querySelector("[aria-current]")?.scrollIntoView({ block: "nearest", inline: "nearest" });
+	}
 }
 
 /* ---------- Settings → You and your day (tab "you") ---------- */
