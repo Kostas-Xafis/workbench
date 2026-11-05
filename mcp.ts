@@ -79,7 +79,6 @@ const SUPPORTED = [MODERN, ...LEGACY];
 const M = "io.modelcontextprotocol/";
 const VERSION = "1.0.0";
 const OPEN: Status[] = ["todo", "doing", "waiting"];
-const HOUR = 3600_000;
 
 const ICON = `data:image/svg+xml;base64,${readFileSync(new URL("./icon.svg", import.meta.url)).toString("base64")}`;
 const SERVER_INFO = {
