@@ -2871,6 +2871,8 @@ async function openSettings(tab) {
 	if (!known && tab !== undefined) history.replaceState(null, "", `#settings/${settings.tab}`);
 	settings.error = "";
 	renderSettings();
+	// On a phone the tabs scroll sideways: bring the open one into view.
+	$("#settings-view .set-tabs [aria-current]")?.scrollIntoView({ block: "nearest", inline: "nearest" });
 	const t = currentTab();
 	if (t.local && !CAN_SHARE) return;
 	await Promise.all([loadSettings(), CAN_SHARE ? loadSettingsProjects() : null, t.load?.()]);
