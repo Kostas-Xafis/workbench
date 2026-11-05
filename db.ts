@@ -2,6 +2,7 @@ import { Database } from "bun:sqlite";
 import { timingSafeEqual } from "node:crypto";
 import { mkdirSync, readdirSync, rmSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { createTables as createTrackerTables } from "./trackers";
 
 export const KINDS = ["task", "check", "review", "decision", "setup", "bug", "idea"] as const;
 export const STATUSES = ["todo", "doing", "waiting", "done", "dropped"] as const;
@@ -174,6 +175,8 @@ export function open(path = DB_PATH) {
 		updated_at TEXT NOT NULL DEFAULT (datetime('now')),
 		PRIMARY KEY (project, name)
 	)`);
+	// Status trackers (see trackers.ts).
+	createTrackerTables(db);
 	return db;
 }
 

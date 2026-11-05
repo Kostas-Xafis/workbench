@@ -35,6 +35,25 @@ import {
 import { currentDay, dayData, dayPage, DAY_START_HOUR, publishDay } from "./day";
 import { PORT } from "./server";
 import { addSource, KEY_PATH, listSources, removeSource } from "./sources";
+import { PRESETS } from "./presets";
+import {
+	addTracker,
+	cleanReading,
+	describeSource,
+	listTrackers,
+	meterText,
+	parseEvery,
+	parseReading,
+	recordReading,
+	refreshTracker,
+	removeTracker,
+	resolveTracker,
+	trackerHistory,
+	trackerText,
+	updateTracker,
+	type Tracker,
+	type TrackerPatch,
+} from "./trackers";
 
 const HELP = `wb — the workbench. Tasks for agents, checks and decisions for Kostas, across projects.
 Items are named wb-xxxx (e.g. wb-k3f9); commands take that, the bare k3f9, or an old number.
@@ -72,6 +91,19 @@ Items are named wb-xxxx (e.g. wb-k3f9); commands take that, the bare k3f9, or an
                                    --write allows POST/PUT/PATCH/DELETE (GET only otherwise). Again = replace
   wb sources [--project P]         data sources (names, base URLs, header names)
   wb unsource <name> [--project P] remove one
+  wb trackers [--project P] [--json]   status trackers of this project and the global ones, with readings
+  wb tracker <ref> [--json]        one tracker, how it reads, and its recent history (ref: name or project/name)
+  wb tracker add <name> ["Title"] [--project P | --global] [how] [display]
+                                   how: --command "shell command" (its output is the reading; runs in the project
+                                   folder) or --preset ${Object.keys(PRESETS).join("|")} [--param key=value ...];
+                                   neither = manual. --every 15m|1h|1d|off how often the board reads it (default 1h)
+                                   display: --max N --unit U --warn 75% --bad 90% (or <20% when low is bad) --url U
+  wb tracker edit <ref> [same options] [--title T] [--name N]
+  wb tracker refresh [<ref>]       read it (or every self-reading one here) now
+  wb track <ref> <reading> ...     record a manual tracker's reading: 12/15 · "Android 12/15" "iOS 3/15" (a meter
+                                   each) · "In review" · JSON. [--note "…"] [--resets YYYY-MM-DD]
+  wb untrack <ref>                 delete a tracker and its history
+  wb mcp                           MCP server on stdio, for agents (Claude Code: claude mcp add -s user wb -- wb mcp)
   wb backup                        copy the database now (also done nightly by the board; newest 14 kept)
   wb backups                       list them
   wb vault                         whether the vault is set up, and how many secrets it holds
@@ -121,6 +153,19 @@ const { values: o, positionals: args } = parseArgs({
 		yes: { type: "boolean" },
 		write: { type: "boolean" },
 		header: { type: "string", multiple: true },
+		command: { type: "string" },
+		preset: { type: "string" },
+		param: { type: "string", multiple: true },
+		every: { type: "string" },
+		max: { type: "string" },
+		unit: { type: "string" },
+		warn: { type: "string" },
+		bad: { type: "string" },
+		url: { type: "string" },
+		note: { type: "string" },
+		resets: { type: "string" },
+		global: { type: "boolean" },
+		json: { type: "boolean" },
 		option: { type: "string", multiple: true },
 		help: { type: "boolean", short: "h" },
 	},
@@ -251,6 +296,88 @@ async function sourceHeaders(specs: string[]) {
 		headers[name] = value;
 	}
 	return headers;
+}
+
+/* ---------- Trackers ---------- */
+
+const sqlAge = (s: string | null) => {
+	if (!s) return "never";
+	const d = (Date.now() - new Date(s.replace(" ", "T") + "Z").getTime()) / 1000;
+	if (d < 60) return "just now";
+	if (d < 3600) return `${Math.floor(d / 60)} min ago`;
+	if (d < 86400) return `${Math.floor(d / 3600)} h ago`;
+	return `${Math.floor(d / 86400)} d ago`;
+};
+
+/** The tracker a command names: as given (project/name, name, id), the current project's first. */
+function trackerArg(ref = args[1]) {
+	if (!ref) die("which tracker? (wb trackers)");
+	return resolveTracker(db, ref, o.global ? undefined : (o.project ?? currentProject(false)));
+}
+
+/** --command/--preset/--param/--every/... as a tracker patch. */
+function trackerOptions(): TrackerPatch {
+	const t: TrackerPatch = {};
+	if (o.command !== undefined && o.preset !== undefined) die("give --command or --preset, not both");
+	if (o.command !== undefined) {
+		t.kind = "command";
+		t.command = o.command;
+	}
+	if (o.preset !== undefined) {
+		if (o.preset !== "manual" && !PRESETS[o.preset])
+			die(`no preset "${o.preset}"; there are ${Object.keys(PRESETS).join(", ")} (or manual)`);
+		t.kind = o.preset;
+	}
+	if (o.param) {
+		t.options = {};
+		for (const p of o.param) {
+			const at = p.indexOf("=");
+			if (at < 1) die(`--param key=value, got "${p}"`);
+			t.options[p.slice(0, at).trim()] = p.slice(at + 1).trim();
+		}
+	}
+	if (o.every !== undefined) t.every = parseEvery(o.every);
+	if (o.max !== undefined) {
+		const max = o.max.trim() === "" || o.max === "none" ? null : Number(o.max.replace(/,/g, ""));
+		if (max !== null && !Number.isFinite(max)) die(`--max is a number, got "${o.max}"`);
+		t.max = max;
+	}
+	for (const k of ["unit", "warn", "bad", "url"] as const) if (o[k] !== undefined) t[k] = o[k];
+	if (o.global) t.project = "";
+	else if (o.project !== undefined) t.project = o.project;
+	return t;
+}
+
+function trackerRow(t: Tracker, refW = 26, titleW = 20) {
+	const age = t.kind === "manual" ? sqlAge(t.read_at) : t.error ? `failed ${sqlAge(t.checked_at)}` : sqlAge(t.read_at);
+	return `${t.ref.padEnd(refW)}  ${t.title.padEnd(titleW)}  ${trackerText(t)}  (${age})`;
+}
+
+function showTracker(t: Tracker) {
+	console.log(`${t.ref} · ${t.title}${t.project ? "" : " (global: shown with every project)"}`);
+	if (t.reading) {
+		const w = Math.max(...t.reading.meters.map((m) => m.label.length));
+		for (const m of t.reading.meters) console.log(`  ${w ? `${m.label.padEnd(w)}  ` : ""}${meterText({ ...m, label: "" })}`);
+		const resets = t.reading.resets_at
+			? `resets ${t.reading.resets_at.slice(0, 10)} (in ${Math.max(0, Math.ceil((Date.parse(t.reading.resets_at) - Date.now()) / 86400e3))} days)`
+			: "";
+		const extra = [t.reading.note, resets].filter(Boolean).join(" · ");
+		if (extra) console.log(`  ${extra}`);
+		if (t.reading.url) console.log(`  ${t.reading.url}`);
+	} else console.log("  no reading yet");
+	if (t.error) console.log(`  error (${sqlAge(t.checked_at)}): ${t.error}`);
+	console.log(`source: ${describeSource(t)}`);
+	console.log(
+		`read ${sqlAge(t.read_at)}${t.stale ? " (stale)" : ""}${t.running ? " · reading now" : ""}` +
+			(t.due_at ? ` · next ${new Date(t.due_at.replace(" ", "T") + "Z").toLocaleString()}` : "") +
+			[t.max !== null ? ` · max ${t.max}` : "", t.unit ? ` · unit ${t.unit}` : "", t.warn ? ` · warn ${t.warn}` : "", t.bad ? ` · bad ${t.bad}` : ""].join(""),
+	);
+	const history = trackerHistory(db, t.id, 10);
+	if (history.length > 1) {
+		console.log("history:");
+		for (const h of history)
+			console.log(`  ${h.at.slice(0, 16)}  ${h.reading.meters.map((m) => meterText({ ...m, level: "" })).join(" · ")}${h.author ? `  (${h.author})` : ""}`);
+	}
 }
 
 async function serverUp() {
@@ -485,6 +612,96 @@ try {
 			const project = currentProject()!;
 			removeSource(db, project, name);
 			console.log(`source ${name} removed from ${project}`);
+			break;
+		}
+		case "trackers": {
+			const list = listTrackers(db, o.project ?? currentProject(false));
+			if (o.json) {
+				console.log(JSON.stringify(list, null, 2));
+				break;
+			}
+			if (!list.length) console.log('no trackers (wb tracker add <name> "Title" ...)');
+			const refW = Math.max(...list.map((t) => t.ref.length), 0);
+			const titleW = Math.max(...list.map((t) => t.title.length), 0);
+			for (const t of list) console.log(trackerRow(t, refW, titleW));
+			break;
+		}
+		case "tracker": {
+			const sub = args[1];
+			if (!sub) die("usage: wb tracker <ref> | add | edit | refresh (wb help)");
+			if (sub === "add") {
+				const name = args[2] ?? die('usage: wb tracker add <name> ["Title"] [--command "…" | --preset P] [--every 1h]');
+				const opts = trackerOptions();
+				const t = addTracker(db, {
+					...opts,
+					name,
+					title: args.slice(3).join(" ") || o.title,
+					project: o.global ? "" : currentProject(),
+				});
+				console.log(`tracker ${t.ref} added: ${describeSource(t)}`);
+				if (t.kind !== "manual") {
+					console.log("reading it now…");
+					const r = await refreshTracker(db, t.id, author);
+					console.log(r.error ? `error: ${r.error}` : trackerText(r));
+				} else console.log(`record a reading: wb track ${t.ref} 12/15`);
+				break;
+			}
+			if (sub === "edit") {
+				const t = trackerArg(args[2]);
+				const patch = trackerOptions();
+				if (o.title) patch.title = o.title;
+				if (o.name) patch.name = o.name;
+				// --global or --project on edit move it; without them it stays where it is.
+				if (!o.global && o.project === undefined) delete patch.project;
+				const after = updateTracker(db, t.id, patch);
+				showTracker(after);
+				break;
+			}
+			if (sub === "refresh") {
+				const list = args[2]
+					? [trackerArg(args[2])]
+					: listTrackers(db, o.project ?? currentProject(false)).filter((t) => t.kind !== "manual");
+				if (!list.length) console.log("nothing reads itself here (manual trackers take wb track)");
+				const queue = [...list];
+				await Promise.all(
+					Array.from({ length: 3 }, async () => {
+						for (let t = queue.shift(); t; t = queue.shift()) {
+							try {
+								const r = await refreshTracker(db, t.id, author);
+								console.log(`${r.ref.padEnd(26)} ${r.error ? `error: ${r.error}` : trackerText(r)}`);
+							} catch (e) {
+								console.log(`${t.ref.padEnd(26)} ${(e as Error).message}`);
+							}
+						}
+					}),
+				);
+				break;
+			}
+			const t = trackerArg(sub);
+			if (o.json) console.log(JSON.stringify({ ...t, history: trackerHistory(db, t.id, 50) }, null, 2));
+			else showTracker(t);
+			break;
+		}
+		case "track": {
+			const t = trackerArg();
+			const lines = args.slice(2);
+			if (!lines.length) die('usage: wb track <ref> 12/15 | "Android 12/15" "iOS 3/15" | "In review" [--note …]');
+			const reading = parseReading(lines.join("\n"));
+			if (o.note !== undefined) reading.note = o.note;
+			if (o.resets !== undefined) reading.resets_at = o.resets;
+			const after = recordReading(db, t.id, cleanReading(reading), author);
+			console.log(`${after.ref.padEnd(26)} ${trackerText(after)}`);
+			break;
+		}
+		case "untrack": {
+			const t = trackerArg();
+			removeTracker(db, t.id);
+			console.log(`tracker ${t.ref} removed`);
+			break;
+		}
+		case "mcp": {
+			const { serveStdio } = await import("./mcp");
+			await serveStdio();
 			break;
 		}
 		case "vault": {

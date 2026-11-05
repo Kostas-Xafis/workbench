@@ -46,8 +46,28 @@ import { projectLogo } from "./logo";
 import { REPORT_CSP, withBridge } from "./reports";
 import { checkShare, extendShare, listShares, resumeShares, startShare, stopShare } from "./share";
 import { listSources, sourceFetch } from "./sources";
+import { mcpHttp } from "./mcp";
+import { PRESETS } from "./presets";
+import {
+	addTracker,
+	getTracker,
+	listTrackers,
+	recordReading,
+	refreshTracker,
+	removeTracker,
+	runDue,
+	trackerHistory,
+	updateTracker,
+} from "./trackers";
 
 export const PORT = Number(process.env.WB_PORT ?? 4321);
+const COMMAND_LOCAL = "a tracker's command can be set only from the board on this computer (localhost), or with wb tracker";
+// A POST with a JSON content type needs a CORS preflight from another site (or a sandboxed report page), which
+// the board never grants: so other pages can't write trackers, whatever else they can reach.
+const notJson = (req: Request) =>
+	(req.headers.get("content-type") ?? "").toLowerCase().startsWith("application/json")
+		? null
+		: Response.json({ error: "send JSON (content-type: application/json)" }, { status: 415 });
 
 export function serve({ lan = false } = {}) {
 	const db = open();
@@ -122,6 +142,27 @@ export function serve({ lan = false } = {}) {
 	setTimeout(days, 10e3);
 	setInterval(days, 30 * 60e3);
 
+	// Status trackers that read themselves: every half minute, the ones whose interval has passed (trackers.ts).
+	let trackersRunning = false;
+	const trackers = async () => {
+		if (trackersRunning) return;
+		trackersRunning = true;
+		try {
+			for (const t of await runDue(db)) if (t.error) console.error(`tracker ${t.ref}: ${t.error}`);
+		} catch (e) {
+			console.error(`trackers failed: ${(e as Error).message}`);
+		} finally {
+			trackersRunning = false;
+		}
+	};
+	setTimeout(trackers, 5e3);
+	setInterval(trackers, 30e3);
+	// A new or changed tracker is read right away rather than at the next tick.
+	const readSoon = (id: number) => {
+		const t = getTracker(db, id);
+		if (t && t.kind !== "manual") refreshTracker(db, id).catch(() => {});
+	};
+
 	const itemId = (s: string) => {
 		const id = resolveItem(db, s);
 		if (id === undefined) throw new Error(`no item ${s}`);
@@ -195,6 +236,81 @@ export function serve({ lan = false } = {}) {
 					return json(await sourceFetch(db, Number(req.params.id), name, path, opts ?? {}));
 				},
 			},
+			// Status trackers (trackers.ts). A command runs on this computer, so setting one is for the board's own
+			// page here only, like data sources; reading, recording and refreshing are open like the rest of the board.
+			"/api/trackers": {
+				GET: (req) => json(listTrackers(db, new URL(req.url).searchParams.get("project") || undefined)),
+				POST: async (req, srv) => {
+					const no = notJson(req);
+					if (no) return no;
+					try {
+						const body = await req.json();
+						if (body?.command && !boardOnly(req, srv)) return json({ error: COMMAND_LOCAL }, 403);
+						const t = addTracker(db, body);
+						readSoon(t.id);
+						return json(t, 201);
+					} catch (e) {
+						return fail(e);
+					}
+				},
+			},
+			"/api/tracker-presets": () =>
+				json(Object.fromEntries(Object.entries(PRESETS).map(([k, { read: _, ...p }]) => [k, p]))),
+			"/api/trackers/:id": {
+				GET: (req) => {
+					const t = getTracker(db, Number(req.params.id));
+					return t ? json({ ...t, history: trackerHistory(db, t.id, 200) }) : json({ error: "not found" }, 404);
+				},
+				PATCH: async (req, srv) => {
+					const no = notJson(req);
+					if (no) return no;
+					try {
+						const id = Number(req.params.id);
+						const body = await req.json();
+						const before = getTracker(db, id);
+						if (before && body?.command !== undefined && body.command !== before.command && !boardOnly(req, srv))
+							return json({ error: COMMAND_LOCAL }, 403);
+						const t = updateTracker(db, id, body);
+						if (!t.checked_at) readSoon(id);
+						return json(t);
+					} catch (e) {
+						return fail(e);
+					}
+				},
+				DELETE: (req) => {
+					try {
+						removeTracker(db, Number(req.params.id));
+						return json({ ok: true });
+					} catch (e) {
+						return fail(e);
+					}
+				},
+			},
+			"/api/trackers/:id/refresh": {
+				POST: async (req) => {
+					const no = notJson(req);
+					if (no) return no;
+					try {
+						return json(await refreshTracker(db, Number(req.params.id), "kostas"));
+					} catch (e) {
+						return fail(e);
+					}
+				},
+			},
+			"/api/trackers/:id/reading": {
+				POST: async (req) => {
+					const no = notJson(req);
+					if (no) return no;
+					try {
+						const { text, reading } = await req.json();
+						return json(recordReading(db, Number(req.params.id), reading ?? String(text ?? ""), "kostas"));
+					} catch (e) {
+						return fail(e);
+					}
+				},
+			},
+			// MCP over Streamable HTTP, for agents on this computer (mcp.ts).
+			"/mcp": (req, srv) => mcpHttp(req, db, { loopback: loopback(req, srv) }),
 			// Names and base URLs only; header values never leave the server.
 			"/api/sources": (req) => json(listSources(db, new URL(req.url).searchParams.get("project") || undefined)),
 			// The page itself, sandboxed: it reads the board only through the frame's postMessage bridge.

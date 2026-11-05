@@ -31,6 +31,8 @@ ul.list small { color: var(--wb-muted, #6f6b64); margin-left: auto; white-space:
 .warn { color: var(--wb-warn, #b45309); }
 .empty { color: var(--wb-muted, #6f6b64); }
 .cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; }
+.meters { grid-template-columns: minmax(110px, max-content) 1fr; }
+.bar.warn { background: var(--wb-warn, #b45309); } .bar.bad { background: var(--wb-bad, #dc2626); }
 </style>
 </head>
 <body>
@@ -38,6 +40,8 @@ ul.list small { color: var(--wb-muted, #6f6b64); margin-left: auto; white-space:
 	<h1 id="title">Project overview</h1>
 	<p class="sub" id="sub">Live from the workbench.</p>
 	<div class="tiles" id="tiles"></div>
+	<h2 id="trk-h" hidden>Trackers</h2>
+	<div class="panel" id="trk" hidden><div class="bars meters" id="meters"></div></div>
 	<h2>Open items by kind</h2>
 	<div class="panel"><div class="bars" id="bars"></div></div>
 	<div class="cols">
@@ -55,7 +59,7 @@ const OPEN = ["todo", "doing", "waiting"];
 const row = (i, right = "") => `<li><button data-ref="wb-${i.ref}" title="Open on the board">wb-${i.ref}</button><span>${esc(i.title)}</span><small>${right}</small></li>`;
 
 async function draw() {
-	const [items, repo, projects] = await Promise.all([wb.items(), wb.git(), wb.projects()]);
+	const [items, repo, projects, trackers] = await Promise.all([wb.items(), wb.git(), wb.projects(), wb.trackers()]);
 	const open = items.filter((i) => OPEN.includes(i.status));
 	$("#title").textContent = `${projects.find((p) => p.slug === wb.report.project)?.name ?? wb.report.project} overview`;
 	$("#sub").textContent = `Live from the workbench · ${new Date().toLocaleTimeString()}`;
@@ -67,6 +71,15 @@ async function draw() {
 		[open.filter((i) => i.priority === 1).length, "P1 open"],
 	];
 	$("#tiles").innerHTML = tiles.map(([n, label]) => `<div class="tile"><b>${n}</b><span>${label}</span></div>`).join("");
+
+	// Each tracker's meters: a number against its allowance (with a level: ok, warn, bad) or a state in words.
+	const meters = trackers.flatMap((t) => (t.reading?.meters ?? []).map((m) => ({ ...m, name: m.label ? `${t.title} · ${m.label}` : t.title })));
+	$("#trk-h").hidden = $("#trk").hidden = !meters.length;
+	$("#meters").innerHTML = meters.map((m) => {
+		const value = m.value == null ? esc(m.text) : `${m.value}${m.max != null ? ` / ${m.max}` : ""}${m.unit ? ` ${esc(m.unit)}` : ""}`;
+		const pct = m.value != null && m.max ? Math.min(100, (m.value / m.max) * 100) : 0;
+		return `<div class="label">${esc(m.name)}</div><div class="track">${pct ? `<div class="bar ${m.level}" style="width:${pct * 0.8}%"></div>` : ""}<span class="v">${value}</span></div>`;
+	}).join("");
 
 	const byKind = KINDS.map((k) => [k, open.filter((i) => i.kind === k).length]).filter(([, n]) => n);
 	const max = Math.max(1, ...byKind.map(([, n]) => n));

@@ -17,9 +17,10 @@ wb help        # everything else
 - **Decisions with choices:** `wb add "Sync strategy" --option "CRDT" --option "Last write wins"` files a decision for Kostas with those choices as buttons on its card. One click answers it and hands it back to the agent; `wb show` prints the answer, and `wb ls` shows it after the title. The item's dialog also takes an answer in your own words; `wb answer <ref> "choice"` (or its number) answers from a terminal.
 - **Code on items:** commits whose message mentions `wb-xxxx`, and pull requests whose title, body or branch name does, show on the item: a count and the newest PR's state on the card, the list with review and checks in its dialog. Put the ref in commit messages and PR titles. Pull requests come from `gh`, asked at most every 90 s per project.
 - **Notifications:** the bell above the board turns on desktop notifications for this browser: something new needs you, an agent finished or got stuck, a report was added or updated. They show only while the board isn't the window in front, and never for changes made in that same tab.
+- **Status trackers** sit under the project's name in the sidebar: quotas and states that change on their own, like EAS builds used this month or GitHub Actions minutes left (see below).
 - **Reports** are HTML pages that open inside the board (see below).
 - **Secrets** live in the vault (the lock button at the top; see below).
-- **Agents** use the same `wb` command; the rules they follow are in each project's AGENTS.md ("Docs and tracking"). `wb start` records the desktop-app session, and the item's dialog links back to it.
+- **Agents** use the same `wb` command, or the workbench's MCP server (see below); the rules they follow are in each project's AGENTS.md ("Docs and tracking"). `wb start` records the desktop-app session, and the item's dialog links back to it.
 - **From the phone:** `wb serve --lan` listens on the LAN. There is no login, so only do that on a network you trust.
 - **Start on login** (optional): a user service.
 
@@ -62,6 +63,7 @@ await wb.item("wb-k3f9")                             // one item with its notes
 await wb.git()                                       // branch, uncommitted, unpushed, unmerged, worktrees
 await wb.links(); await wb.reports(); await wb.projects()
 wb.open("wb-k3f9")                                   // open the item's dialog on the board
+await wb.trackers()                                  // this project's status trackers and the global ones ("*": all)
 wb.onRefresh(redraw)                                 // the board refreshes every 10 s
 wb.report                                            // { id, project, name, title, version }
 await wb.state.set({ rate: 3.5 })                    // save this report's inputs (replaces; JSON object/array, ≤ 256 KB)
@@ -71,7 +73,7 @@ await wb.fetch("api", "/feedback", { query: { status: "new" } })   // a data sou
 
 `wb.state` is the one thing a page can write: its own saved object, kept in `workbench.db` by project + report name, so it survives refreshes and new versions; `wb unreport` deletes it. It needs the board around the page (sidebar or "New tab ↗"); on a bare `/r/<id>` page `get` gives `null` and `set` gives `false`.
 
-**Sharing with a link:** "Share" in the report's bar opens a Cloudflare quick tunnel: a random `https://….trycloudflare.com` address, no Cloudflare account needed, that you can paste into a meeting chat. First it checks that `cloudflared` is installed and runs. When it isn't, it shows how to install it on this system first (the package for Debian/Ubuntu, Fedora/RHEL/openSUSE or Arch, Homebrew on macOS, winget on Windows, each with a no-admin way too) and the commands for every other system under "Other systems", and that no `~/.cloudflared/config.yml` is in the way. The link reaches a separate read-only server for that one report, pinned to the version you're viewing. Its `wb` calls get this project's items, notes and git state only (no bookmarks, no other projects), `wb.state.set` changes nothing, `wb.open` refuses, and `wb.fetch` answers `{ ok: false, error }`: data sources are off on a link. The board, its API and the vault are never on the link. The dialog shows the link and a QR code to scan from a phone. A share runs for 1, 2, 4 or 8 hours (picked before it starts); "Extend by 1 hour" pushes the end back, up to 8 hours after it started. It also stops from "Stop sharing", and at no other time: cloudflared runs outside the board (in its own systemd scope), and the shares are kept in a state file under `$XDG_RUNTIME_DIR`, so a board restart or crash keeps the same link (it shows Cloudflare's error page until the board is back) and the board picks it up again on start. Expiry goes by the clock, checked on every request and every 15 s, so a link whose time ran out while the computer slept closes as soon as it wakes, and one that ran out while the board was down is closed when the board starts. A reboot ends every share. Only offered on localhost.
+**Sharing with a link:** "Share" in the report's bar opens a Cloudflare quick tunnel: a random `https://….trycloudflare.com` address, no Cloudflare account needed, that you can paste into a meeting chat. First it checks that `cloudflared` is installed and runs. When it isn't, it shows how to install it on this system first (the package for Debian/Ubuntu, Fedora/RHEL/openSUSE or Arch, Homebrew on macOS, winget on Windows, each with a no-admin way too) and the commands for every other system under "Other systems", and that no `~/.cloudflared/config.yml` is in the way. The link reaches a separate read-only server for that one report, pinned to the version you're viewing. Its `wb` calls get this project's items, notes, git state and its own trackers' readings only (no bookmarks, no other projects, no global trackers), `wb.state.set` changes nothing, `wb.open` refuses, and `wb.fetch` answers `{ ok: false, error }`: data sources are off on a link. The board, its API and the vault are never on the link. The dialog shows the link and a QR code to scan from a phone. A share runs for 1, 2, 4 or 8 hours (picked before it starts); "Extend by 1 hour" pushes the end back, up to 8 hours after it started. It also stops from "Stop sharing", and at no other time: cloudflared runs outside the board (in its own systemd scope), and the shares are kept in a state file under `$XDG_RUNTIME_DIR`, so a board restart or crash keeps the same link (it shows Cloudflare's error page until the board is back) and the board picks it up again on start. Expiry goes by the clock, checked on every request and every 15 s, so a link whose time ran out while the computer slept closes as soon as it wakes, and one that ran out while the board was down is closed when the board starts. A reboot ends every share. Only offered on localhost.
 
 To match the board's look, use `var(--wb-bg)`, `--wb-card`, `--wb-ink`, `--wb-muted`, `--wb-line`, `--wb-accent`, `--wb-good`, `--wb-warn`, `--wb-bad`, `--wb-font` and `--wb-mono` (they follow light/dark). [examples/overview.html](examples/overview.html) is a live project overview built this way.
 
@@ -102,6 +104,52 @@ await wb.fetch("feedback", "/feedback/42", { method: "PATCH", body: { status: "d
 - **Where the secret lives:** the headers are sealed (AES-256-GCM) with a key in `~/.config/workbench/sources.key` (made 0600 on the first `wb source add`; `WB_SOURCES_KEY` points elsewhere), so `workbench.db` and its backups hold only ciphertext. Lose the key file and the sources need adding again. Unlike the vault, the board can open them by itself, which is the point; anyone who can read your home directory can too.
 - **Who can call them:** the board's own page on this computer only. The server refuses calls from another address (so not from the phone under `wb serve --lan`), from another site, or with a non-localhost Host; share links refuse `wb.fetch`. The sidebar's "Data sources" lists the project's sources (hover for the base URL and header names).
 - [examples/data-source.html](examples/data-source.html) reads and ticks to-dos from a public test API through one.
+
+## Status trackers
+
+A tracker is a live reading shown under the project's name in the sidebar: one or more meters, each a number against an allowance (Android 1/15) or a state in words (In review). A tracker belongs to one project, or to every project (global, like a GitHub account's allowance). Bars stay grey and turn amber (warn) or red (bad) as a meter fills. Click one for its dialog: the meters, when it resets, the trend of its readings, the last error, and Refresh, Record, Edit or Delete. The gauge button next to the project's name adds one.
+
+It gets its reading one of three ways:
+
+- **By hand:** you record it in the dialog, with `wb track`, or an agent does (`record_tracker`).
+- **A shell command** the board runs on the tracker's interval, in the project's folder (home for a global one), with your shell's PATH. What it prints is the reading: `12/15` · one meter per line (`Android 12/15`, `iOS: 3 of 15 builds`, `1,240 / 2,000 min`) · a state (`Status: In review`) · or JSON: a number, `{ value, max, unit, label, text, level }` (`used`/`total`/`limit`/`left` work too), a list of those, or `{ meters: [...], note, resets_at, url }`. A non-zero exit or 60 s without an answer counts as a failed read; the last good reading stays and the error shows next to it. Don't put secrets in the command: use the tool's own login (gh, eas) or an env var your shell sets.
+- **Built in:** `eas-builds` (EAS builds used this billing period against the Expo plan, Android and iOS, from `eas account:usage`; needs `eas login`) and `github-actions` (the month's free Actions compute on your GitHub account, as Linux-minute equivalents of the $12 that GitHub Free includes; private repos only, since public ones are free; needs gh's `user` scope: `gh auth refresh -h github.com -s user`).
+
+```bash
+wb tracker add eas-builds --preset eas-builds                     # in the project's folder, or --project isokratis
+wb tracker add gh-actions --global --preset github-actions --every 6h
+wb tracker add play-review "Play review" --url https://play.google.com/console   # by hand
+wb track play-review "Status: In review" --note "submitted Nov 4"
+wb tracker add disk "Disk" --global --command "df -BG --output=used,size / | tail -1 | tr -d G | awk '{print \$1 \"/\" \$2}'" --unit GB
+wb trackers                      # this project's and the global ones, with readings
+wb tracker eas-builds            # one, how it reads, its history; --json for scripts
+wb tracker edit eas-builds --every 15m --warn 60% --bad 90%
+wb tracker refresh               # read every self-reading one here now (or name one)
+wb untrack disk                  # delete it and its history
+```
+
+- **Refresh interval:** `--every 15m|1h|6h|1d|off` (default 1 hour, at least 1 minute; `off` reads only when asked). The board checks every 30 s which ones are due; the dialog's Refresh, `wb tracker refresh` and agents read one at once. Two readers never run the same tracker together.
+- **Levels:** a meter with a max warns at 75% and is bad at 90% unless `--warn`/`--bad` say otherwise: a share of max (`80%`) or a number (`14`). When low is bad (minutes left, coverage), put bad below warn (`--warn 20% --bad 10%`) or prefix `<`. A command's JSON can set a meter's `level` itself. `--max` and `--unit` fill in what a reading leaves out.
+- **Names:** lowercase with dashes, unique in the project. Commands and agents take `name` (the current project's first, then the global one) or `project/name`.
+- **History:** every reading that differs from the one before is kept (the last 2,000), for the trend in the dialog. Desktop notifications (the bell) also say when a tracker starts to warn, turns bad, or stops reading.
+- **Who can set a command:** a command runs on this computer, so the board accepts one only from its own page here (like data sources), never from the phone under `--lan`; `wb tracker` and the MCP server run as you anyway.
+
+## MCP server
+
+The workbench is also an MCP server, so agents can work the board with tools instead of shelling out to `wb`. It runs two ways, with the same tools:
+
+```bash
+claude mcp add -s user wb -- wb mcp                               # stdio: Claude Code starts `wb mcp` itself
+claude mcp add -s user --transport http wb http://localhost:4321/mcp   # or through the running board
+```
+
+- **stdio** (`wb mcp`) works without the board running. Its default project is the one whose folder the client starts it in (`WB_PROJECT=slug` to pin one); `start_item` links the desktop-app session it runs in.
+- **HTTP** is `POST /mcp` on the board, for this computer only: it refuses other addresses (so not the phone under `--lan`), a Host other than localhost, and any web page's Origin. `?project=slug` sets the default project.
+- **Tools:** `list_projects`, `project_overview` (open items, trackers, git state, reports, links and data sources of a project), `search`, `list_items`, `get_item`, `add_item`, `update_item`, `start_item`, `wait_item`, `finish_item`, `drop_item`, `add_note`, `answer_decision` (only with an answer you gave in the conversation), `list_reports`, `read_report`, `publish_report`, `add_link`, `list_trackers`, `get_tracker`, `record_tracker`, `refresh_trackers`, `define_tracker`, `remove_tracker`. Read-only tools are marked as such, so a client can let them run without asking.
+- **Resources:** `wb://projects`, `wb://project/{slug}`, `wb://item/{wb-xxxx}`, `wb://report/{id}`, `wb://trackers` and `wb://trackers/{slug}`; open items and reports are listed, so `@` in Claude Code can attach one.
+- **Prompts** (slash commands in Claude Code): `/mcp__wb__work-on wb-k3f9` (the item's brief and how to track it), `/mcp__wb__next` (pick the next agent task) and `/mcp__wb__status` (a short status of the project). Item refs and project slugs complete as you type.
+- **Not on MCP:** the vault, data sources' secrets, and deleting items, reports or links.
+- **Protocol:** MCP 2026-07-28 (stateless, `server/discover`) and the earlier revisions down to 2024-11-05 (the `initialize` handshake), on both transports, written by hand like the rest of the board.
 
 ## Secrets vault
 

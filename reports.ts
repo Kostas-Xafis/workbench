@@ -34,6 +34,8 @@ const CLIENT = `(() => {
 		links: (project) => call("links", project),
 		projects: () => call("projects"),
 		reports: (project) => call("reports", project),
+		/** Status trackers of this project and the global ones ("*": all), with their readings and levels. */
+		trackers: (project) => call("trackers", project),
 		/** Opens the item's dialog on the board. */
 		open: (ref) => call("open", ref),
 		/** This report's saved state (kept by project + name, across versions). Outside the board: get → null, set → false. */

@@ -17,6 +17,7 @@ import {
 	type ItemFilter,
 } from "./db";
 import { repoState } from "./git";
+import { listTrackers } from "./trackers";
 import { qrSvg } from "./qr";
 import { REPORT_CSP, withBridge } from "./reports";
 
@@ -555,6 +556,23 @@ function shareServer(share: Share, port: number) {
 		reports() {
 			const r = report();
 			return listReports(db, r.project).filter((x) => x.id === r.id);
+		},
+		// The project's own trackers, their meters only: no global ones, and nothing about how each reads or for which
+		// account (commands, options, notes, links and errors can name accounts and plans).
+		trackers() {
+			const project = report().project;
+			return listTrackers(db, project)
+				.filter((t) => t.project === project)
+				.map((t) => ({
+					project: t.project,
+					name: t.name,
+					ref: t.ref,
+					title: t.title,
+					level: t.level,
+					stale: t.stale,
+					read_at: t.read_at,
+					reading: t.reading && { meters: t.reading.meters, resets_at: t.reading.resets_at },
+				}));
 		},
 		open() {
 			throw new Error("this is a read-only shared copy");
