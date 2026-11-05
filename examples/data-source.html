@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Data source demo</title>
+<!--
+	Reads an API through a data source, so no token is in this page. Set it up once (a dummy header here;
+	a real API gets e.g. "Authorization: Bearer {env:TOKEN}"):
+
+		DEMO_KEY=anything wb source add demo https://jsonplaceholder.typicode.com --write --header 'X-Demo-Key: {env:DEMO_KEY}'
+		wb report examples/data-source.html
+
+	Without --write the checkboxes answer "read-only" (only GET goes through).
+-->
+<style>
+/* var(--wb-…) come from the workbench; the fallbacks keep the page readable on its own. */
+body { margin: 0; background: var(--wb-bg, #f6f5f2); color: var(--wb-ink, #1d1c1a); font: 14px/1.5 var(--wb-font, system-ui, sans-serif); }
+.page { max-width: 720px; margin: 0 auto; padding: 24px 20px 48px; }
+h1 { font-size: 22px; margin: 0; }
+.sub { color: var(--wb-muted, #6f6b64); margin: 2px 0 20px; font-size: 13px; }
+.panel { background: var(--wb-card, #fff); border: 1px solid var(--wb-line, #e3e0da); border-radius: 12px; padding: 6px 16px; }
+ul { list-style: none; margin: 0; padding: 0; }
+li { display: flex; gap: 10px; align-items: center; padding: 8px 0; border-top: 1px solid var(--wb-line, #e3e0da); }
+li:first-child { border-top: 0; }
+li.done span { color: var(--wb-muted, #6f6b64); text-decoration: line-through; }
+li small { margin-left: auto; color: var(--wb-muted, #6f6b64); font: 12px var(--wb-mono, monospace); }
+.error { color: var(--wb-bad, #dc2626); padding: 10px 0; }
+code { font: 12.5px var(--wb-mono, monospace); }
+</style>
+</head>
+<body>
+<div class="page">
+	<h1>Data source demo</h1>
+	<p class="sub">Five to-dos from the <code>demo</code> source, fetched by the board with its secret header.</p>
+	<div class="panel"><ul id="list"><li>Loading…</li></ul></div>
+	<p class="sub" id="status"></p>
+</div>
+<script>
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+
+async function load() {
+	// → { ok, status, type, json | text }, or { ok: false, status: 0, error } (never throws)
+	const r = await wb.fetch("demo", "/todos", { query: { _limit: 5 } });
+	if (!r.ok) return void ($("#list").innerHTML = `<li class="error">${esc(r.error || `HTTP ${r.status}`)}</li>`);
+	$("#list").innerHTML = r.json.map((t) => `<li class="${t.completed ? "done" : ""}">
+		<input type="checkbox" data-id="${t.id}"${t.completed ? " checked" : ""}><span>${esc(t.title)}</span><small>#${t.id}</small></li>`).join("");
+}
+
+// Writing needs a source added with --write; the API here only pretends to save.
+$("#list").addEventListener("change", async (e) => {
+	const box = e.target.closest("[data-id]");
+	const r = await wb.fetch("demo", `/todos/${box.dataset.id}`, { method: "PATCH", body: { completed: box.checked } });
+	$("#status").textContent = r.ok ? `PATCH #${box.dataset.id} → ${r.status}` : `Not saved: ${r.error || `HTTP ${r.status}`}`;
+	if (r.ok) box.closest("li").classList.toggle("done", r.json.completed);
+	else box.checked = !box.checked;
+});
+
+load();
+</script>
+</body>
+</html>

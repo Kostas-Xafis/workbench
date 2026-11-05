@@ -564,6 +564,8 @@ function shareServer(share: Share, port: number) {
 			return s ? JSON.parse(s) : null;
 		},
 		stateSet: () => false,
+		// Data sources call an API with a stored secret: never for someone holding the link.
+		fetch: () => ({ ok: false, status: 0, error: "data sources are off on shared links" }),
 		stateClear: () => false,
 	};
 

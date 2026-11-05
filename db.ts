@@ -161,6 +161,19 @@ export function open(path = DB_PATH) {
 		created_at TEXT NOT NULL DEFAULT (datetime('now')),
 		updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 	)`);
+	// Data sources a report can call through the board (see sources.ts). `headers` is sealed with a key
+	// that lives outside the database, so this table and its backups hold no usable secret.
+	db.run(`CREATE TABLE IF NOT EXISTS sources (
+		project TEXT NOT NULL REFERENCES projects(slug) ON DELETE CASCADE,
+		name TEXT NOT NULL,
+		base_url TEXT NOT NULL,
+		write INTEGER NOT NULL DEFAULT 0,
+		header_names TEXT NOT NULL DEFAULT '',
+		headers TEXT NOT NULL,
+		created_at TEXT NOT NULL DEFAULT (datetime('now')),
+		updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+		PRIMARY KEY (project, name)
+	)`);
 	return db;
 }
 

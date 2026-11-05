@@ -97,6 +97,8 @@ summary::-webkit-details-marker { display: none; }
 .fav.letter { display: inline-grid; place-items: center; background: var(--hover); color: var(--muted); font-size: 10px; font-weight: 700; }
 #rail.editing a.ritem.link { outline: 1px dashed var(--line); outline-offset: -1px; }
 #rail.editing a.ritem.link::after { content: "✎"; color: var(--muted); font-size: 11px; }
+.ritem.source { cursor: default; }
+.ritem.source:hover { background: none; }
 .rail-empty { font-size: 12px; color: var(--muted); padding: 2px 10px 6px; }
 
 /* Top bar and search */
@@ -491,7 +493,7 @@ const $ = (s, el = document) => el.querySelector(s);
 const solo = new URLSearchParams(location.search).has("solo");
 const state = {
 	project: localGet("project") || "", who: localGet("who") || "all", items: [], projects: [], links: [], reports: [], repos: [],
-	code: {}, current: null, report: null, reportV: null, collapsed: narrow() || localGet("rail") === "collapsed",
+	code: {}, sources: [], current: null, report: null, reportV: null, collapsed: narrow() || localGet("rail") === "collapsed",
 };
 // On a phone the rail opens over the page, so it starts folded and its state isn't remembered.
 function narrow() { return matchMedia("(max-width: 760px)").matches; }
@@ -689,12 +691,22 @@ function renderRail() {
 			<details class="rsec fold" data-key="rail-reports"${isOpen("rail-reports", true)}><summary>Reports <span class="count">${nReports || ""}</span></summary>
 				${reportList || `<div class="rail-empty">None yet. Publish one with <code>wb report page.html</code>.</div>`}</details>
 			<details class="rsec fold" data-key="rail-links"${isOpen("rail-links", true)}><summary>Links ${tools}</summary>
-				${linkList || `<div class="rail-empty">No links${state.project ? " for this project" : ""}.</div>`}</details>`;
+				${linkList || `<div class="rail-empty">No links${state.project ? " for this project" : ""}.</div>`}</details>` +
+			railSources();
 	}
 	const rail = $("#rail");
 	paint(rail, html);
 	rail.classList.toggle("editing", editingLinks);
 	$("#link-groups").innerHTML = [...new Set(state.links.map((l) => l.grp).filter(Boolean))].sort().map((g) => `<option value="${esc(g)}">`).join("");
+}
+
+// Data sources a report can call with wb.fetch (wb source add): names and base URLs, never header values.
+const PLUG = `<svg class="doc-ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><ellipse cx="8" cy="3.75" rx="5" ry="2"/><path d="M3 3.75v8.5c0 1.1 2.24 2 5 2s5-.9 5-2v-8.5M3 8c0 1.1 2.24 2 5 2s5-.9 5-2"/></svg>`;
+function railSources() {
+	const list = state.sources.filter((s) => !state.project || s.project === state.project);
+	if (!list.length) return "";
+	const row = (s) => `<div class="ritem source" title="${esc(`${s.base_url}\n${s.write ? "read and write" : "read-only (GET)"}${s.header_names.length ? ` · headers: ${s.header_names.join(", ")}` : ""}\nwb.fetch("${s.name}", "/path")`)}">${PLUG}<span>${esc(state.project ? s.name : `${projectName(s.project)} · ${s.name}`)}</span><small>${s.write ? "write" : "read"}</small></div>`;
+	return `<details class="rsec fold" data-key="rail-sources"${isOpen("rail-sources", false)}><summary>Data sources <span class="count">${list.length}</span></summary>${list.map(row).join("")}</details>`;
 }
 
 function setCollapsed(c) {
@@ -706,6 +718,12 @@ $("#rail-open").onclick = () => setCollapsed(!state.collapsed);
 
 async function loadLinks() {
 	state.links = await api("/api/links");
+	renderRail();
+}
+async function loadSources() {
+	const sources = await api("/api/sources");
+	if (JSON.stringify(sources) === JSON.stringify(state.sources)) return;
+	state.sources = sources;
 	renderRail();
 }
 async function loadReports() {
@@ -1214,15 +1232,24 @@ const bridge = {
 		return true;
 	},
 	async stateClear() { await api(`/api/reports/${state.report.id}/state`, { method: "DELETE" }); return true; },
+	// A data source of the report's project, called by the server with the source's headers (see sources.ts).
+	// Always answers a value: { ok, status, json | text } or { ok: false, status: 0, error }.
+	async fetch(name, path, opts) {
+		const res = await fetch(`/api/reports/${state.report.id}/fetch`, {
+			method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name, path, opts }),
+		});
+		return res.json().catch(() => ({ ok: false, status: 0, error: `the board answered ${res.status}` }));
+	},
 };
-const STATE_METHODS = ["stateGet", "stateSet", "stateClear"];
+// Calls made as the report in the frame: only for the one the board loaded there, whatever the page claims.
+const STATE_METHODS = ["stateGet", "stateSet", "stateClear", "fetch"];
 window.addEventListener("message", async (e) => {
 	const m = e.data;
 	if (e.source !== frame.contentWindow || e.origin !== "null" || !m || m.wb !== 1 || !Object.hasOwn(bridge, m.method)) return;
 	// State only for the report the frame was pointed at: the page names itself, and must be the one loaded.
 	if (STATE_METHODS.includes(m.method) && !(state.report && m.report === state.report.id
 		&& new URL(frame.dataset.src ?? "", location.href).pathname === `/r/${state.report.id}`)) {
-		return e.source.postMessage({ wb: 1, id: m.id, error: "not this report's state" }, "*");
+		return e.source.postMessage({ wb: 1, id: m.id, error: m.method === "fetch" ? "not the report the board loaded" : "not this report's state" }, "*");
 	}
 	try { e.source.postMessage({ wb: 1, id: m.id, result: await bridge[m.method](...(m.args || [])) }, "*"); }
 	catch (err) { e.source.postMessage({ wb: 1, id: m.id, error: err.message }, "*"); }
@@ -1828,7 +1855,7 @@ async function start() {
 	}
 	await loadProjects();
 	renderRail();
-	await Promise.all([loadItems(), loadLinks(), loadReports()]);
+	await Promise.all([loadItems(), loadLinks(), loadReports(), loadSources()]);
 	route();
 	renderNotify();
 	loadRepos();
@@ -1844,6 +1871,7 @@ setInterval(() => {
 	loadRepos();
 	loadCode();
 	loadReports();
+	loadSources();
 	refreshReport();
 }, 10000);
 </script>

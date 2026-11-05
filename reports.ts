@@ -43,6 +43,14 @@ const CLIENT = `(() => {
 			set: (obj) => parent === window ? Promise.resolve(false) : call("stateSet", JSON.stringify(obj)),
 			clear: () => parent === window ? Promise.resolve(false) : call("stateClear"),
 		},
+		/**
+		 * Calls this project's data source \`name\` (wb sources) through the board, which adds its secret headers.
+		 * path is joined onto the source's base URL. opts: { method: "GET" | "POST" | …, body, query }.
+		 * Resolves { ok, status, type, json | text } (location on a redirect), or { ok: false, status: 0, error }.
+		 */
+		fetch: (name, path = "", opts = {}) => (parent === window
+			? Promise.resolve({ ok: false, status: 0, error: "open this report from the workbench to use its data sources" })
+			: call("fetch", name, path, opts)).catch((e) => ({ ok: false, status: 0, error: e.message })),
 		/** Called whenever the board refreshes (every 10 s while visible). */
 		onRefresh: (f) => { refresh.add(f); return () => refresh.delete(f); },
 	};

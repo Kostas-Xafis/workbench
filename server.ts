@@ -45,6 +45,7 @@ import { findIcon } from "./icons";
 import { projectLogo } from "./logo";
 import { REPORT_CSP, withBridge } from "./reports";
 import { checkShare, extendShare, listShares, resumeShares, startShare, stopShare } from "./share";
+import { listSources, sourceFetch } from "./sources";
 
 export const PORT = Number(process.env.WB_PORT ?? 4321);
 
@@ -65,6 +66,20 @@ export function serve({ lan = false } = {}) {
 			return json({ error: "wrong password" }, 401);
 		}
 		return null;
+	};
+	// Calls that act with a stored secret (data sources) come only from the board's own page on this computer:
+	// a loopback peer, a localhost Host (no DNS rebinding), and a same-origin JSON request (no other site's form).
+	const boardOnly = (req: Request, srv: Server<unknown>) => {
+		const host = req.headers.get("host") ?? "";
+		const site = req.headers.get("sec-fetch-site");
+		const origin = req.headers.get("origin");
+		return (
+			loopback(req, srv) &&
+			/^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/.test(host) &&
+			(!site || site === "same-origin") &&
+			(!origin || origin === `http://${host}`) &&
+			(req.headers.get("content-type") ?? "").startsWith("application/json")
+		);
 	};
 	// Commits and pull requests per project; gh is slow and rate-limited, so each project is asked at most every 90 s.
 	const codeCache = new Map<string, { at: number; links: Promise<CodeLinks> }>();
@@ -171,6 +186,17 @@ export function serve({ lan = false } = {}) {
 					}
 				},
 			},
+			// A report page's `wb.fetch`: its own project's data source, called here with the source's headers.
+			"/api/reports/:id/fetch": {
+				POST: async (req, srv) => {
+					if (!boardOnly(req, srv))
+						return json({ ok: false, status: 0, error: "data sources answer only the board on this computer (localhost)" }, 403);
+					const { name, path, opts } = await req.json().catch(() => ({}));
+					return json(await sourceFetch(db, Number(req.params.id), name, path, opts ?? {}));
+				},
+			},
+			// Names and base URLs only; header values never leave the server.
+			"/api/sources": (req) => json(listSources(db, new URL(req.url).searchParams.get("project") || undefined)),
 			// The page itself, sandboxed: it reads the board only through the frame's postMessage bridge.
 			"/r/:id": (req) => {
 				const r = getReport(db, Number(req.params.id));

@@ -34,6 +34,7 @@ import {
 } from "./db";
 import { currentDay, dayData, dayPage, DAY_START_HOUR, publishDay } from "./day";
 import { PORT } from "./server";
+import { addSource, KEY_PATH, listSources, removeSource } from "./sources";
 
 const HELP = `wb — the workbench. Tasks for agents, checks and decisions for Kostas, across projects.
 Items are named wb-xxxx (e.g. wb-k3f9); commands take that, the bare k3f9, or an old number.
@@ -64,6 +65,13 @@ Items are named wb-xxxx (e.g. wb-k3f9); commands take that, the bare k3f9, or an
                                    (${DAY_START_HOUR}:00 to ${DAY_START_HOUR}:00 next morning; default: the current one), in its
                                    group Days. The board does this by itself; --out writes one page of every project
   wb unreport <id>                 delete a report with all its versions
+  wb source add <name> <baseUrl> [--project P] [--write] --header "Name: value" ...
+                                   a data source report pages call with wb.fetch(name, path); the board adds
+                                   the headers. Values: {env:VAR} or {stdin} (asked hidden, or read from a pipe,
+                                   one line each), e.g. --header "Authorization: Bearer {env:TOKEN}". Never printed.
+                                   --write allows POST/PUT/PATCH/DELETE (GET only otherwise). Again = replace
+  wb sources [--project P]         data sources (names, base URLs, header names)
+  wb unsource <name> [--project P] remove one
   wb backup                        copy the database now (also done nightly by the board; newest 14 kept)
   wb backups                       list them
   wb vault                         whether the vault is set up, and how many secrets it holds
@@ -111,6 +119,8 @@ const { values: o, positionals: args } = parseArgs({
 		name: { type: "string" },
 		out: { type: "string" },
 		yes: { type: "boolean" },
+		write: { type: "boolean" },
+		header: { type: "string", multiple: true },
 		option: { type: "string", multiple: true },
 		help: { type: "boolean", short: "h" },
 	},
@@ -200,6 +210,47 @@ function show(id: number) {
 	if (i.answer) console.log(`\nanswer: ${i.answer}`);
 	console.log("\nhistory:");
 	for (const n of i.notes) console.log(`  ${n.at}  ${n.author ? n.author + ": " : ""}${n.text}`);
+}
+
+/**
+ * --header "Name: value" for `wb source add`. A secret shouldn't be typed into a command line (shell history,
+ * ps), so the value can say {env:VAR} or {stdin}; stdin is asked without echo on a terminal, else read a line each.
+ */
+async function sourceHeaders(specs: string[]) {
+	const headers: Record<string, string> = {};
+	let piped: string[] | undefined;
+	const fromStdin = async (name: string) => {
+		if (process.stdin.isTTY) {
+			Bun.spawnSync(["stty", "-echo"], { stdin: "inherit" });
+			try {
+				return prompt(`${name} (typing is hidden):`) ?? "";
+			} finally {
+				Bun.spawnSync(["stty", "echo"], { stdin: "inherit" });
+				process.stdout.write("\n");
+			}
+		}
+		piped ??= (await Bun.stdin.text()).split(/\r?\n/);
+		const line = piped.shift();
+		if (line === undefined || line === "") die(`stdin ran out of lines for ${name}`);
+		return line;
+	};
+	for (const spec of specs) {
+		const at = spec.indexOf(":");
+		if (at < 1) die(`--header "Name: value", got "${spec}"`);
+		const name = spec.slice(0, at).trim();
+		let value = spec.slice(at + 1).trim();
+		for (const m of value.match(/\{env:[A-Za-z_][A-Za-z0-9_]*\}/g) ?? []) {
+			const v = process.env[m.slice(5, -1)];
+			if (!v) die(`${m.slice(5, -1)} is not set (for ${name})`);
+			value = value.replace(m, () => v);
+		}
+		if (value.includes("{stdin}")) {
+			const v = await fromStdin(name);
+			value = value.replace("{stdin}", () => v);
+		}
+		headers[name] = value;
+	}
+	return headers;
 }
 
 async function serverUp() {
@@ -403,6 +454,37 @@ try {
 			const id = Number(args[1]);
 			if (!Number.isInteger(id)) die("usage: wb unreport <id>");
 			removeReport(db, id);
+			break;
+		}
+		case "source": {
+			const [, sub, name, base] = args;
+			if (sub !== "add" || !name || !base)
+				die('usage: wb source add <name> <baseUrl> [--project P] [--write] --header "Authorization: Bearer {env:TOKEN}"');
+			const project = currentProject()!;
+			const headers = await sourceHeaders(o.header ?? []);
+			const { replaced } = addSource(db, { project, name, base_url: base, write: !!o.write, headers });
+			const names = Object.keys(headers);
+			console.log(
+				`source ${name} ${replaced ? "replaced" : "added"} in ${project}: ${o.write ? "read and write" : "GET only"}` +
+					`${names.length ? `, headers ${names.join(", ")} (sealed, key ${KEY_PATH})` : ", no headers"}`,
+			);
+			console.log(`in a report of ${project}: await wb.fetch("${name}", "/path")`);
+			break;
+		}
+		case "sources": {
+			const list = listSources(db, o.project ?? currentProject(false));
+			if (!list.length) console.log("no data sources (wb source add)");
+			for (const s of list)
+				console.log(
+					`${s.project.padEnd(14)} ${s.name.padEnd(16)} ${(s.write ? "write" : "read").padEnd(6)} ${s.base_url}${s.header_names.length ? `  [${s.header_names.join(", ")}]` : ""}`,
+				);
+			break;
+		}
+		case "unsource": {
+			const name = args[1] ?? die("usage: wb unsource <name> [--project P]");
+			const project = currentProject()!;
+			removeSource(db, project, name);
+			console.log(`source ${name} removed from ${project}`);
 			break;
 		}
 		case "vault": {
