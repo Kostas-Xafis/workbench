@@ -123,9 +123,18 @@ summary::-webkit-details-marker { display: none; }
 .mv > b { font-weight: 600; }
 .trk.stale .mv, .trk.stale .bar { opacity: .5; }
 .trk-flag { flex: none; width: 15px; height: 15px; border-radius: 50%; display: inline-grid; place-items: center; font-size: 10px; font-weight: 700; background: color-mix(in srgb, var(--bug) 16%, transparent); color: var(--bug); align-self: center; }
-.trk-ring { width: 24px; height: 24px; border-radius: 50%; background: conic-gradient(var(--c, var(--muted)) calc(var(--p) * 1%), var(--line) 0);
-	-webkit-mask: radial-gradient(circle, transparent 7px, #000 7.5px); mask: radial-gradient(circle, transparent 7px, #000 7.5px); }
-.rail-collapsed .trackers { padding: 0 0 6px; align-items: center; }
+/* Folded rail: a ring per tracker; pointing at one fades in the tracker as the open rail draws it (#trk-pop). */
+.rail-collapsed .trackers { padding: 0 0 6px; align-items: center; gap: 2px; }
+.trk-mini { border: 0; background: transparent; padding: 0; width: 38px; height: 32px; border-radius: 8px; display: grid; place-items: center; flex: none; }
+.trk-mini:hover, .trk-mini:focus-visible { background: var(--hover); }
+.trk-mini:focus-visible { outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent); outline-offset: -2px; }
+.trk-mini.stale .trk-ring { opacity: .45; }
+.trk-ring { width: 22px; height: 22px; border-radius: 50%; background: conic-gradient(var(--c, var(--muted)) calc(var(--p) * 1%), var(--line) 0);
+	-webkit-mask: radial-gradient(circle, transparent 7.5px, #000 8px); mask: radial-gradient(circle, transparent 7.5px, #000 8px); }
+#trk-pop { position: fixed; z-index: 30; width: 244px; padding: 4px; background: var(--card); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow);
+	pointer-events: none; opacity: 0; visibility: hidden; translate: -6px 0; transition: opacity .16s ease, translate .16s ease, visibility 0s linear .16s; }
+#trk-pop.show { opacity: 1; visibility: visible; translate: 0; transition-delay: 0s; }
+@media (prefers-reduced-motion: reduce) { #trk-pop { translate: none; } }
 #trk-new { width: 24px; height: 24px; }
 
 /* Tracker dialog */
@@ -665,7 +674,7 @@ function ago(s) {
 }
 const sessionHref = (s) => /^local_[0-9a-f-]+$/.test(s) ? `claude://claude.ai/epitaxy/${s}` : null;
 const projectName = (slug) => state.projects.find((p) => p.slug === slug)?.name ?? slug;
-const initials = (name) => name.split(/[\s_-]+|(?<=[a-z])(?=[A-Z])/).filter(Boolean).slice(0, 2).map((w) => w[0]).join("").toUpperCase() || "?";
+const initials = (name) => name.split(/[\s_-]+|(?<=[a-z])(?=[A-Z])/).filter((w) => /^[\p{L}\p{N}]/u.test(w)).slice(0, 2).map((w) => w[0]).join("").toUpperCase() || "?";
 const hue = (s) => [...s].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 360, 7);
 // A logo or icon that fails to load is replaced by its letters (see the error listener).
 const logo = (p) => p.slug
@@ -745,8 +754,10 @@ function railReports() {
 	return [...groups].sort(([a], [b]) => (a === "") - (b === "") || a.localeCompare(b));
 }
 const isDay = (r) => /^day-\d{4}-\d{2}-\d{2}$/.test(r.name);
-// Each report group shows this many; the rest fold away.
-const GROUP_SHOWN = 4;
+// Each report group shows this many; the rest fold away (in the folded rail they're left out).
+const GROUP_SHOWN = 2;
+// A day page's tile is its day of the month; other reports get their initials.
+const tileText = (r) => isDay(r) ? String(Number(r.name.slice(-2))) : initials(r.title);
 const reportHref = (r) => `#report/${r.id}`;
 const isCurrent = (r) => state.report?.id === r.id;
 
@@ -759,7 +770,9 @@ function renderRail() {
 	let html;
 	if (state.collapsed) {
 		html = `<div class="rail-head">${toggle}</div>` + railTrackers(true) +
-			reports.flatMap(([, rs]) => rs).map((r) => `<a class="ritem" href="${reportHref(r)}" title="${esc(r.title)}" aria-current="${isCurrent(r)}"><span class="tile">${esc(initials(r.title))}</span></a>`).join("") +
+			// The first few of each group, and the report on screen if it's further down.
+			reports.flatMap(([, rs]) => rs.filter((r, i) => i < GROUP_SHOWN || isCurrent(r)))
+				.map((r) => `<a class="ritem" href="${reportHref(r)}" title="${esc(r.title)}" aria-current="${isCurrent(r)}"><span class="tile">${esc(tileText(r))}</span></a>`).join("") +
 			(reports.length && links.length ? `<div class="rail-sep"></div>` : "") +
 			links.flatMap((g) => g.links).map((l) => `<a class="ritem link" href="${esc(l.url)}" target="_blank" rel="noreferrer" data-link="${l.id}" title="${esc(l.label)}">${fav(l)}</a>`).join("");
 	} else {
@@ -797,6 +810,11 @@ function renderRail() {
 	const rail = $("#rail");
 	paint(rail, html);
 	rail.classList.toggle("editing", editingLinks);
+	// A refresh replaces the ring under the pointer: keep its card up to date, or put it away.
+	if (popFor != null) {
+		const b = state.collapsed && rail.querySelector(`.trk-mini[data-tracker="${popFor}"]`);
+		if (b && b.matches(":hover, :focus-visible")) showTrkPop(b); else hideTrkPop(true);
+	}
 	$("#link-groups").innerHTML = [...new Set(state.links.map((l) => l.grp).filter(Boolean))].sort().map((g) => `<option value="${esc(g)}">`).join("");
 }
 
@@ -856,7 +874,7 @@ $("#rail").addEventListener("click", (e) => {
 	if (e.target.closest("#rail-toggle")) return setCollapsed(!state.collapsed);
 	if (e.target.closest("#trk-new")) return editTracker({ project: state.project });
 	const tb = e.target.closest("[data-tracker]");
-	if (tb) return openTracker(Number(tb.dataset.tracker));
+	if (tb) { hideTrkPop(true); return openTracker(Number(tb.dataset.tracker)); }
 	// The tools sit inside a <summary>: don't fold the section.
 	if (e.target.closest("#link-new")) { e.preventDefault(); return openLink({ project: state.project }); }
 	if (e.target.closest("#link-edit")) { e.preventDefault(); editingLinks = !editingLinks; return renderRail(); }
@@ -934,12 +952,14 @@ function trkTip(t) {
 	].filter(Boolean).join("\n");
 }
 
-function trackerRow(t) {
+// card: the same look as a plain block, for the hover card of the folded rail.
+function trackerRow(t, card = false) {
 	const ms = t.reading?.meters ?? [];
 	const flag = t.error ? `<span class="trk-flag" aria-label="Last read failed">!</span>` : "";
 	const cls = `trk${t.stale ? " stale" : ""}`;
 	const head = (right) => `<div class="trk-top"><span class="trk-name">${esc(trkName(t))}</span>${flag}${right}</div>`;
-	const open = (lv, body) => `<button type="button" class="${cls}${lv ? ` lv-${lv}` : ""}" data-tracker="${t.id}" title="${esc(trkTip(t))}">${body}</button>`;
+	const open = (lv, body) => card ? `<div class="${cls}${lv ? ` lv-${lv}` : ""}">${body}</div>`
+		: `<button type="button" class="${cls}${lv ? ` lv-${lv}` : ""}" data-tracker="${t.id}" title="${esc(trkTip(t))}">${body}</button>`;
 	if (!ms.length) return open("", head(`<small>${t.running ? "reading…" : t.error ? "failed" : "no reading yet"}</small>`));
 	if (ms.length === 1) {
 		const m = ms[0], p = pctOf(m);
@@ -963,10 +983,49 @@ function railTrackers(collapsed) {
 	if (collapsed) return `<div class="trackers">${list.map((t) => {
 		const ps = (t.reading?.meters ?? []).map(pctOf).filter((p) => p != null);
 		const c = t.error ? "var(--bug)" : t.level === "bad" ? "var(--bug)" : t.level === "warn" ? "var(--review)" : "var(--muted)";
-		return `<button type="button" class="ritem" data-tracker="${t.id}" title="${esc(trkTip(t))}"><span class="trk-ring" style="--p:${ps.length ? Math.max(...ps) : 100};--c:${c}"></span></button>`;
+		return `<button type="button" class="trk-mini${t.stale ? " stale" : ""}" data-tracker="${t.id}" aria-label="${esc(trkTip(t))}"><span class="trk-ring" style="--p:${ps.length ? Math.max(...ps) : 100};--c:${c}"></span></button>`;
 	}).join("")}</div>`;
-	return `<div class="trackers">${list.map(trackerRow).join("")}</div>`;
+	return `<div class="trackers">${list.map((t) => trackerRow(t)).join("")}</div>`;
 }
+
+// The folded rail's hover card: it lives on <body> because the rail clips what overflows it.
+const trkPop = document.createElement("div");
+trkPop.id = "trk-pop";
+trkPop.setAttribute("aria-hidden", "true");
+document.body.append(trkPop);
+let popFor = null, popHide = 0;
+function showTrkPop(btn) {
+	clearTimeout(popHide);
+	const t = state.trackers.find((x) => x.id === Number(btn.dataset.tracker));
+	if (!t) return hideTrkPop(true);
+	popFor = t.id;
+	paint(trkPop, trackerRow(t, true));
+	// Beside the rail, centred on the ring, kept on screen.
+	const r = btn.getBoundingClientRect(), h = trkPop.offsetHeight;
+	trkPop.style.left = `${$("#rail").getBoundingClientRect().right + 6}px`;
+	trkPop.style.top = `${Math.max(8, Math.min(r.top + r.height / 2 - h / 2, innerHeight - h - 8))}px`;
+	trkPop.classList.add("show");
+}
+// A short wait, so sliding from one ring to the next swaps the card instead of blinking it.
+function hideTrkPop(now = false) {
+	clearTimeout(popHide);
+	const go = () => { trkPop.classList.remove("show"); popFor = null; };
+	if (now) go(); else popHide = setTimeout(go, 90);
+}
+$("#rail").addEventListener("pointerover", (e) => {
+	const b = e.target.closest(".trk-mini");
+	if (b && e.pointerType !== "touch") showTrkPop(b);
+});
+$("#rail").addEventListener("pointerout", (e) => {
+	const b = e.target.closest(".trk-mini");
+	if (b && !b.contains(e.relatedTarget)) hideTrkPop();
+});
+$("#rail").addEventListener("focusin", (e) => {
+	const b = e.target.closest(".trk-mini");
+	if (b?.matches(":focus-visible")) showTrkPop(b);
+});
+$("#rail").addEventListener("focusout", (e) => { if (e.target.closest(".trk-mini")) hideTrkPop(); });
+$("#rail").addEventListener("scroll", () => hideTrkPop(true));
 
 async function loadTrackers() {
 	const list = await api("/api/trackers");
