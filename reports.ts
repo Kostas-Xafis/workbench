@@ -5,6 +5,37 @@ import type { Report } from "./db";
  * so `window.wb` asks the board that frames it, which answers read-only questions only.
  */
 const CLIENT = `(() => {
+	// The theme picked on the board (Settings → Appearance): ?wbtheme= on the frame's address, so the first paint is
+	// right, then "theme" messages. The --wb-* colours follow it, and so do the page's own prefers-color-scheme
+	// rules: where the pick differs from the system, their media queries are flipped.
+	let theme = "";
+	const os = matchMedia("(prefers-color-scheme: dark)");
+	const orig = new WeakMap();
+	const flip = (t) => t.replace(/prefers-color-scheme: *(dark|light)/g, (_, s) => "prefers-color-scheme: " + (s === "dark" ? "light" : "dark"));
+	const fix = (obj, get, set) => {
+		if (!orig.has(obj)) orig.set(obj, get());
+		const was = orig.get(obj);
+		if (!was.includes("prefers-color-scheme")) return;
+		const want = theme && (theme === "dark") !== os.matches ? flip(was) : was;
+		if (get() !== want) set(want);
+	};
+	const walk = (rules) => {
+		for (const r of rules) {
+			if (r instanceof CSSMediaRule) fix(r, () => r.media.mediaText, (t) => { r.media.mediaText = t; });
+			if (r.cssRules) walk(r.cssRules);
+		}
+	};
+	const applyTheme = () => {
+		const root = document.documentElement;
+		if (theme) root.dataset.wbTheme = theme; else delete root.dataset.wbTheme;
+		for (const s of document.styleSheets) { try { walk(s.cssRules); } catch {} }
+		for (const el of document.querySelectorAll("link[media], style[media], source[media]")) fix(el, () => el.media, (t) => { el.media = t; });
+	};
+	const setTheme = (t) => { theme = t === "light" || t === "dark" ? t : ""; applyTheme(); };
+	setTheme(new URLSearchParams(location.search).get("wbtheme"));
+	addEventListener("DOMContentLoaded", applyTheme);
+	addEventListener("load", applyTheme);
+	os.addEventListener("change", applyTheme);
 	const pending = new Map();
 	const refresh = new Set();
 	let n = 0;
@@ -12,6 +43,7 @@ const CLIENT = `(() => {
 		const m = e.data;
 		if (e.source !== parent || !m || m.wb !== 1) return;
 		if (m.event === "refresh") return refresh.forEach((f) => { try { f(); } catch (err) { console.error(err); } });
+		if (m.event === "theme") return setTheme(m.theme);
 		const p = pending.get(m.id);
 		if (!p) return;
 		pending.delete(m.id);
@@ -59,11 +91,14 @@ const CLIENT = `(() => {
 })();`;
 
 // The board's palette, so a report can match it with var(--wb-…) and still choose its own look.
+// Dark follows the system, unless the board that frames the page picked a theme (data-wb-theme, see CLIENT).
+const DARK = `--wb-bg: #151514; --wb-card: #1f1f1d; --wb-ink: #ecebe8; --wb-muted: #a29e96;
+	--wb-line: #33322f; --wb-hover: #2a2a27; --wb-accent: #8c9eff; --wb-good: #5fcf86; --wb-warn: #f0b45a; --wb-bad: #ff7b7b;`;
 const THEME = `:root { --wb-bg: #f6f5f2; --wb-card: #ffffff; --wb-ink: #1d1c1a; --wb-muted: #6f6b64; --wb-line: #e3e0da;
 	--wb-hover: #efede8; --wb-accent: #3d5afe; --wb-good: #15803d; --wb-warn: #b45309; --wb-bad: #dc2626;
 	--wb-font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; --wb-mono: ui-monospace, SFMono-Regular, Menlo, monospace; }
-@media (prefers-color-scheme: dark) { :root { --wb-bg: #151514; --wb-card: #1f1f1d; --wb-ink: #ecebe8; --wb-muted: #a29e96;
-	--wb-line: #33322f; --wb-hover: #2a2a27; --wb-accent: #8c9eff; --wb-good: #5fcf86; --wb-warn: #f0b45a; --wb-bad: #ff7b7b; } }`;
+@media (prefers-color-scheme: dark) { :root:not([data-wb-theme="light"]) { ${DARK} } }
+:root[data-wb-theme="dark"] { ${DARK} }`;
 
 /** No same-origin access, even when the page is opened directly. */
 export const REPORT_CSP =
