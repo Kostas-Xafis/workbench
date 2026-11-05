@@ -110,7 +110,7 @@ export function serve({ lan = false } = {}) {
 	const loopback = (req: Request, srv: Server<unknown>) =>
 		["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(srv.requestIP(req)?.address ?? "");
 	const vaultGate = async (req: Request, srv: Server<unknown>, { auth = true } = {}) => {
-		if (!loopback(req, srv)) return json({ error: "the vault opens only on this computer (localhost)" }, 403);
+		if (!localRead(req, srv)) return json({ error: "the vault opens only on this computer (localhost)" }, 403);
 		if (auth && !vaultAuthOk(db, req.headers.get("x-vault-auth") ?? "")) {
 			await Bun.sleep(500);
 			return json({ error: "wrong password" }, 401);
@@ -129,6 +129,17 @@ export function serve({ lan = false } = {}) {
 			(!site || site === "same-origin") &&
 			(!origin || origin === `http://${host}`) &&
 			(req.headers.get("content-type") ?? "").startsWith("application/json")
+		);
+	};
+	// Reads that are this computer's business (settings, health, backups, shares, the vault's info): a loopback peer, a
+	// localhost Host, and not another site's page — not even one that points its own name at 127.0.0.1 (DNS
+	// rebinding). Opening such a link from the board, or typing it in, is fine.
+	const localRead = (req: Request, srv: Server<unknown>) => {
+		const site = req.headers.get("sec-fetch-site");
+		return (
+			loopback(req, srv) &&
+			/^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/.test(req.headers.get("host") ?? "") &&
+			(!site || site === "same-origin" || site === "none")
 		);
 	};
 	// Commits and pull requests per project; gh is slow and rate-limited, so each project is asked at most every 90 s.
@@ -286,17 +297,7 @@ export function serve({ lan = false } = {}) {
 
 			// Settings → Data: routes
 			...(() => {
-				// A backup or an export hands over everything on the board: only to this computer, and never to another
-				// site's page, not even one that points its own name at 127.0.0.1 (DNS rebinding). Opening the link
-				// from the board, or typing it, is fine.
-				const localRead = (req: Request, srv: Server<unknown>) => {
-					const site = req.headers.get("sec-fetch-site");
-					return (
-						loopback(req, srv) &&
-						/^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/.test(req.headers.get("host") ?? "") &&
-						(!site || site === "same-origin" || site === "none")
-					);
-				};
+				// A backup or an export hands over everything on the board: localRead (above) only.
 				const local = () => json({ error: SETTINGS_LOCAL }, 403);
 				const overview = () => {
 					const keep = tidyKeep(db);
@@ -325,11 +326,11 @@ export function serve({ lan = false } = {}) {
 					"x-content-type-options": "nosniff",
 				});
 				return {
-					"/api/data": (req: Request, srv: Server<unknown>) => (loopback(req, srv) ? json(overview()) : local()),
+					"/api/data": (req: Request, srv: Server<unknown>) => (localRead(req, srv) ? json(overview()) : local()),
 					"/api/data/tidy": {
 						// What the tidy settings (or the values in the query) would remove right now.
 						GET: (req: Request, srv: Server<unknown>) => {
-							if (!loopback(req, srv)) return local();
+							if (!localRead(req, srv)) return local();
 							try {
 								const keep = keepFrom(new URL(req.url).searchParams);
 								return json({ keep, counts: tidyCount(db, keep) });
@@ -371,7 +372,7 @@ export function serve({ lan = false } = {}) {
 					},
 					// The commands that restore this backup on this computer; the board can't swap its own database.
 					"/api/data/backups/:name/restore": async (req: Request & { params: { name: string } }, srv: Server<unknown>) => {
-						if (!loopback(req, srv)) return local();
+						if (!localRead(req, srv)) return local();
 						const file = backupFile(req.params.name);
 						if (!file) return json({ error: "no such backup" }, 404);
 						const su = await startup();
@@ -403,10 +404,9 @@ export function serve({ lan = false } = {}) {
 
 			// Settings → Privacy and security: routes
 			// What's exposed and how secrets behave, for the tab: never a secret, a header value or the vault's salt.
-			// Only for the board's page on this computer (a loopback peer and a localhost Host, so no DNS rebinding).
+			// Only for the board's page on this computer (localRead: no other site, no DNS rebinding).
 			"/api/settings/privacy": (req, srv) => {
-				if (!loopback(req, srv) || !/^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/.test(req.headers.get("host") ?? ""))
-					return json({ error: SETTINGS_LOCAL }, 403);
+				if (!localRead(req, srv)) return json({ error: SETTINGS_LOCAL }, 403);
 				const v = vaultInfo(db);
 				return json({
 					lan,
@@ -431,13 +431,13 @@ export function serve({ lan = false } = {}) {
 
 			// Settings: projects with their folder and what points at them, folders that could be projects, and health.
 			"/api/settings/projects": (req, srv) =>
-				loopback(req, srv)
+				localRead(req, srv)
 					? json(projectsWithCounts(db).map((p) => ({ ...p, folder: folderState(p.path), usage: projectUsage(db, p.slug) })))
 					: json({ error: SETTINGS_LOCAL }, 403),
 			"/api/settings/folders": (req, srv) =>
-				loopback(req, srv) ? json(candidateFolders(db)) : json({ error: SETTINGS_LOCAL }, 403),
+				localRead(req, srv) ? json(candidateFolders(db)) : json({ error: SETTINGS_LOCAL }, 403),
 			"/api/settings/health": async (req, srv) =>
-				loopback(req, srv) ? json(await health(db, { port: PORT, lan })) : json({ error: SETTINGS_LOCAL }, 403),
+				localRead(req, srv) ? json(await health(db, { port: PORT, lan })) : json({ error: SETTINGS_LOCAL }, 403),
 			"/api/projects/:slug/logo": async (req) => {
 				const p = projects(db).find((p) => p.slug === req.params.slug);
 				const logo = p && (await projectLogo(p));
@@ -579,12 +579,10 @@ export function serve({ lan = false } = {}) {
 			},
 			// Sharing a report through a Cloudflare quick tunnel (see share.ts). Started only from this computer.
 			"/api/share/check": async (req, srv) =>
-				loopback(req, srv) ? json(await checkShare()) : json({ error: "sharing starts only on this computer" }, 403),
+				localRead(req, srv) ? json(await checkShare()) : json({ error: "sharing starts only on this computer" }, 403),
 			// Links are as good as the report, so a page that rebinds a name to 127.0.0.1 (a non-localhost Host) gets none.
 			"/api/shares": (req, srv) =>
-				loopback(req, srv) && /^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/.test(req.headers.get("host") ?? "")
-					? json(listShares())
-					: json({ error: "sharing starts only on this computer" }, 403),
+				localRead(req, srv) ? json(listShares()) : json({ error: "sharing starts only on this computer" }, 403),
 			"/api/reports/:id/share": {
 				POST: jsonOnly(async (req, srv) => {
 					if (!boardOnly(req, srv)) return json({ error: "sharing starts only on this computer" }, 403);

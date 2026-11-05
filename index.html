@@ -2762,6 +2762,8 @@ async function saveSetting(key, value) {
 	} catch (e) {
 		state.settings = before;
 		toast(e.message);
+		// The page's HTML is the same as before the edit, so force a redraw: the field shows the saved value again.
+		$("#settings-view")._html = null;
 	}
 	runSettingsHooks(key);
 	renderSettings();
