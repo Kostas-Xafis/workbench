@@ -20,13 +20,15 @@ import { repoState } from "./git";
 import { listTrackers } from "./trackers";
 import { qrSvg } from "./qr";
 import { REPORT_CSP, withBridge } from "./reports";
+import { getSetting, SHARE_HOURS } from "./settings";
 
 /**
  * Sharing a report through a Cloudflare quick tunnel (a random https://….trycloudflare.com address).
  *
  * The tunnel never reaches the board. Each share gets its own small server on a loopback port that serves
  * that one report, pinned to one version, plus read-only answers for its `wb` calls, limited to the report's
- * project, for 1 to 8 hours. Nothing it serves writes: `wb.state.set` answers false, `wb.open` refuses.
+ * project, for as long as Settings allows (share.default-hours, share.max-hours). Nothing it serves writes:
+ * `wb.state.set` answers false, `wb.open` refuses.
  * cloudflared connects from this computer, so pointing it at the board would also have opened the
  * localhost-only vault.
  *
@@ -37,9 +39,7 @@ import { REPORT_CSP, withBridge } from "./reports";
  * request and every 15 s, so a share whose time ran out while the computer slept ends as soon as it wakes.
  */
 
-/** How long a share can be started for, and the most it can be extended to, in hours. */
-export const SHARE_HOURS = [1, 2, 4, 8];
-export const SHARE_MAX_HOURS = 8;
+export { SHARE_HOURS };
 const HOUR = 3600e3;
 const START_TIMEOUT = 45e3;
 
@@ -79,6 +79,31 @@ type Saved = Pick<ShareInfo, "report" | "version" | "url" | "startedAt" | "expir
 };
 type Share = ShareInfo & Saved & { db: Db; server: Server<unknown> | null; poll: Timer | null };
 const shares = new Map<number, Share>();
+
+export type ShareLimits = { hours: number[]; default: number; max: number };
+/** What Settings allows right now: the lengths a share can start for (up to the most), the one it starts on, and
+ * the most hours a link runs in total. Read at every use, so a change applies to the next start or extension. */
+export function shareLimits(db: Db): ShareLimits {
+	const max = getSetting<number>(db, "share.max-hours");
+	return {
+		hours: SHARE_HOURS.filter((h) => h <= max),
+		default: Math.min(getSetting<number>(db, "share.default-hours"), max),
+		max,
+	};
+}
+/** The hours to start a share for: the default when none is given, else one of the allowed lengths. */
+export function shareHours(db: Db, hours?: number): number {
+	const l = shareLimits(db);
+	if (hours === undefined) return l.default;
+	if (!l.hours.includes(hours))
+		throw new Error(
+			`a share runs for ${l.hours.length > 1 ? `${l.hours.slice(0, -1).join(", ")} or ${l.hours.at(-1)}` : l.hours[0]} hours${l.max < SHARE_HOURS.at(-1)! ? ` (at most ${l.max}, in Settings)` : ""}`,
+		);
+	return hours;
+}
+/** The latest a share may run to: the most hours (as set now) after it started, never before its current end, so
+ * lowering the most doesn't cut a running link short; it only stops further extensions. */
+const capAt = (s: Share) => Math.max(s.expiresAt, s.startedAt + shareLimits(s.db).max * HOUR);
 
 const WINDOWS = process.platform === "win32";
 
@@ -255,7 +280,7 @@ const info = (s: Share): ShareInfo => ({
 	error: s.error,
 	startedAt: s.startedAt,
 	expiresAt: s.expiresAt,
-	maxAt: s.maxAt,
+	maxAt: capAt(s),
 	qr: s.qr,
 });
 
@@ -369,13 +394,22 @@ function sweep() {
 }
 setInterval(sweep, 15e3).unref?.();
 
-/** Pushes the end back by an hour, up to SHARE_MAX_HOURS after it started. */
+/** Ends every share (running, starting or failed); returns how many there were. */
+export function stopAllShares(): number {
+	const ids = [...shares.keys()];
+	for (const id of ids) stopShare(id);
+	return ids.length;
+}
+
+/** Pushes the end back by an hour, up to the most hours (share.max-hours) after it started. */
 export function extendShare(report: number): ShareInfo {
 	sweep();
 	const s = shares.get(report);
 	if (!s || s.status === "failed") throw new Error("this report isn't being shared");
-	if (s.expiresAt >= s.maxAt) throw new Error(`a share lasts at most ${SHARE_MAX_HOURS} hours`);
-	s.expiresAt = Math.min(s.expiresAt + HOUR, s.maxAt);
+	const cap = capAt(s);
+	if (s.expiresAt >= cap) throw new Error(`a share lasts at most ${shareLimits(s.db).max} hours`);
+	s.expiresAt = Math.min(s.expiresAt + HOUR, cap);
+	s.maxAt = capAt(s);
 	save();
 	return info(s);
 }
@@ -403,7 +437,7 @@ function watchStart(s: Share, since: number) {
 }
 
 /** Starts sharing the report (pinned to `version`, else the latest); resolves once it's starting. */
-export async function startShare(db: Db, reportId: number, version?: number, hours = 1): Promise<ShareInfo> {
+export async function startShare(db: Db, reportId: number, version?: number, hours?: number): Promise<ShareInfo> {
 	sweep();
 	const existing = shares.get(reportId);
 	if (existing && existing.status !== "failed") return info(existing);
@@ -413,7 +447,7 @@ export async function startShare(db: Db, reportId: number, version?: number, hou
 	if (!r) throw new Error("no such report");
 	const n = version ?? r.version;
 	if (!reportHtml(db, r.id, n)) throw new Error(`report has no version ${n}`);
-	if (!SHARE_HOURS.includes(hours)) throw new Error(`share for ${SHARE_HOURS.join(", ")} hours`);
+	const length = shareHours(db, hours);
 	const check = await checkShare();
 	if (!check.ok) throw new Error(check.problems.join(" "));
 
@@ -429,8 +463,8 @@ export async function startShare(db: Db, reportId: number, version?: number, hou
 		reachable: false,
 		error: "",
 		startedAt: now,
-		expiresAt: now + hours * HOUR,
-		maxAt: now + SHARE_MAX_HOURS * HOUR,
+		expiresAt: now + length * HOUR,
+		maxAt: now + shareLimits(db).max * HOUR,
 		qr: "",
 		port: 0,
 		pid: 0,

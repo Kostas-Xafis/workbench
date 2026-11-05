@@ -56,8 +56,18 @@ import { SETTINGS } from "./settings";
 import { findIcon } from "./icons";
 import { forgetLogo, projectLogo } from "./logo";
 import { REPORT_CSP, withBridge } from "./reports";
-import { checkShare, extendShare, listShares, resumeShares, startShare, stopShare } from "./share";
-import { listSources, sourceFetch } from "./sources";
+import {
+	checkShare,
+	extendShare,
+	listShares,
+	resumeShares,
+	shareLimits,
+	startShare,
+	stopAllShares,
+	stopShare,
+} from "./share";
+import { KEY_PATH, listSources, sourceFetch } from "./sources";
+import { existsSync } from "node:fs";
 import { mcpHttp } from "./mcp";
 import { PRESETS } from "./presets";
 import {
@@ -392,6 +402,28 @@ export function serve({ lan = false } = {}) {
 			// end: Data routes
 
 			// Settings → Privacy and security: routes
+			// What's exposed and how secrets behave, for the tab: never a secret, a header value or the vault's salt.
+			// Only for the board's page on this computer (a loopback peer and a localhost Host, so no DNS rebinding).
+			"/api/settings/privacy": (req, srv) => {
+				if (!loopback(req, srv) || !/^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/.test(req.headers.get("host") ?? ""))
+					return json({ error: SETTINGS_LOCAL }, 403);
+				const v = vaultInfo(db);
+				return json({
+					lan,
+					port: PORT,
+					vault: v ? { changed_at: v.changed_at, secrets: listSecrets(db).length } : null,
+					sources: listSources(db),
+					sourcesKey: { path: KEY_PATH, exists: existsSync(KEY_PATH) },
+					share: shareLimits(db),
+				});
+			},
+			"/api/shares/stop-all": {
+				POST: jsonOnly((req, srv) => {
+					if (!boardOnly(req, srv)) return json({ error: "sharing is managed only on this computer" }, 403);
+					stopAllShares();
+					return json(listShares());
+				}),
+			},
 			// end: Privacy and security routes
 
 			// Settings → Appearance: routes
@@ -548,28 +580,34 @@ export function serve({ lan = false } = {}) {
 			// Sharing a report through a Cloudflare quick tunnel (see share.ts). Started only from this computer.
 			"/api/share/check": async (req, srv) =>
 				loopback(req, srv) ? json(await checkShare()) : json({ error: "sharing starts only on this computer" }, 403),
+			// Links are as good as the report, so a page that rebinds a name to 127.0.0.1 (a non-localhost Host) gets none.
 			"/api/shares": (req, srv) =>
-				loopback(req, srv) ? json(listShares()) : json({ error: "sharing starts only on this computer" }, 403),
+				loopback(req, srv) && /^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/.test(req.headers.get("host") ?? "")
+					? json(listShares())
+					: json({ error: "sharing starts only on this computer" }, 403),
 			"/api/reports/:id/share": {
 				POST: jsonOnly(async (req, srv) => {
-					if (!loopback(req, srv)) return json({ error: "sharing starts only on this computer" }, 403);
+					if (!boardOnly(req, srv)) return json({ error: "sharing starts only on this computer" }, 403);
 					try {
 						const { version, hours } = await req.json().catch(() => ({}));
 						const id = Number(req.params.id);
-						return json(await startShare(db, id, Number(version) || undefined, Number(hours) || 1), 201);
+						return json(
+							await startShare(db, id, Number(version) || undefined, hours == null ? undefined : Number(hours)),
+							201,
+						);
 					} catch (e) {
 						return fail(e);
 					}
 				}),
 				DELETE: jsonOnly((req, srv) => {
-					if (!loopback(req, srv)) return json({ error: "sharing starts only on this computer" }, 403);
+					if (!boardOnly(req, srv)) return json({ error: "sharing starts only on this computer" }, 403);
 					stopShare(Number(req.params.id));
 					return json(listShares());
 				}),
 			},
 			"/api/reports/:id/share/extend": {
 				POST: jsonOnly((req, srv) => {
-					if (!loopback(req, srv)) return json({ error: "sharing starts only on this computer" }, 403);
+					if (!boardOnly(req, srv)) return json({ error: "sharing starts only on this computer" }, 403);
 					try {
 						return json(extendShare(Number(req.params.id)));
 					} catch (e) {
