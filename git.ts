@@ -1,4 +1,5 @@
 import type { Project } from "./db";
+import { shellPath } from "./trackers";
 
 export type RepoState = {
 	project: string;
@@ -134,7 +135,8 @@ async function ghPulls(cwd: string) {
 				"--json",
 				"number,title,body,headRefName,state,isDraft,reviewDecision,statusCheckRollup,url",
 			],
-			{ cwd, stdout: "pipe", stderr: "ignore" },
+			// The terminal's PATH: under systemd the board's own may not reach gh (~/.local/bin, Homebrew, …).
+			{ cwd, stdout: "pipe", stderr: "ignore", env: { ...process.env, PATH: await shellPath(), GH_PROMPT_DISABLED: "1" } },
 		);
 		const timer = setTimeout(() => p.kill(), 12000);
 		const [out, code] = await Promise.all([new Response(p.stdout).text(), p.exited]);

@@ -442,11 +442,11 @@ const TOOLS: Tool[] = [
 				.all() as { project: string; kostas: number; agent: number }[];
 			const list = projects(c.db).map((p) => {
 				const n = counts.find((x) => x.project === p.slug);
-				return { slug: p.slug, name: p.name, path: p.path, open_for_kostas: n?.kostas ?? 0, open_for_agents: n?.agent ?? 0, current: p.slug === c.project };
+				return { slug: p.slug, name: p.name, path: p.path, open_for_kostas: n?.kostas ?? 0, open_for_agents: n?.agent ?? 0, current: p.slug === c.project, archived: !!p.archived_at };
 			});
 			return {
 				text: list
-					.map((p) => `${p.slug}${p.current ? " (current)" : ""}: ${p.name} · ${p.path || "no folder"} · ${p.open_for_kostas} for Kostas, ${p.open_for_agents} for agents`)
+					.map((p) => `${p.slug}${p.current ? " (current)" : ""}${p.archived ? " (archived)" : ""}: ${p.name} · ${p.path || "no folder"} · ${p.open_for_kostas} for Kostas, ${p.open_for_agents} for agents`)
 					.join("\n"),
 				data: { projects: list },
 			};

@@ -43,6 +43,10 @@ export type Project = {
 	path: string;
 	/** Logo file, relative to `path` or absolute; '' = look for one in the repo. */
 	icon: string;
+	/** Place on the board's left edge; ties go by name. */
+	sort: number;
+	/** When it was archived: off the rail and "All", its trackers paused. NULL = active. */
+	archived_at: string | null;
 };
 
 export const DB_PATH = process.env.WB_DB ?? join(import.meta.dir, "workbench.db");
@@ -114,6 +118,8 @@ export function open(path = DB_PATH) {
 	if (!linkCols.includes("grp")) db.run("ALTER TABLE links ADD COLUMN grp TEXT NOT NULL DEFAULT ''");
 	const projectCols = (db.query("PRAGMA table_info(projects)").all() as { name: string }[]).map((c) => c.name);
 	if (!projectCols.includes("icon")) db.run("ALTER TABLE projects ADD COLUMN icon TEXT NOT NULL DEFAULT ''");
+	if (!projectCols.includes("sort")) db.run("ALTER TABLE projects ADD COLUMN sort INTEGER NOT NULL DEFAULT 0");
+	if (!projectCols.includes("archived_at")) db.run("ALTER TABLE projects ADD COLUMN archived_at TEXT");
 	// A report is one HTML page; publishing it again under the same name adds a version.
 	db.run(`CREATE TABLE IF NOT EXISTS reports (
 		id INTEGER PRIMARY KEY,
@@ -252,24 +258,102 @@ export function validate(patch: ItemPatch) {
 	if (patch.title !== undefined && !patch.title.trim()) throw new Error("title can't be empty");
 }
 
+const PROJECT_ORDER = "ORDER BY sort, name COLLATE NOCASE";
+
+/** Every project, archived ones too (check `archived_at`), in the board's order. */
 export function projects(db: Db): Project[] {
-	return db.query("SELECT * FROM projects ORDER BY name").all() as Project[];
+	return db.query(`SELECT * FROM projects ${PROJECT_ORDER}`).all() as Project[];
 }
 
-/** Projects with the number of open items waiting on Kostas, for the sidebar. */
-export function projectsWithCounts(db: Db): (Project & { mine: number })[] {
+/** Projects with their open items: `mine` waits on Kostas, `open` is all of them. */
+export function projectsWithCounts(db: Db): (Project & { mine: number; open: number })[] {
 	return db
 		.query(
-			`SELECT p.*, (SELECT COUNT(*) FROM items i WHERE i.project = p.slug AND i.owner = 'kostas'
-				AND i.status IN ('todo', 'doing', 'waiting')) AS mine FROM projects p ORDER BY name`,
+			`SELECT p.*,
+				(SELECT COUNT(*) FROM items i WHERE i.project = p.slug AND i.owner = 'kostas' AND i.status IN ('todo', 'doing', 'waiting')) AS mine,
+				(SELECT COUNT(*) FROM items i WHERE i.project = p.slug AND i.status IN ('todo', 'doing', 'waiting')) AS open
+			FROM projects p ${PROJECT_ORDER}`,
 		)
-		.all() as (Project & { mine: number })[];
+		.all() as (Project & { mine: number; open: number })[];
 }
 
-export function upsertProject(db: Db, p: Omit<Project, "icon">) {
+export const PROJECT_SLUG = /^[a-z0-9][a-z0-9-]{0,39}$/;
+
+/** Adds a project at the end of the list, or renames / moves an existing one. */
+export function upsertProject(db: Db, p: Pick<Project, "slug" | "name" | "path">) {
 	db.query(
-		"INSERT INTO projects (slug, name, path) VALUES ($slug, $name, $path) ON CONFLICT(slug) DO UPDATE SET name = $name, path = $path",
+		`INSERT INTO projects (slug, name, path, sort) VALUES ($slug, $name, $path, (SELECT COALESCE(MAX(sort), 0) + 1 FROM projects))
+		ON CONFLICT(slug) DO UPDATE SET name = $name, path = $path`,
 	).run(p);
+}
+
+/** A new project from the board: the slug must be free, since items, reports and links point at it. */
+export function addProject(db: Db, p: { slug: string; name: string; path: string; icon?: string }) {
+	const slug = String(p.slug ?? "").trim();
+	if (!PROJECT_SLUG.test(slug)) throw new Error("the slug is lowercase letters, digits and dashes (up to 40), e.g. my-app");
+	if (db.query("SELECT 1 FROM projects WHERE slug = ?").get(slug)) throw new Error(`there is already a project "${slug}"`);
+	const name = String(p.name ?? "").trim();
+	if (!name) throw new Error("the project needs a name");
+	upsertProject(db, { slug, name, path: String(p.path ?? "").trim().replace(/(.)\/+$/, "$1") });
+	if (p.icon) setProjectIcon(db, slug, p.icon.trim());
+	return getProject(db, slug)!;
+}
+
+export function getProject(db: Db, slug: string): Project | undefined {
+	return (db.query("SELECT * FROM projects WHERE slug = ?").get(slug) as Project | null) ?? undefined;
+}
+
+export type ProjectPatch = { name?: string; path?: string; icon?: string; archived?: boolean };
+
+export function updateProject(db: Db, slug: string, patch: ProjectPatch): Project {
+	const p = getProject(db, slug);
+	if (!p) throw new Error(`no project "${slug}"`);
+	if (patch.name !== undefined && !String(patch.name).trim()) throw new Error("the project needs a name");
+	const next = {
+		slug,
+		name: patch.name === undefined ? p.name : String(patch.name).trim(),
+		path: patch.path === undefined ? p.path : String(patch.path).trim().replace(/(.)\/+$/, "$1"),
+		icon: patch.icon === undefined ? p.icon : String(patch.icon).trim(),
+	};
+	db.query("UPDATE projects SET name = $name, path = $path, icon = $icon WHERE slug = $slug").run(next);
+	if (patch.archived !== undefined)
+		db.query(
+			patch.archived
+				? "UPDATE projects SET archived_at = COALESCE(archived_at, datetime('now')) WHERE slug = ?"
+				: "UPDATE projects SET archived_at = NULL WHERE slug = ?",
+		).run(slug);
+	return getProject(db, slug)!;
+}
+
+/** The board's order, as a list of slugs; projects left out keep their place after these. */
+export function setProjectOrder(db: Db, slugs: string[]) {
+	const known = new Set(projects(db).map((p) => p.slug));
+	const order = [...new Set(slugs)].filter((s) => known.has(s));
+	const rest = projects(db).filter((p) => !order.includes(p.slug)).map((p) => p.slug);
+	const set = db.query("UPDATE projects SET sort = ? WHERE slug = ?");
+	db.transaction(() => [...order, ...rest].forEach((s, i) => set.run(i + 1, s)))();
+}
+
+/** What points at a project. Only one with nothing can be removed; the rest are archived. */
+export function projectUsage(db: Db, slug: string) {
+	const n = (sql: string) => (db.query(sql).get(slug) as { n: number }).n;
+	return {
+		items: n("SELECT COUNT(*) AS n FROM items WHERE project = ?"),
+		reports: n("SELECT COUNT(*) AS n FROM reports WHERE project = ?"),
+		links: n("SELECT COUNT(*) AS n FROM links WHERE project = ?"),
+		secrets: n("SELECT COUNT(*) AS n FROM secrets WHERE project = ?"),
+		trackers: n("SELECT COUNT(*) AS n FROM trackers WHERE project = ?"),
+		sources: n("SELECT COUNT(*) AS n FROM sources WHERE project = ?"),
+	};
+}
+
+export function removeProject(db: Db, slug: string) {
+	if (!getProject(db, slug)) throw new Error(`no project "${slug}"`);
+	const used = Object.entries(projectUsage(db, slug)).filter(([, n]) => n);
+	if (used.length)
+		throw new Error(`${slug} still has ${used.map(([k, n]) => `${n} ${n === 1 ? k.replace(/s$/, "") : k}`).join(", ")}; archive it instead`);
+	db.query("DELETE FROM report_state WHERE project = ?").run(slug);
+	db.query("DELETE FROM projects WHERE slug = ?").run(slug);
 }
 
 export function setProjectIcon(db: Db, slug: string, icon: string) {
@@ -335,6 +419,9 @@ export function addItem(db: Db, item: ItemPatch & { title: string; project: stri
 		)
 		.get(row as Record<string, string | number>) as { id: number };
 	if (item.status === "done") db.query("UPDATE items SET done_at = datetime('now') WHERE id = ?").run(id);
+	// New work for an archived project brings it back, so the item doesn't land somewhere nobody looks.
+	if (item.status !== "done" && item.status !== "dropped")
+		db.query("UPDATE projects SET archived_at = NULL WHERE slug = ? AND archived_at IS NOT NULL").run(item.project);
 	addNote(db, id, "created", author);
 	return id;
 }

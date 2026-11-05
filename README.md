@@ -10,7 +10,7 @@ wb help        # everything else
 
 - **Items** are named `wb-xxxx` (e.g. `wb-k3f9`); click one on the board to copy it into a prompt ("Do wb-k3f9"). Commands also take the bare `k3f9` and the old numbers.
 - **Data:** `workbench.db` next to this file (gitignored). The board copies it to `backups/` once a day and keeps the newest 14; `wb backup` makes one now and `wb backups` lists them. To restore, stop the board and copy a backup over `workbench.db` (vault secrets stay encrypted in backups).
-- **Projects:** `wb project <slug> <path> "Name"`. Items added from inside that path belong to it; the board shows each project's git state (uncommitted files, unpushed commits, unmerged branches, worktrees).
+- **Projects:** add one in Settings (at the bottom of the projects strip on the left), or `wb project <slug> <path> "Name"`. Items added from inside that path belong to it; the board shows each project's git state (uncommitted files, unpushed commits, unmerged branches, worktrees). A finished project can be archived (see Settings below).
 - **Layout:** projects down the left edge (each shows its logo, found in the repo: `icon`, `logo`, `app-icon` or `favicon` files, else its initials; the badge counts what waits on you). Next to it, a foldable sidebar with the project's reports and links. Search sits at the top (Ctrl K or `/`): items with their notes, reports' text and links of the selected project, or of everything under "All". The board itself is one section per kind (decisions, setup, checks, …), then "Done lately" and the repository state; every section folds and stays as you left it. "Everything / Needs you / With agents" narrows it to who has to act.
 - **Logos:** if the one found is wrong, `wb project <slug> --icon path/in/repo.svg` (`--icon ""` to look again).
 - **Bookmarks:** the "Links" part of the sidebar, folded by group. "+" adds one (for one project or every project, optionally in a group), the pencil then a click edits or deletes. The server fetches each site's favicon once and keeps it in the database; paste an icon address in the dialog when the site's own is wrong, or use "Refresh icons" in edit mode. From a terminal: `wb links`, `wb link "Label" <url> [--project P | --all] [--group G] [--icon <url>]`, `wb relink <id> …`, `wb unlink <id>`.
@@ -21,9 +21,9 @@ wb help        # everything else
 - **Reports** are HTML pages that open inside the board (see below).
 - **Secrets** live in the vault (the lock button at the top; see below).
 - **Agents** use the same `wb` command, or the workbench's MCP server (see below); the rules they follow are in each project's AGENTS.md ("Docs and tracking"). `wb start` records the desktop-app session, and the item's dialog links back to it.
-- **From the phone:** `wb serve --lan` listens on the LAN. There is no login, so only do that on a network you trust.
+- **From the phone:** `wb serve --lan` listens on the LAN. There is no login, so only do that on a network you trust. Settings → Health shows the address and a QR code to scan.
 - **Other web pages can't change the board:** every write to its API must be JSON, and a browser won't send that from another site (or from a report page) without asking the board first, which it never allows. Anything else gets 415.
-- **Start on login** (optional): a user service.
+- **Start on login** (optional): a user service. Settings → Health says whether it's set up, and gives the commands below with this computer's paths filled in.
 
 ```ini
 # ~/.config/systemd/user/workbench.service
@@ -39,6 +39,31 @@ WantedBy=default.target
 ```
 
 Then `systemctl --user enable --now workbench`.
+
+## Settings
+
+Settings, at the bottom of the projects strip on the left (or `#settings`), opens the workbench's settings. They open only on this computer, at localhost: under `wb serve --lan` the phone gets a note instead.
+
+**Projects:** every project in the order they sit down the left edge.
+
+- **Add project:** a folder, a name and a slug. Git repositories next to the projects you have (and in `~/Projects`) that aren't on the board yet are offered with one click. The folder must exist.
+- **Edit** (the pencil): name, folder (when a repo moves) and logo (a file in the repo; empty = look for one). The slug can't change, because items, reports and links point at it.
+- **Order:** the arrows on each row move it up or down the left edge.
+- **Archive:** a finished project leaves the left edge and "All" (its items, reports, links and repository), and its trackers stop reading by themselves. Search still finds its items and reports, and its secrets stay in the vault. It waits under "Archived", where Unarchive brings it back; so does any new open item for it (from `wb add`, an agent or the board), so new work never goes somewhere nobody looks. From a terminal: `wb project <slug> --archive` / `--unarchive`.
+- **Remove:** only for a project nothing points at (no items, reports, links, secrets, trackers or data sources), e.g. one added by mistake. Its folder isn't touched.
+
+Adding, editing, reordering and removing projects are accepted only from the board's own page on this computer, like data sources: a project's folder decides where git and tracker commands run.
+
+**Health:** checked when Settings opens and with "Check again". Each line says what the board uses it for, whether it works, and the command that fixes it when it doesn't:
+
+- **git** (repository state, commits on items), **GitHub CLI** (pull requests on items; signed in, and the `user` scope when there's a GitHub Actions tracker), **cloudflared** (sharing a report; the install steps for this system when it's missing), **EAS CLI** (only when there's an EAS builds tracker or `eas` is installed).
+- **Backups** (the newest one's age), **status trackers** that can't read (with a button to open each), **project folders** that are gone or aren't git repositories, and the **data sources key** when there are data sources.
+- **Agents (MCP):** whether Claude Code has the workbench's MCP server (user scope, from `~/.claude.json`), and both `claude mcp add` commands to copy.
+- **Phone:** whether the board listens on the network; when it does, its addresses and a QR code. When it doesn't, how to turn it on (for the user service: add `--lan` to its `ExecStart`).
+- **Start on login:** whether the user service is installed, enabled and running; the unit and the commands to install it when it isn't, and the restart command when it is.
+- **This board:** port, how long it's been running, Bun's version, where the database and backups are.
+
+Tools are looked up on your shell's PATH (like tracker commands), so the board finds what your terminal finds even when it runs as a service. Pull requests on items are read with that PATH too.
 
 ## Reports
 

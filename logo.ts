@@ -32,6 +32,9 @@ async function trackedFiles(cwd: string) {
 // The repo is searched at most every 10 minutes per project.
 const found = new Map<string, { path: string | null; at: number }>();
 
+/** Look again on the next request, e.g. after the project's folder or logo changed. */
+export const forgetLogo = (slug: string) => found.delete(slug);
+
 async function logoPath(p: Project): Promise<string | null> {
 	if (p.icon) return isAbsolute(p.icon) ? p.icon : join(p.path, p.icon);
 	if (!p.path) return null;

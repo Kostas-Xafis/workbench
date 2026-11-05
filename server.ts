@@ -24,8 +24,14 @@ import {
 	vaultInfo,
 	getReport,
 	open,
+	addProject,
+	getProject,
 	projects,
 	projectsWithCounts,
+	projectUsage,
+	removeProject,
+	setProjectOrder,
+	updateProject,
 	removeLink,
 	reportHtml,
 	reportState,
@@ -41,8 +47,9 @@ import {
 import type { Server } from "bun";
 import { publishDays } from "./day";
 import { codeLinks, repoState, type CodeLinks } from "./git";
+import { candidateFolders, checkFolder, folderState, health } from "./health";
 import { findIcon } from "./icons";
-import { projectLogo } from "./logo";
+import { forgetLogo, projectLogo } from "./logo";
 import { REPORT_CSP, withBridge } from "./reports";
 import { checkShare, extendShare, listShares, resumeShares, startShare, stopShare } from "./share";
 import { listSources, sourceFetch } from "./sources";
@@ -61,6 +68,7 @@ import {
 } from "./trackers";
 
 export const PORT = Number(process.env.WB_PORT ?? 4321);
+const SETTINGS_LOCAL = "settings open only on this computer (localhost)";
 const COMMAND_LOCAL = "a tracker's command can be set only from the board on this computer (localhost), or with wb tracker";
 
 /**
@@ -186,7 +194,67 @@ export function serve({ lan = false } = {}) {
 			"/": () => new Response(page, { headers: { "content-type": "text/html; charset=utf-8" } }),
 			"/favicon.svg": () =>
 				new Response(icon, { headers: { "content-type": "image/svg+xml", "cache-control": "max-age=3600" } }),
-			"/api/projects": () => json(projectsWithCounts(db)),
+			"/api/projects": {
+				GET: () => json(projectsWithCounts(db)),
+				// Settings → Projects. A folder decides where git and tracker commands run, so projects change only
+				// from the board's own page on this computer, like data sources (`wb project` runs as you anyway).
+				POST: jsonOnly(async (req, srv) => {
+					if (!boardOnly(req, srv)) return json({ error: SETTINGS_LOCAL }, 403);
+					try {
+						const body = await req.json();
+						return json(addProject(db, { ...body, path: checkFolder(body?.path) }), 201);
+					} catch (e) {
+						return fail(e);
+					}
+				}),
+			},
+			"/api/projects/:slug": {
+				PATCH: jsonOnly(async (req, srv) => {
+					if (!boardOnly(req, srv)) return json({ error: SETTINGS_LOCAL }, 403);
+					try {
+						const body = await req.json();
+						const before = getProject(db, req.params.slug);
+						if (before && body?.path !== undefined && body.path !== before.path) body.path = checkFolder(body.path);
+						const p = updateProject(db, req.params.slug, body ?? {});
+						codeCache.delete(p.slug);
+						forgetLogo(p.slug);
+						return json(p);
+					} catch (e) {
+						return fail(e);
+					}
+				}),
+				DELETE: jsonOnly((req, srv) => {
+					if (!boardOnly(req, srv)) return json({ error: SETTINGS_LOCAL }, 403);
+					try {
+						removeProject(db, req.params.slug);
+						return json({ ok: true });
+					} catch (e) {
+						return fail(e);
+					}
+				}),
+			},
+			"/api/project-order": {
+				PUT: jsonOnly(async (req, srv) => {
+					if (!boardOnly(req, srv)) return json({ error: SETTINGS_LOCAL }, 403);
+					try {
+						const { slugs } = await req.json();
+						if (!Array.isArray(slugs)) throw new Error("slugs: a list of project slugs");
+						setProjectOrder(db, slugs.map(String));
+						return json(projectsWithCounts(db));
+					} catch (e) {
+						return fail(e);
+					}
+				}),
+			},
+			// Settings: projects with their folder and what points at them, folders that could be projects, and health.
+			"/api/settings/projects": (req, srv) =>
+				loopback(req, srv)
+					? json(projectsWithCounts(db).map((p) => ({ ...p, folder: folderState(p.path), usage: projectUsage(db, p.slug) })))
+					: json({ error: SETTINGS_LOCAL }, 403),
+			"/api/settings/folders": (req, srv) =>
+				loopback(req, srv) ? json(candidateFolders(db)) : json({ error: SETTINGS_LOCAL }, 403),
+			"/api/settings/health": async (req, srv) =>
+				loopback(req, srv) ? json(await health(db, { port: PORT, lan })) : json({ error: SETTINGS_LOCAL }, 403),
 			"/api/projects/:slug/logo": async (req) => {
 				const p = projects(db).find((p) => p.slug === req.params.slug);
 				const logo = p && (await projectLogo(p));
@@ -479,7 +547,7 @@ export function serve({ lan = false } = {}) {
 			},
 			"/api/git": async (req) => {
 				const only = new URL(req.url).searchParams.get("project");
-				return json(await Promise.all(projects(db).filter((p) => !only || p.slug === only).map(repoState)));
+				return json(await Promise.all(projects(db).filter((p) => (only ? p.slug === only : !p.archived_at)).map(repoState)));
 			},
 			"/api/items": {
 				GET: (req) => {
@@ -529,7 +597,7 @@ export function serve({ lan = false } = {}) {
 			},
 			"/api/code": async (req) => {
 				const only = new URL(req.url).searchParams.get("project");
-				const all = await Promise.all(projects(db).filter((p) => !only || p.slug === only).map(projectCode));
+				const all = await Promise.all(projects(db).filter((p) => (only ? p.slug === only : !p.archived_at)).map(projectCode));
 				return json(Object.assign({}, ...all));
 			},
 			"/api/items/:id/notes": {

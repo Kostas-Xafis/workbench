@@ -26,6 +26,7 @@ import {
 	open,
 	projectForPath,
 	projects,
+	updateProject,
 	updateItem,
 	upsertProject,
 	type Item,
@@ -111,6 +112,7 @@ Items are named wb-xxxx (e.g. wb-k3f9); commands take that, the bare k3f9, or an
   wb projects                      list projects
   wb project <slug> <path> "Name"  add or update a project
   wb project <slug> --icon <file>  use this logo (path in the repo); --icon "" = find one again
+  wb project <slug> --archive      take a finished project off the board (--unarchive brings it back)
   wb serve [--lan]                 run the board on http://localhost:${PORT}
   wb open                          start the board if needed and open it
 
@@ -151,6 +153,8 @@ const { values: o, positionals: args } = parseArgs({
 		name: { type: "string" },
 		out: { type: "string" },
 		yes: { type: "boolean" },
+		archive: { type: "boolean" },
+		unarchive: { type: "boolean" },
 		write: { type: "boolean" },
 		header: { type: "string", multiple: true },
 		command: { type: "string" },
@@ -720,10 +724,16 @@ try {
 			break;
 		}
 		case "projects":
-			for (const p of projects(db)) console.log(`${p.slug.padEnd(14)} ${p.name.padEnd(18)} ${p.path}`);
+			for (const p of projects(db))
+				console.log(`${p.slug.padEnd(14)} ${p.name.padEnd(18)} ${p.path}${p.archived_at ? "  (archived)" : ""}`);
 			break;
 		case "project": {
 			const [, slug, path, name] = args;
+			if (slug && !path && (o.archive || o.unarchive)) {
+				updateProject(db, slug, { archived: !!o.archive });
+				console.log(o.archive ? `project ${slug} archived: off the board, its trackers paused` : `project ${slug} is back on the board`);
+				break;
+			}
 			if (slug && !path && o.icon !== undefined) {
 				setProjectIcon(db, slug, o.icon);
 				console.log(o.icon ? `project ${slug} logo → ${o.icon}` : `project ${slug} logo: found in the repo`);

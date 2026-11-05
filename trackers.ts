@@ -656,14 +656,14 @@ export function trackerHistory(db: Db, id: number, limit = 200): HistoryPoint[] 
 
 /* ---------- Running ---------- */
 
-type Captured = { out: string; err: string; code: number | "timeout" };
+export type Captured = { out: string; err: string; code: number | "timeout" };
 
 /**
  * Runs argv in its own process group (setsid) and collects its output. It ends at `timeout`: then the group is
  * killed and the pipes are let go, even when something it started left the group and still holds them open.
  * After the command exits, whatever it left running gets a second to finish writing, then the group is killed.
  */
-async function capture(
+export async function capture(
 	argv: string[],
 	{ cwd, env, timeout, signal }: { cwd: string; env: Record<string, string | undefined>; timeout: number; signal?: AbortSignal },
 ): Promise<Captured> {
@@ -847,6 +847,7 @@ export function dueTrackers(db: Db): number[] {
 		db
 			.query(
 				`SELECT id FROM trackers WHERE kind != 'manual' AND every > 0
+				AND project NOT IN (SELECT slug FROM projects WHERE archived_at IS NOT NULL)
 				AND (checked_at IS NULL OR checked_at <= datetime('now', '-' || every || ' seconds'))
 				AND (running_since IS NULL OR running_since < datetime('now', '-${LEASE_MINUTES} minutes'))
 				ORDER BY checked_at IS NOT NULL, checked_at`,
