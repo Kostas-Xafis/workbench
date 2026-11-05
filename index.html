@@ -2623,7 +2623,6 @@ function notifyEmit(events, away, now = new Date()) {
 	for (const e of events) ping(e.title, e.body, e.tag, () => openTarget(e.open));
 }
 setInterval(() => { renderNotify(); notifyCheck().catch(() => {}); }, 20000);
-setInterval(() => notifyCheck().catch(() => {}), 20000);
 
 /* ---------- Copy refs ---------- */
 
