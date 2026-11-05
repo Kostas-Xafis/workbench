@@ -11,7 +11,7 @@
 :root {
 	--bg: #f6f5f2; --card: #ffffff; --ink: #1d1c1a; --muted: #6f6b64; --line: #e3e0da; --hover: #efede8;
 	--accent: #3d5afe; --accent-ink: #ffffff;
-	--decision: #7c3aed; --setup: #2563eb; --check: #15803d; --review: #b45309; --bug: #dc2626; --task: #57534e; --idea: #8a8580;
+	--decision: #7c3aed; --setup: #2563eb; --check: #15803d; --review: #b45309; --bug: #dc2626; --task: #0b6b3a; --idea: #ca8a04;
 	--warn-bg: #fff4dc; --warn-ink: #8a5300; --p1: #c2410c;
 	--rail-bg: #edebe6; --shadow: 0 14px 36px rgb(0 0 0 / .16);
 	color-scheme: light;
@@ -21,7 +21,7 @@
 	:root:not([data-theme="light"]) {
 		--bg: #151514; --card: #1f1f1d; --ink: #ecebe8; --muted: #a29e96; --line: #33322f; --hover: #2a2a27;
 		--accent: #8c9eff; --accent-ink: #10132b;
-		--decision: #b794f6; --setup: #7aa7ff; --check: #5fcf86; --review: #f0b45a; --bug: #ff7b7b; --task: #b5b0a8; --idea: #8e8a84;
+		--decision: #b794f6; --setup: #7aa7ff; --check: #5fcf86; --review: #f0b45a; --bug: #ff7b7b; --task: #2fa765; --idea: #facc15;
 		--warn-bg: #3a2c10; --warn-ink: #ffcf7a; --p1: #ff9a5c;
 		--rail-bg: #10100f; --shadow: 0 14px 36px rgb(0 0 0 / .5);
 		color-scheme: dark;
@@ -30,7 +30,7 @@
 :root[data-theme="dark"] {
 	--bg: #151514; --card: #1f1f1d; --ink: #ecebe8; --muted: #a29e96; --line: #33322f; --hover: #2a2a27;
 	--accent: #8c9eff; --accent-ink: #10132b;
-	--decision: #b794f6; --setup: #7aa7ff; --check: #5fcf86; --review: #f0b45a; --bug: #ff7b7b; --task: #b5b0a8; --idea: #8e8a84;
+	--decision: #b794f6; --setup: #7aa7ff; --check: #5fcf86; --review: #f0b45a; --bug: #ff7b7b; --task: #2fa765; --idea: #facc15;
 	--warn-bg: #3a2c10; --warn-ink: #ffcf7a; --p1: #ff9a5c;
 	--rail-bg: #10100f; --shadow: 0 14px 36px rgb(0 0 0 / .5);
 	color-scheme: dark;
@@ -43,6 +43,11 @@ body.rail-collapsed { --rail-w: 52px; }
 body.solo { grid-template-columns: minmax(0, 1fr); }
 body.solo #prail, body.solo #rail, body.solo header.top { display: none; }
 button, input, select, textarea { font: inherit; color: inherit; }
+/* Every field looks like the board, whatever the browser or system theme would draw. Number fields have no spin
+   arrows (type the value, or use ↑ ↓), and focus is the board's accent, not the system's (orange on Ubuntu). */
+input[type=number] { -moz-appearance: textfield; appearance: textfield; font-variant-numeric: tabular-nums; }
+input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; appearance: none; margin: 0; }
+:where(input, select, textarea):focus-visible { outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent); outline-offset: -1px; }
 button { cursor: pointer; }
 a { color: var(--accent); }
 code { font: 12.5px ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--hover); padding: 1px 4px; border-radius: 4px; }
