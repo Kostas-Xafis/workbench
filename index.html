@@ -220,6 +220,31 @@ mark { background: color-mix(in srgb, var(--review) 30%, transparent); color: in
 .field-col { display: flex; flex-direction: column; gap: 2px; font-size: 11.5px; color: var(--muted); }
 .field-col input { border: 1px solid var(--line); background: var(--bg); border-radius: 7px; padding: 5px 8px; font-size: 13px; }
 #secret-form textarea { min-height: 76px; }
+#r-share[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
+#r-share[aria-pressed="true"]::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+#share-body { display: flex; flex-direction: column; gap: 10px; font-size: 13px; }
+#share-body p { margin: 0; }
+#share-body ul { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 3px; }
+.share-cmd { display: flex; gap: 6px; align-items: flex-start; }
+.share-cmd code { flex: 1; min-width: 0; overflow-wrap: anywhere; background: var(--bg); border: 1px solid var(--line); border-radius: 7px; padding: 6px 8px; font-size: 12px; }
+.share-guide { display: flex; flex-direction: column; gap: 4px; }
+.share-guide b { font-size: 12.5px; }
+.share-guide small { color: var(--muted); font-size: 11.5px; }
+.share-others[open] > summary { margin-bottom: 8px; }
+.share-others > summary { cursor: pointer; color: var(--muted); font-size: 12.5px; list-style: none; }
+.share-others > summary::-webkit-details-marker { display: none; }
+.share-others > summary::before { content: "▸ "; }
+.share-others[open] > summary::before { content: "▾ "; }
+.share-others > .share-guide + .share-guide, .share-others > .share-guide + p { margin-top: 10px; }
+#share-dlg { max-height: calc(100vh - 48px); overflow: auto; }
+.share-live { display: flex; gap: 14px; align-items: center; }
+.share-live > div { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.share-qr { flex: none; width: 168px; background: #fff; border-radius: 8px; line-height: 0; }
+.share-qr svg { width: 100%; height: auto; }
+.share-hours { display: flex; align-items: center; gap: 8px; }
+.share-hours select { border: 1px solid var(--line); background: var(--bg); border-radius: 7px; padding: 4px 6px; font-size: 13px; color: var(--ink); }
+@media (max-width: 520px) { .share-live { flex-direction: column; align-items: stretch; } .share-qr { width: 200px; align-self: center; } }
+.share-url { flex: 1; min-width: 0; border: 1px solid var(--line); background: var(--bg); border-radius: 7px; padding: 5px 8px; font: 13px ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--ink); }
 dialog.narrow { width: min(460px, calc(100vw - 32px)); }
 .vault-back { display: block; margin: 14px auto 0; }
 #env-list { display: flex; flex-direction: column; gap: 2px; max-height: 46vh; overflow: auto; border: 1px solid var(--line); border-radius: 8px; padding: 6px; }
@@ -328,6 +353,7 @@ dialog::backdrop { background: rgb(0 0 0 / .35); }
 			<button type="button" class="pill" id="r-newer" hidden></button>
 			<span class="spacer"></span>
 			<button type="button" class="icon-btn" id="r-reload" title="Reload the page" aria-label="Reload"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M13 8a5 5 0 1 1-1.6-3.7M13 2.5v2.8h-2.8"/></svg></button>
+			<button type="button" class="ghost sm" id="r-share" title="Share a read-only copy through a temporary public link" aria-pressed="false" hidden>Share</button>
 			<a class="ghost sm" id="r-newtab" target="_blank">New tab ↗</a>
 		</div>
 		<!-- Sandboxed by the page's own CSP header (see reports.ts), which also covers opening it directly. -->
@@ -420,6 +446,12 @@ dialog::backdrop { background: rgb(0 0 0 / .35); }
 	<div class="row"><span class="spacer"></span><button type="button" class="ghost" id="env-cancel">Close</button>
 		<button type="button" class="ghost" id="env-download" hidden>Download</button>
 		<button type="submit" class="primary" id="env-go">Show .env</button></div>
+</form></dialog>
+<dialog id="share-dlg" class="narrow"><form class="dlg" id="share-form" autocomplete="off">
+	<b id="share-title">Share this report</b>
+	<div id="share-body"></div>
+	<div class="error" id="share-err"></div>
+	<div class="row"><span class="spacer"></span><button type="button" class="ghost" id="share-close">Close</button><span id="share-actions" class="row"></span></div>
 </form></dialog>
 <dialog id="pw-dlg" class="narrow"><form class="dlg" id="pw-form" autocomplete="off">
 	<b id="pw-title">Vault password</b>
@@ -1109,6 +1141,7 @@ async function showReport(id, v) {
 	frame.dataset.version = shown;
 	document.title = `${r.title} · Workbench`;
 	renderRail();
+	refreshShares();
 }
 
 // A newer version is offered, not loaded, so whatever is open in the page isn't thrown away.
@@ -1177,6 +1210,128 @@ window.addEventListener("message", async (e) => {
 	try { e.source.postMessage({ wb: 1, id: m.id, result: await bridge[m.method](...(m.args || [])) }, "*"); }
 	catch (err) { e.source.postMessage({ wb: 1, id: m.id, error: err.message }, "*"); }
 });
+/* ---------- Sharing a report (Cloudflare quick tunnel, see share.ts) ---------- */
+
+// Only from this computer: the server refuses anyone else, so the button isn't offered there.
+const CAN_SHARE = ["localhost", "127.0.0.1", "[::1]"].includes(location.hostname);
+const shareDlg = $("#share-dlg");
+let shares = [];
+let shareCheck = null;
+let sharePoll = 0;
+let shareHours = 1;
+const clock = (t) => new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+const shareOf = (id) => shares.find((s) => s.report === id);
+
+async function refreshShares() {
+	$("#r-share").hidden = !CAN_SHARE || !state.report;
+	if (!CAN_SHARE) return;
+	try { shares = await api("/api/shares"); } catch { shares = []; }
+	const live = state.report && shareOf(state.report.id);
+	const on = !!live && live.status !== "failed";
+	$("#r-share").setAttribute("aria-pressed", on);
+	$("#r-share").textContent = on ? (live.status === "ready" ? "Sharing" : "Starting…") : "Share";
+	if (shareDlg.open) renderShare();
+}
+
+async function openShare() {
+	if (!state.report) return;
+	$("#share-err").textContent = "";
+	shareCheck = null;
+	renderShare();
+	shareDlg.showModal();
+	await refreshShares();
+	if (!shareOf(state.report.id) || shareOf(state.report.id).status === "failed") {
+		try { shareCheck = await api("/api/share/check"); } catch (err) { $("#share-err").textContent = err.message; }
+	}
+	renderShare();
+}
+
+function renderShare() {
+	const r = state.report;
+	if (!r) return;
+	const s = shareOf(r.id);
+	const viewing = Number(frame.dataset.version) || r.version;
+	const project = esc(projectName(r.project));
+	const body = $("#share-body"), actions = $("#share-actions");
+	clearTimeout(sharePoll);
+	if (s && s.status !== "failed") {
+		const atCap = s.expiresAt >= s.maxAt;
+		if (s.status === "starting") {
+			body.innerHTML = `<p>Opening a Cloudflare quick tunnel for v${s.version}… This takes a few seconds.</p>`;
+		} else {
+			// The QR code is SVG the server drew from the link (qr.ts), black on white so phones read it in dark mode too.
+			body.innerHTML = `<div class="share-live">${s.qr ? `<div class="share-qr" title="Scan to open the link">${s.qr}</div>` : ""}<div>
+				<div class="share-cmd"><input class="share-url" readonly value="${esc(s.url)}" aria-label="Link"></div>
+				<div class="row"><button type="button" class="ghost sm" data-act="copy-url">Copy link</button><a class="ghost sm" href="${esc(s.url)}" target="_blank" rel="noreferrer">Open ↗</a></div>
+				<p class="hint">${s.reachable ? "The link answers." : "Checking that the link answers (a new address can take a few seconds to work)…"}</p>
+				<p>Sharing v${s.version}${s.version !== viewing ? ` (you're looking at v${viewing})` : ""} until <b>${clock(s.expiresAt)}</b>.</p>
+				<p class="hint">${atCap ? "That's the 8-hour limit." : `It can be extended up to ${clock(s.maxAt)}.`}</p>
+			</div></div>`;
+		}
+		actions.innerHTML = `${s.status === "ready" && !atCap ? `<button type="button" class="ghost" data-act="extend">Extend by 1 hour</button>` : ""}<button type="button" class="primary" data-act="stop">Stop sharing</button>`;
+		if (s.status === "starting" || !s.reachable) sharePoll = setTimeout(refreshShares, 1500);
+		return;
+	}
+	if (!shareCheck) {
+		body.innerHTML = `<p>Checking that cloudflared is ready…</p>`;
+		actions.innerHTML = "";
+		return;
+	}
+	if (!shareCheck.ok) {
+		body.innerHTML = `<div class="caution">${shareCheck.problems.map(esc).join("<br>")}</div>
+			${shareCheck.install.length ? `<p>Install it with one of these, in a terminal, then check again:</p>
+			${shareCheck.install.filter((g) => g.here).map(installGuide).join("")}
+			<details class="share-others"><summary>Other systems</summary>${shareCheck.install.filter((g) => !g.here).map(installGuide).join("")}
+				<p class="hint">Or download it from <a href="https://github.com/cloudflare/cloudflared/releases/latest" target="_blank" rel="noreferrer">cloudflared's releases</a>.</p></details>
+			<p class="hint">cloudflared is Cloudflare's tunnel client, free, and quick tunnels need no Cloudflare account. If it's installed somewhere unusual, put it on the board's PATH.</p>` : ""}`;
+		actions.innerHTML = `<button type="button" class="primary" data-act="recheck">Check again</button>`;
+		return;
+	}
+	body.innerHTML = `${s?.status === "failed" ? `<div class="caution">The last attempt failed: ${esc(s.error)}</div>` : ""}
+		<p>Opens a temporary public link (a random <code>trycloudflare.com</code> address) to a read-only copy of this report. Anyone with the link can see:</p>
+		<ul><li>v${viewing} of this report</li><li>the ${project} items, notes and git state the report reads</li></ul>
+		<p>Nothing they do changes the board. The board itself, other projects, bookmarks and the vault stay off the link.
+		It ends at the time you pick (you can extend it while it runs, up to 8 hours) or when you stop it. Restarting the board or closing the laptop doesn't end it early, and it never outlives its time: a link that runs out while the computer sleeps closes as soon as it wakes.</p>
+		<label class="share-hours">Keep it up for <select id="share-hours">${[1, 2, 4, 8].map((h) => `<option value="${h}"${h === shareHours ? " selected" : ""}>${h} hour${h > 1 ? "s" : ""}</option>`).join("")}</select></label>
+		<p class="hint">cloudflared ${esc(shareCheck.version)}</p>`;
+	$("#share-hours").onchange = (e) => { shareHours = Number(e.target.value); };
+	actions.innerHTML = `<button type="button" class="primary" data-act="start">Start sharing</button>`;
+}
+
+function installGuide(g) {
+	return `<div class="share-guide"><b>${esc(g.system)}</b>${g.options.map((o) => `<small>${esc(o.how)}</small>
+		<div class="share-cmd"><code>${esc(o.cmd)}</code><button type="button" class="ghost sm" data-copy="${esc(o.cmd)}">Copy</button></div>`).join("")}</div>`;
+}
+
+shareDlg.addEventListener("click", async (e) => {
+	const act = e.target.closest("[data-act]")?.dataset.act;
+	if (!act || !state.report) return;
+	const id = state.report.id;
+	$("#share-err").textContent = "";
+	try {
+		if (act === "recheck") { shareCheck = null; renderShare(); shareCheck = await api("/api/share/check"); }
+		else if (act === "start") {
+			e.target.disabled = true;
+			await api(`/api/reports/${id}/share`, { method: "POST", body: JSON.stringify({ version: Number(frame.dataset.version) || null, hours: shareHours }) });
+		} else if (act === "extend") {
+			const s = await api(`/api/reports/${id}/share/extend`, { method: "POST" });
+			toast(`Sharing until ${clock(s.expiresAt)}`);
+		} else if (act === "stop") {
+			await api(`/api/reports/${id}/share`, { method: "DELETE" });
+			shareCheck = await api("/api/share/check");
+		} else if (act === "copy-url") {
+			const s = shareOf(id);
+			if (s?.url && (await copyText(s.url))) toast("Link copied");
+			return;
+		}
+	} catch (err) { $("#share-err").textContent = err.message; }
+	await refreshShares();
+	renderShare();
+});
+$("#r-share").onclick = openShare;
+$("#share-close").onclick = () => shareDlg.close();
+shareDlg.addEventListener("close", () => clearTimeout(sharePoll));
+
 function refreshReport() {
 	if (state.report) frame.contentWindow?.postMessage({ wb: 1, event: "refresh" }, "*");
 }

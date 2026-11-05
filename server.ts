@@ -43,6 +43,7 @@ import { codeLinks, repoState, type CodeLinks } from "./git";
 import { findIcon } from "./icons";
 import { projectLogo } from "./logo";
 import { REPORT_CSP, withBridge } from "./reports";
+import { checkShare, extendShare, listShares, resumeShares, startShare, stopShare } from "./share";
 
 export const PORT = Number(process.env.WB_PORT ?? 4321);
 
@@ -165,6 +166,38 @@ export function serve({ lan = false } = {}) {
 						"cache-control": "no-store",
 					},
 				});
+			},
+			// Sharing a report through a Cloudflare quick tunnel (see share.ts). Started only from this computer.
+			"/api/share/check": async (req, srv) =>
+				loopback(req, srv) ? json(await checkShare()) : json({ error: "sharing starts only on this computer" }, 403),
+			"/api/shares": (req, srv) =>
+				loopback(req, srv) ? json(listShares()) : json({ error: "sharing starts only on this computer" }, 403),
+			"/api/reports/:id/share": {
+				POST: async (req, srv) => {
+					if (!loopback(req, srv)) return json({ error: "sharing starts only on this computer" }, 403);
+					try {
+						const { version, hours } = await req.json().catch(() => ({}));
+						const id = Number(req.params.id);
+						return json(await startShare(db, id, Number(version) || undefined, Number(hours) || 1), 201);
+					} catch (e) {
+						return fail(e);
+					}
+				},
+				DELETE: (req, srv) => {
+					if (!loopback(req, srv)) return json({ error: "sharing starts only on this computer" }, 403);
+					stopShare(Number(req.params.id));
+					return json(listShares());
+				},
+			},
+			"/api/reports/:id/share/extend": {
+				POST: (req, srv) => {
+					if (!loopback(req, srv)) return json({ error: "sharing starts only on this computer" }, 403);
+					try {
+						return json(extendShare(Number(req.params.id)));
+					} catch (e) {
+						return fail(e);
+					}
+				},
 			},
 			"/api/links": {
 				GET: () => json(listLinks(db)),
@@ -355,6 +388,8 @@ export function serve({ lan = false } = {}) {
 		},
 		fetch: () => new Response("not found", { status: 404 }),
 	});
+	// Shares outlive the board (see share.ts): take back the ones still running, close the expired ones.
+	resumeShares(db);
 	return server;
 }
 
