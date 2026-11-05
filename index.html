@@ -2565,7 +2565,7 @@ const bindDefault = (b) => (b.setting ? state.settingDefs[b.setting]?.default : 
 function optRow({ label, hint = "", bind, control, off = false, id = "" }) {
 	const scope = bind?.setting ? "board" : "browser";
 	const changed = bind && JSON.stringify(bindValue(bind)) !== JSON.stringify(bindDefault(bind)) && bindDefault(bind) !== undefined;
-	const reset = changed ? `<button type="button" class="reset-btn" data-reset="${bind.setting ? `setting:${esc(bind.setting)}` : `pref:${esc(bind.pref)}`}" title="Back to the default (${esc(JSON.stringify(bindDefault(bind)))})">Default</button>` : "";
+	const reset = changed ? `<button type="button" class="reset-btn" data-reset="${bind.setting ? `setting:${esc(bind.setting)}` : `pref:${esc(bind.pref)}`}" title="Back to the default">Default</button>` : "";
 	return `<div class="so${off ? " off" : ""}"${id ? ` id="${esc(id)}"` : ""}><div class="so-main"><div class="so-label">${label}${bind ? `<span class="scope ${scope}" title="${SCOPE[scope][1]}">${SCOPE[scope][0]}</span>` : ""}${reset}</div>${hint ? `<small>${hint}</small>` : ""}</div><div class="so-ctl">${control}</div></div>`;
 }
 const optGroup = (title, rows, note = "") => `<section class="so-group"><h3>${title}</h3>${note ? `<p class="hint">${note}</p>` : ""}<div class="so-list">${rows.join("")}</div></section>`;

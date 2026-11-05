@@ -1117,7 +1117,8 @@ function complete(params: Json, c: Conn) {
 
 /* ---------- Dispatch ---------- */
 
-const CACHE_STATIC = { ttlMs: HOUR, scope: "public" as const };
+// The lists carry your name and who gets new items (Settings → You and your day), so clients don't keep them long.
+const CACHE_STATIC = { ttlMs: 5 * 60_000, scope: "public" as const };
 
 /**
  * Answers one JSON-RPC message: a response object, or null for a notification. Protocol failures come back as
