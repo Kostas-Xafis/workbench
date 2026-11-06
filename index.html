@@ -614,6 +614,17 @@ dialog::backdrop { background: rgb(0 0 0 / .35); }
 .body-view { font-size: 14px; overflow-wrap: anywhere; }
 .body-view p { margin: 0 0 8px; } .body-view ul, .body-view ol { margin: 0 0 8px; padding-left: 20px; }
 .body-view:empty::before { content: "No details."; color: var(--muted); }
+.body-view h4 { margin: 12px 0 4px; font-size: 14px; } .body-view h4:first-child { margin-top: 0; }
+.body-view blockquote { margin: 0 0 8px; padding: 2px 0 2px 10px; border-left: 3px solid var(--line); }
+.body-view pre { margin: 0 0 8px; padding: 8px 10px; background: var(--bg); border-radius: 7px; overflow-x: auto; font-size: 12.5px; }
+.images { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; align-items: start; }
+.images figure { margin: 0; min-width: 0; }
+.images a { display: block; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--bg); line-height: 0; }
+.images img { display: block; width: 100%; height: auto; max-height: 60vh; object-fit: contain; }
+.images figcaption { display: flex; gap: 8px; align-items: flex-start; margin-top: 5px; font-size: 13px; overflow-wrap: anywhere; }
+.images figcaption span { flex: 1; min-width: 0; }
+.images .rm { flex: none; border: 0; background: none; padding: 0 2px; color: var(--muted); font-size: 12px; cursor: pointer; }
+.images .rm:hover { color: var(--ink); text-decoration: underline; }
 .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .history { border-top: 1px solid var(--line); padding-top: 10px; font-size: 12.5px; }
 .history h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); margin: 0 0 6px; }
@@ -705,6 +716,7 @@ dialog::backdrop { background: rgb(0 0 0 / .35); }
 		<div class="body-view" id="body-view"></div>
 		<textarea name="body" hidden placeholder="Steps, context, links (markdown)"></textarea>
 	</div>
+	<div class="images" id="images" hidden></div>
 	<div class="answer-box" id="answer-box" hidden>
 		<h3>Answer</h3>
 		<div class="opts" id="answer-opts"></div>
@@ -873,6 +885,7 @@ const SECTIONS = [["decision", "Decisions", true], ["setup", "Setup", true], ["c
 // Same line glyphs as the day reports (day.ts).
 const RING = '<circle cx="8" cy="8" r="6.25"/>';
 const GLYPH = {
+	image: '<rect x="2" y="3" width="12" height="10" rx="1.5"/><circle cx="5.75" cy="6.5" r="1"/><path d="m2.5 11.5 3-2.75 2.25 2 2.75-3 3 3.25"/>',
 	check: RING + '<path d="M5.2 8.2l1.9 1.9 3.7-4"/>',
 	play: RING + '<path d="M6.8 5.6v4.8L10.6 8z"/>',
 	pause: RING + '<path d="M6.5 5.8v4.4M9.5 5.8v4.4"/>',
@@ -928,18 +941,30 @@ function md(src) {
 		.replace(/`([^`]+)`/g, "<code>$1</code>")
 		.replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>")
 		.replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>');
-	const out = []; let list = null;
+	const out = []; let list = null; let fence = null;
 	for (const line of String(src || "").split("\n")) {
+		if (/^\s*```/.test(line)) {
+			if (fence) { out.push(`<pre>${esc(fence.join("\n"))}</pre>`); fence = null; }
+			else { if (list) { out.push(`</${list}>`); list = null; } fence = []; }
+			continue;
+		}
+		if (fence) { fence.push(line); continue; }
 		const m = line.match(/^\s*(?:([-*])|(\d+)\.)\s+(.*)$/);
 		if (m) {
 			const tag = m[1] ? "ul" : "ol";
-			if (list !== tag) { if (list) out.push(`</${list}>`); out.push(`<${tag}>`); list = tag; }
+			// A list interrupted by a quote or a blank line carries on from its own number, instead of starting over at 1.
+			if (list !== tag) { if (list) out.push(`</${list}>`); out.push(m[2] && m[2] !== "1" ? `<ol start="${m[2]}">` : `<${tag}>`); list = tag; }
 			out.push(`<li>${inline(m[3])}</li>`);
 			continue;
 		}
 		if (list) { out.push(`</${list}>`); list = null; }
-		if (line.trim()) out.push(`<p>${inline(line)}</p>`);
+		const heading = line.match(/^#{1,6}\s+(.*)$/);
+		const quote = line.match(/^>\s?(.*)$/);
+		if (heading) out.push(`<h4>${inline(heading[1])}</h4>`);
+		else if (quote) out.push(`<blockquote>${inline(quote[1])}</blockquote>`);
+		else if (line.trim()) out.push(`<p>${inline(line)}</p>`);
 	}
+	if (fence) out.push(`<pre>${esc(fence.join("\n"))}</pre>`);
 	if (list) out.push(`</${list}>`);
 	return out.join("");
 }
@@ -1589,6 +1614,7 @@ function card(i, { tick = i.owner === "kostas" && OPEN.includes(i.status), kind 
 		!state.project ? `<span>${esc(projectName(i.project))}</span>` : "",
 		i.branch ? `<span>⎇ ${esc(i.branch)}</span>` : "",
 		i.answer ? `<span class="answered" title="Your answer">→ ${esc(i.answer)}</span>` : "",
+		i.image_count ? `<span class="img-tag" title="${i.image_count} image${i.image_count > 1 ? "s" : ""}">${glyph("image")}${i.image_count}</span>` : "",
 		codeMeta(i),
 		closed && i.done_at ? `<span>${ago(i.done_at)}</span>` : "",
 	].join("");
@@ -1764,6 +1790,10 @@ function openItem(item) {
 	form.options.value = options.join("\n");
 	showOptionsField();
 	showBodyEditor(isNew);
+	const images = item.images || [];
+	$("#images").hidden = !images.length;
+	$("#images").innerHTML = images.map((m) => `<figure><a href="/api/images/${m.id}" target="_blank" rel="noreferrer" title="Open full size"><img src="/api/images/${m.id}" alt="${esc(m.caption)}"${m.width && m.height ? ` width="${m.width}" height="${m.height}"` : ""}></a>
+		<figcaption><span>${esc(m.caption)}</span><button type="button" class="rm" data-image="${m.id}">Remove</button></figcaption></figure>`).join("");
 	$("#answer-box").hidden = isNew || item.kind !== "decision";
 	$("#answer-opts").innerHTML = options.map((o) => `<button type="button" class="opt ${o === item.answer ? "picked" : ""}" data-choice="${esc(o)}">${esc(o)}</button>`).join("");
 	$("#answer-own").value = item.answer && !options.includes(item.answer) ? item.answer : "";
@@ -1843,6 +1873,12 @@ let pressedOutside = false;
 dlg.addEventListener("pointerdown", (e) => { pressedOutside = outsideDlg(e); });
 dlg.addEventListener("click", (e) => { if (pressedOutside && outsideDlg(e)) dlg.close(); pressedOutside = false; });
 $("#edit-body").onclick = () => showBodyEditor(form.body.hidden);
+$("#images").addEventListener("click", async (e) => {
+	const b = e.target.closest("[data-image]");
+	if (!b || !confirm("Remove this image?")) return;
+	try { openItem(await api(`/api/images/${b.dataset.image}`, { method: "DELETE" })); }
+	catch (err) { $("#err").textContent = err.message; }
+});
 $("#act-done").onclick = () => save({ status: "done" });
 $("#act-drop").onclick = () => save({ status: "dropped" });
 async function addNote() {
@@ -3290,7 +3326,7 @@ function setDataRender() {
 	const exp = optGroup("Export", [
 		optRow({
 			label: "Export everything",
-			hint: "One JSON file with your projects, items and their notes, links, reports with every version, saved report inputs, trackers and their history, and board settings. Left out: the vault and its secrets, data sources' header values (only their names), and link icons. <code>wb export &gt; file.json</code> does the same.",
+			hint: "One JSON file with your projects, items with their notes and images, links, reports with every version, saved report inputs, trackers and their history, and board settings. Left out: the vault and its secrets, data sources' header values (only their names), and link icons. <code>wb export &gt; file.json</code> does the same.",
 			control: `<a class="ghost sm dt-dl" href="/api/data/export" download>${svg16(DT_IC.down, 1.4)}Download</a>`,
 		}),
 	]);
@@ -3304,7 +3340,7 @@ function setDataRender() {
 			hint: `<span class="dt-path">${esc(s.path)}</span>${s.wal ? ` · ${fmtBytes(s.wal)} of it in the write-ahead log, which goes back into the file as the board runs` : ""}`,
 			control: "",
 		}),
-		`<div class="so-wide"><dl class="dt-stats">${stat("Items", s.items)}${stat("Notes", s.notes)}${stat("Report versions", s.reportVersions)}${stat("Tracker readings", s.trackerReadings)}${stat("Link icons", s.linkIcons)}</dl></div>`,
+		`<div class="so-wide"><dl class="dt-stats">${stat("Items", s.items)}${stat("Notes", s.notes)}${stat("Report versions", s.reportVersions)}${stat("Tracker readings", s.trackerReadings)}${stat("Images", s.images)}${stat("Link icons", s.linkIcons)}</dl></div>`,
 		optRow({
 			label: "Compact",
 			hint: `Gives back the room that removed things left behind, so the file is no bigger than what it holds.${compacted}`,

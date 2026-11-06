@@ -68,6 +68,7 @@ import {
 } from "./share";
 import { KEY_PATH, listSources, sourceFetch } from "./sources";
 import { existsSync } from "node:fs";
+import { imageData, removeImage } from "./images";
 import { mcpHttp } from "./mcp";
 import { PRESETS } from "./presets";
 import {
@@ -778,6 +779,28 @@ export function serve({ lan = false } = {}) {
 						const { answer } = await req.json();
 						answerItem(db, itemId(req.params.id), String(answer ?? ""), "kostas");
 						return json(getItem(db, itemId(req.params.id)));
+					} catch (e) {
+						return fail(e);
+					}
+				}),
+			},
+			// Pictures agents attached. The type was checked when it came in; the headers make sure a browser never treats one as a page.
+			"/api/images/:id": {
+				GET: (req) => {
+					const row = imageData(db, Number(req.params.id));
+					if (!row) return new Response("not found", { status: 404 });
+					return new Response(new Uint8Array(row.data), {
+						headers: {
+							"content-type": row.type,
+							"cache-control": "private, max-age=86400",
+							"x-content-type-options": "nosniff",
+							"content-security-policy": "default-src 'none'; style-src 'unsafe-inline'",
+						},
+					});
+				},
+				DELETE: jsonOnly((req) => {
+					try {
+						return json(getItem(db, removeImage(db, Number(req.params.id), "kostas")));
 					} catch (e) {
 						return fail(e);
 					}

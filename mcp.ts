@@ -13,7 +13,8 @@
  * Results are shaped for the revision they answer: `resultType`, caching hints and serverInfo in `_meta` for
  * 2026-07-28; titles, structured content and resource links only where that revision has them.
  *
- * The vault, data source secrets and deletions of items or reports are not here: those stay with Kostas.
+ * The vault, data source secrets and deletions of items or reports are not here: those stay with Kostas. An image
+ * can be removed: it's an agent's way to replace a picture it got wrong, and the item's history keeps the line.
  */
 import { readFileSync } from "node:fs";
 import {
@@ -45,9 +46,11 @@ import {
 	type Note,
 	type Status,
 } from "./db";
+import { BRIEF_RULES, checkBrief } from "./brief";
 import { repoState } from "./git";
+import { addImage, imageBytes, imageData, imageInfo, imageSummary, prepareImage, removeImage, type Prepared } from "./images";
 import { PRESETS } from "./presets";
-import { ownerDefaultsText, yourName } from "./settings";
+import { ownerDefaultsText, ownerFor, yourName } from "./settings";
 import { listSources } from "./sources";
 import {
 	addTracker,
@@ -97,6 +100,7 @@ const INSTRUCTIONS = `The workbench is {{name}}'s local board of open work acros
 - Kinds: task and bug (code), check ({{name}} tries it on a device: write the steps), review (wording or design for {{name}}), decision (a question only {{name}} can answer: options plus your recommendation), setup (accounts, consoles, stores), idea. {{owner-defaults}} The owner value for {{name}} is kostas.
 - When you start work {{name}} gave you: find its item (list_items with q) and start_item it, or add_item one and start it. One item per piece of work {{name}} would recognise.
 - finish_item with a note on what changed and where (commit, branch). wait_item when blocked. Everything you leave for {{name}} is its own item.
+- {{name}} doesn't open files. An item has to make sense by itself, in plain words: put the content in the body instead of pointing at docs/x.md or PLAN §3, say where things are in the app rather than in the code, and attach a screenshot (attach_image) for anything on screen. add_item has the details, and warns you about what it can see is missing: fix those with update_item.
 - Status trackers are live readings shown on the board, such as build quotas or CI minutes left. Check list_trackers before something that uses up a quota, refresh_trackers after.
 - Tools default to the project of the folder this server runs in; pass project (a slug from list_projects) to work elsewhere.`;
 
@@ -313,11 +317,11 @@ function itemLine(c: Conn, i: Item, withProject: boolean) {
 		withProject ? `[${i.project}]` : "",
 		i.area ? `(${i.area})` : "",
 	].filter(Boolean);
-	const extra = [i.branch && `branch ${i.branch}`, i.answer && `answered: ${i.answer}`].filter(Boolean).join(" · ");
+	const extra = [i.branch && `branch ${i.branch}`, i.answer && `answered: ${i.answer}`, i.image_count && `${i.image_count} image${i.image_count > 1 ? "s" : ""}`].filter(Boolean).join(" · ");
 	return `${bits.join(" ")}: ${i.title}${extra ? ` · ${extra}` : ""}`;
 }
 
-function itemText(c: Conn, i: Item & { notes: Note[] }) {
+function itemText(c: Conn, i: NonNullable<ReturnType<typeof getItem>>) {
 	const lines = [
 		`wb-${i.ref}: ${i.title}`,
 		`${i.project} · ${i.kind} · for ${WHO(c, i.owner)} · ${i.status} · P${i.priority}${i.area ? ` · ${i.area}` : ""}`,
@@ -325,6 +329,7 @@ function itemText(c: Conn, i: Item & { notes: Note[] }) {
 	if (i.branch || i.session) lines.push([i.branch && `branch ${i.branch}`, i.session && `session ${i.session}`].filter(Boolean).join(" · "));
 	if (i.sources) lines.push(`from: ${i.sources}`);
 	if (i.body) lines.push("", i.body);
+	if (i.images.length) lines.push("", "images (see one with get_image):", ...i.images.map((m) => `  ${imageSummary(m)}`));
 	const options = itemOptions(i);
 	if (options.length) lines.push("", "options:", ...options.map((o, n) => `  ${n + 1}. ${o}`));
 	if (i.answer) lines.push("", `answer: ${i.answer}`);
@@ -345,6 +350,7 @@ const itemJson = (i: Item) => ({
 	session: i.session || undefined,
 	options: itemOptions(i).length ? itemOptions(i) : undefined,
 	answer: i.answer || undefined,
+	images: i.image_count || undefined,
 	created_at: i.created_at,
 	updated_at: i.updated_at,
 	done_at: i.done_at ?? undefined,
@@ -409,7 +415,13 @@ async function overview(c: Conn, slug: string) {
 
 /* ---------- Tools ---------- */
 
-type Out = { text: string; data?: Json; links?: { uri: string; name: string; title?: string; mimeType?: string }[] };
+type Out = {
+	text: string;
+	data?: Json;
+	links?: { uri: string; name: string; title?: string; mimeType?: string }[];
+	/** A picture for the model, after the text. */
+	image?: { data: string; mimeType: string };
+};
 type Tool = {
 	name: string;
 	title: string;
@@ -423,10 +435,30 @@ const RO = { readOnlyHint: true, openWorldHint: false };
 const WRITE = { readOnlyHint: false, destructiveHint: false, openWorldHint: false };
 const itemLink = (i: Pick<Item, "ref" | "title">) => ({ uri: `wb://item/wb-${i.ref}`, name: `wb-${i.ref}`, title: i.title, mimeType: "text/markdown" });
 
-function changed(c: Conn, id: number, verb: string): Out {
+function changed(c: Conn, id: number, verb: string, warnings: string[] = []): Out {
 	const i = getItem(c.db, id)!;
-	return { text: `${verb} ${itemLine(c, i, true)}`, data: { item: itemJson(i) }, links: [itemLink(i)] };
+	const said = warnings.length
+		? `\n\nIt's saved, but ${yourName(c.db)} may not follow it yet. Fix these with update_item:\n${warnings.map((w) => `- ${w}`).join("\n")}`
+		: "";
+	return { text: `${verb} ${itemLine(c, i, true)}${said}`, data: { item: itemJson(i), ...(warnings.length ? { warnings } : {}) }, links: [itemLink(i)] };
 }
+
+const ATTACH = "attach_image, with a caption saying what to look at";
+
+/** Reads the images an add_item names, before anything is filed: a wrong path shouldn't leave half an item behind. */
+const readImages = (list: { path?: string; data?: string; caption: string }[] = []) =>
+	Promise.all(
+		list.map(async (m) => {
+			const { bytes, label } = imageBytes(m);
+			return { image: await prepareImage(bytes, label), caption: m.caption };
+		}),
+	) as Promise<{ image: Prepared; caption: string }[]>;
+
+const IMAGE_SOURCE = {
+	path: str("A file on this computer (absolute is safest): PNG, JPEG, WebP or GIF. Your scratchpad is a good place for it; the board keeps its own copy."),
+	data: str("The picture as base64, when you have no file (a cloud session). A path is much cheaper."),
+};
+const CAPTION = str("What this shows and what to look at, for someone who hasn't seen the problem.", { minLength: 1, maxLength: 500 });
 
 function readingFrom(a: { reading: string | Meter[]; note?: string; resets_at?: string }): Reading {
 	const r: Reading = typeof a.reading === "string" ? parseReading(a.reading) : { meters: a.reading };
@@ -543,23 +575,29 @@ const TOOLS: Tool[] = [
 		hints: RO,
 		run(a, c) {
 			const i = getItem(c.db, itemId(c, a.ref))!;
-			return { text: itemText(c, i), data: { item: { ...itemJson(i), body: i.body, sources: i.sources || undefined, notes: i.notes.map(({ at, author, text }) => ({ at, author, text })) } }, links: [itemLink(i)] };
+			return { text: itemText(c, i), data: { item: { ...itemJson(i), body: i.body, sources: i.sources || undefined, images: i.images.length ? i.images.map(({ id, caption, width, height }) => ({ id, caption, width, height })) : undefined, notes: i.notes.map(({ at, author, text }) => ({ at, author, text })) } }, links: [itemLink(i)] };
 		},
 	},
 	{
 		name: "add_item",
 		title: "Add an item",
 		description:
-			"Files a new item. kind: task or bug (code work), check ({{name}} tries it on a device: write the steps in body), review (wording or design for {{name}}), decision (a question only {{name}} can answer: give options and your recommendation in body), setup (accounts, consoles, stores), idea. Who acts, unless owner says: {{owner-defaults}} Returns the new wb-xxxx.",
+			`Files a new item. kind: task or bug (code work), check ({{name}} tries it on a device), review (wording or design), decision (a question only {{name}} can answer), setup (accounts, consoles, stores), idea. Returns the new wb-xxxx, and warnings about what {{name}} won't be able to follow.\n\n${BRIEF_RULES}`,
 		input: obj(
 			{
-				title: str("Short and specific, as {{name}} would recognise it.", { minLength: 1, maxLength: 300 }),
+				title: str("Short, specific and in plain words: what to do or decide, as {{name}} would say it.", { minLength: 1, maxLength: 300 }),
 				kind: { type: "string", enum: KINDS, description: "Default task (decision when options are given)." },
 				owner: { type: "string", enum: OWNERS, description: "Who has to act: kostas ({{name}}) or agent. Default by kind: {{owner-defaults}}" },
 				project: PROJECT,
 				priority: { type: "integer", enum: [1, 2, 3], description: "1 launch blocker, 2 before launch (default), 3 later." },
 				area: str("A short area tag, e.g. billing."),
-				body: str("Details in markdown: steps, context, links."),
+				body: str("The whole brief, in markdown (lists, **bold**, # headings, > quotes, `code`, ``` blocks, [links](https://…)). Required for anything {{name}} has to act on: they don't open files."),
+				images: {
+					type: "array",
+					maxItems: 12,
+					description: "Screenshots to show on the item, in this order.",
+					items: obj({ ...IMAGE_SOURCE, caption: CAPTION }, ["caption"]),
+				},
 				options: { type: "array", items: { type: "string", minLength: 1 }, maxItems: 12, description: "The choices of a decision; {{name}} answers with one click." },
 				branch: str("The git branch the work is on."),
 				source: str('Where it came from, e.g. "src/app.ts:42".'),
@@ -568,8 +606,14 @@ const TOOLS: Tool[] = [
 			["title"],
 		),
 		hints: WRITE,
-		run(a, c) {
+		async run(a, c) {
 			const kind = a.kind ?? (a.options?.length ? "decision" : "task");
+			const brief = checkBrief(
+				{ title: a.title, body: a.body ?? "", kind, owner: a.owner ?? ownerFor(c.db, kind) },
+				{ name: yourName(c.db), images: a.images?.length ?? 0, attach: ATTACH },
+			);
+			if (brief.refuse) throw new ToolError(brief.refuse);
+			const images = await readImages(a.images);
 			const id = addItem(
 				c.db,
 				{
@@ -588,7 +632,8 @@ const TOOLS: Tool[] = [
 				},
 				"agent",
 			);
-			return changed(c, id, "Added");
+			for (const m of images) addImage(c.db, id, m.image, m.caption, "agent");
+			return changed(c, id, "Added", brief.warnings);
 		},
 	},
 	{
@@ -621,7 +666,50 @@ const TOOLS: Tool[] = [
 			if (a.project !== undefined) patch.project = projectOf(c, a.project)!;
 			updateItem(c.db, id, patch, "agent");
 			if (a.note?.trim()) addNote(c.db, id, a.note.trim(), "agent");
-			return changed(c, id, "Updated");
+			const i = getItem(c.db, id)!;
+			// A status change or a note says nothing new about the brief; rewording it does.
+			const reworded = a.title !== undefined || a.body !== undefined || a.kind !== undefined || a.owner !== undefined;
+			const brief = reworded ? checkBrief(i, { name: yourName(c.db), images: i.images.length, attach: ATTACH }) : { warnings: [] };
+			return changed(c, id, "Updated", brief.refuse ? [brief.refuse.replace(" Nothing was filed.", "")] : brief.warnings);
+		},
+	},
+	{
+		name: "attach_image",
+		title: "Attach a screenshot",
+		description:
+			"Puts a picture on an item, where {{name}} sees it right under the details. For anything on screen: a bug, a layout, a wording in place, before and after. It needs a file: `adb exec-out screencap -p > shot.png` on Android, Playwright's page.screenshot({ path }) or `chromium --headless --screenshot=shot.png <url>` on the web. A browser tool's screenshot works if its result names a file.",
+		input: obj({ ref: REF, ...IMAGE_SOURCE, caption: CAPTION }, ["ref", "caption"]),
+		hints: WRITE,
+		async run(a, c) {
+			const id = itemId(c, a.ref);
+			const { bytes, label } = imageBytes(a);
+			const image = await prepareImage(bytes, label);
+			const n = addImage(c.db, id, image, a.caption, "agent");
+			return changed(c, id, `Image ${n} (${Math.round(image.data.length / 1024)} KB) added to`);
+		},
+	},
+	{
+		name: "get_image",
+		title: "See an item's screenshot",
+		description: "Shows you a picture attached to an item. get_item lists them, with their ids and captions.",
+		input: obj({ id: { type: "integer", description: "The image's id, from get_item." } }, ["id"]),
+		hints: RO,
+		run(a, c) {
+			const info = imageInfo(c.db, a.id);
+			const row = imageData(c.db, a.id);
+			if (!info || !row) throw new ToolError(`no image ${a.id}`);
+			return { text: imageSummary(info), image: { data: Buffer.from(row.data).toString("base64"), mimeType: row.type } };
+		},
+	},
+	{
+		name: "remove_image",
+		title: "Remove a screenshot",
+		description: "Takes a picture off an item, such as one that's wrong or out of date. Attach the right one with attach_image. The item's history keeps a line saying so.",
+		input: obj({ id: { type: "integer", description: "The image's id, from get_item." } }, ["id"]),
+		hints: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
+		run(a, c) {
+			if (!imageInfo(c.db, a.id)) throw new ToolError(`no image ${a.id}`);
+			return changed(c, removeImage(c.db, a.id, "agent"), `Image ${a.id} removed from`);
 		},
 	},
 	{
@@ -956,6 +1044,7 @@ async function callTool(params: Json, c: Conn, era: Era): Promise<Json> {
 	try {
 		const out = await tool.run(args, c);
 		const content: Json[] = [{ type: "text", text: out.text }];
+		if (out.image) content.push({ type: "image", ...out.image });
 		if (since(era, "2025-06-18")) for (const l of out.links ?? []) content.push({ type: "resource_link", ...l });
 		return { content, ...(out.data && since(era, "2025-06-18") ? { structuredContent: out.data } : {}), isError: false };
 	} catch (e) {
@@ -1042,7 +1131,8 @@ const TRACKING = `Track it on the workbench with this server's tools:
 - start_item now (it links this session to the item); add the branch once you have one.
 - add_note for what {{name}} should know along the way; wait_item when you're blocked, saying on what.
 - finish_item with a note on what changed and where (commit, branch, PR).
-- Anything you leave for {{name}} (a device check, a wording, a question) is its own item: add_item with kind check, review or decision.`;
+- Anything you leave for {{name}} (a device check, a wording, a question) is its own item: add_item with kind check, review or decision. It has to make sense without opening anything else: the content in the body, a screenshot for anything on screen (attach_image).
+- This item's images, if it lists any, are part of the brief: read them with get_image.`;
 
 const PROMPTS: Prompt[] = [
 	{

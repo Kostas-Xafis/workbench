@@ -38,7 +38,9 @@ import { currentDay, dayData, dayPage, publishDay } from "./day";
 import { PORT } from "./server";
 import { addSource, KEY_PATH, listSources, removeSource } from "./sources";
 import { PRESETS } from "./presets";
-import { dayStartHour, ownerDefaultsText, yourName } from "./settings";
+import { checkBrief, WRITING_GUIDE } from "./brief";
+import { addImage, imageBytes, imageData, imageInfo, imageSummary, prepareImage, removeImage } from "./images";
+import { dayStartHour, ownerDefaultsText, ownerFor, yourName } from "./settings";
 import {
 	addTracker,
 	cleanReading,
@@ -74,6 +76,10 @@ Items are named wb-xxxx (e.g. wb-k3f9); commands take that, the bare k3f9, or an
   wb note <ref> "text"              add to the history
   wb answer <ref> "choice"          answer a decision (or the option's number); it goes back to the agent
   wb edit <ref> [options]           change fields
+  wb guide                          how to write an item ${name} can follow: read it before filing one
+  wb image add <ref> <file> "caption"   put a screenshot on an item, or --image <file> --caption "…" on wb add
+  wb image save <id> <file>         write one to a file, to look at it (wb show lists them)
+  wb image rm <id>                  take one off
   wb import <file.json> [--project P]   bulk add (array of items)
   wb links                         bookmarks shown on the board
   wb link "Label" <url> [--project P | --all] [--group G] [--icon <icon url>]
@@ -177,6 +183,8 @@ const { values: o, positionals: args } = parseArgs({
 		global: { type: "boolean" },
 		json: { type: "boolean" },
 		option: { type: "string", multiple: true },
+		image: { type: "string", multiple: true },
+		caption: { type: "string", multiple: true },
 		help: { type: "boolean", short: "h" },
 	},
 });
@@ -203,6 +211,14 @@ function idArg() {
 	const id = resolveItem(db, args[1]);
 	if (id === undefined) die(`no item "${args[1] ?? ""}"`);
 	return id;
+}
+
+/** Only agents get told how to write: an item {{name}} files for themselves can be as short as they like. */
+const briefOf = (d: Parameters<typeof checkBrief>[0], images: number): ReturnType<typeof checkBrief> =>
+	author === "agent" ? checkBrief(d, { name: yourName(db), images, attach: 'wb image add <ref> <file> "what to look at"' }) : { warnings: [] };
+
+function warnAbout(warnings: string[]) {
+	if (warnings.length) console.error(`wb: saved, but ${yourName(db)} may not follow it yet. Fix with wb edit (wb guide has how):\n${warnings.map((w) => `  - ${w}`).join("\n")}`);
 }
 
 function patchFromOptions(): ItemPatch {
@@ -262,6 +278,7 @@ function show(id: number) {
 		console.log([i.branch && `branch ${i.branch}`, i.session && `session ${i.session}`].filter(Boolean).join(" · "));
 	if (i.sources) console.log(`sources: ${i.sources}`);
 	if (i.body) console.log(`\n${i.body}`);
+	if (i.images.length) console.log(`\nimages (wb image save <id> <file> to see one):\n${i.images.map((m) => `  ${imageSummary(m)}`).join("\n")}`);
 	const options = itemOptions(i);
 	if (options.length) console.log(`\noptions:\n${options.map((x, n) => `  ${n + 1}. ${x}`).join("\n")}`);
 	if (i.answer) console.log(`\nanswer: ${i.answer}`);
@@ -431,6 +448,15 @@ try {
 			if (!title) die('usage: wb add "title" [options]');
 			const patch = patchFromOptions();
 			const kind = patch.kind ?? (patch.options ? "decision" : "task");
+			if ((o.image?.length ?? 0) !== (o.caption?.length ?? 0)) die('each --image needs its --caption: what it shows and what to look at');
+			const brief = briefOf({ title, body: patch.body ?? "", kind, owner: patch.owner ?? ownerFor(db, kind) }, o.image?.length ?? 0);
+			if (brief.refuse) die(brief.refuse);
+			const images = await Promise.all(
+				(o.image ?? []).map(async (path, n) => {
+					const { bytes, label } = imageBytes({ path });
+					return { image: await prepareImage(bytes, label), caption: o.caption![n] };
+				}),
+			);
 			const id = addItem(
 				db,
 				{
@@ -441,7 +467,34 @@ try {
 				},
 				author,
 			);
+			for (const m of images) addImage(db, id, m.image, m.caption, author);
 			console.log(`wb-${getItem(db, id)!.ref}`);
+			warnAbout(brief.warnings);
+			break;
+		}
+		case "guide":
+			console.log(WRITING_GUIDE.replaceAll("{{name}}", yourName(db)));
+			break;
+		case "image": {
+			const sub = args[1];
+			if (sub === "add") {
+				const id = resolveItem(db, args[2]);
+				if (id === undefined) die(`no item "${args[2] ?? ""}"`);
+				const caption = args.slice(4).join(" ") || o.caption?.[0] || "";
+				if (!args[3] || !caption.trim()) die('usage: wb image add <ref> <file> "what it shows and what to look at"');
+				const { bytes, label } = imageBytes({ path: args[3] });
+				const image = await prepareImage(bytes, label);
+				const n = addImage(db, id, image, caption, author);
+				console.log(`image ${n} on wb-${getItem(db, id)!.ref} (${Math.round(image.data.length / 1024)} KB)`);
+			} else if (sub === "save") {
+				const row = imageData(db, Number(args[2]));
+				if (!row || !args[3]) die(row ? "usage: wb image save <id> <file>" : `no image ${args[2] ?? ""}`);
+				await Bun.write(args[3], row.data);
+				console.log(`${args[3]} (${row.type})`);
+			} else if (sub === "rm") {
+				if (!imageInfo(db, Number(args[2]))) die(`no image ${args[2] ?? ""}`);
+				console.log(`removed from wb-${getItem(db, removeImage(db, Number(args[2]), author))!.ref}`);
+			} else die('usage: wb image add <ref> <file> "caption" | wb image save <id> <file> | wb image rm <id>');
 			break;
 		}
 		case "start": {
@@ -499,8 +552,14 @@ try {
 		}
 		case "edit": {
 			const id = idArg();
-			updateItem(db, id, patchFromOptions(), author);
+			const patch = patchFromOptions();
+			updateItem(db, id, patch, author);
 			show(id);
+			if (patch.title !== undefined || patch.body !== undefined) {
+				const i = getItem(db, id)!;
+				const brief = briefOf(i, i.images.length);
+				warnAbout(brief.refuse ? [brief.refuse.replace(" Nothing was filed.", "")] : brief.warnings);
+			}
 			break;
 		}
 		case "import": {

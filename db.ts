@@ -2,6 +2,7 @@ import { Database } from "bun:sqlite";
 import { timingSafeEqual } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, rmSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { createTables as createImageTables, itemImages, type ImageInfo } from "./images";
 import { createSettingsTable, getSetting, getSettings, ownerFor } from "./settings";
 import { createTables as createTrackerTables } from "./trackers";
 
@@ -32,6 +33,8 @@ export type Item = {
 	options: string;
 	/** What Kostas picked or wrote. */
 	answer: string;
+	/** How many images it has (listItems and getItem). */
+	image_count?: number;
 	created_at: string;
 	updated_at: string;
 	done_at: string | null;
@@ -182,6 +185,8 @@ export function open(path = DB_PATH) {
 		updated_at TEXT NOT NULL DEFAULT (datetime('now')),
 		PRIMARY KEY (project, name)
 	)`);
+	// Screenshots on items (see images.ts).
+	createImageTables(db);
 	// Status trackers (see trackers.ts).
 	createTrackerTables(db);
 	// Board-wide settings (see settings.ts).
@@ -398,17 +403,18 @@ export function listItems(db: Db, f: ItemFilter = {}): Item[] {
 		args.q = `%${f.q}%`;
 		args.ref = f.q.trim().toLowerCase().replace(/^wb-/, "");
 	}
-	const sql = `SELECT * FROM items ${where.length ? "WHERE " + where.join(" AND ") : ""}
+	const sql = `SELECT *, (SELECT COUNT(*) FROM images WHERE images.item_id = items.id) AS image_count FROM items ${where.length ? "WHERE " + where.join(" AND ") : ""}
 		ORDER BY CASE status WHEN 'doing' THEN 0 WHEN 'todo' THEN 1 WHEN 'waiting' THEN 2 ELSE 3 END,
 		priority, COALESCE(done_at, '') DESC, id`;
 	return db.query(sql).all(args) as Item[];
 }
 
-export function getItem(db: Db, id: number): (Item & { notes: Note[] }) | undefined {
+export function getItem(db: Db, id: number): (Item & { notes: Note[]; images: ImageInfo[] }) | undefined {
 	const item = db.query("SELECT * FROM items WHERE id = ?").get(id) as Item | null;
 	if (!item) return undefined;
 	const notes = db.query("SELECT * FROM notes WHERE item_id = ? ORDER BY at, id").all(id) as Note[];
-	return { ...item, notes };
+	const images = itemImages(db, id);
+	return { ...item, notes, images, image_count: images.length };
 }
 
 export function addItem(db: Db, item: ItemPatch & { title: string; project: string }, author = ""): number {
@@ -913,6 +919,7 @@ export function dbStats(db: Db) {
 		notes: one("SELECT COUNT(*) AS n, COALESCE(SUM(length(text)), 0) AS bytes FROM notes"),
 		reportVersions: one("SELECT COUNT(*) AS n, COALESCE(SUM(length(html) + length(text)), 0) AS bytes FROM report_versions"),
 		trackerReadings: one("SELECT COUNT(*) AS n, COALESCE(SUM(length(reading)), 0) AS bytes FROM tracker_history"),
+		images: one("SELECT COUNT(*) AS n, COALESCE(SUM(size), 0) AS bytes FROM images"),
 		linkIcons: one("SELECT COUNT(icon) AS n, COALESCE(SUM(length(icon)), 0) AS bytes FROM links"),
 	};
 }
@@ -1012,6 +1019,10 @@ export function exportAll(db: Db) {
 		return m;
 	};
 	const notes = byParent(all("SELECT item_id, at, author, text FROM notes ORDER BY at, id"), "item_id");
+	const images = byParent(
+		all("SELECT item_id, caption, type, author, at, data FROM images ORDER BY id").map((m) => ({ ...m, data: Buffer.from(m.data as Uint8Array).toString("base64") })),
+		"item_id",
+	);
 	const versions = byParent(all("SELECT report_id, n, at, author, html FROM report_versions ORDER BY report_id, n"), "report_id");
 	const history = byParent(
 		all("SELECT tracker_id, at, reading, author FROM tracker_history ORDER BY tracker_id, id").map((h) => ({ ...h, reading: parse(h.reading) })),
@@ -1021,7 +1032,7 @@ export function exportAll(db: Db) {
 		format: EXPORT_FORMAT,
 		exported_at: new Date().toISOString(),
 		projects: all("SELECT * FROM projects ORDER BY sort, name"),
-		items: all("SELECT * FROM items ORDER BY id").map((i) => ({ ...i, notes: notes.get(i.id) ?? [] })),
+		items: all("SELECT * FROM items ORDER BY id").map((i) => ({ ...i, notes: notes.get(i.id) ?? [], images: images.get(i.id) ?? [] })),
 		links: all("SELECT id, project, grp, label, url, icon_url, sort FROM links ORDER BY project, grp, sort, id"),
 		reports: all("SELECT * FROM reports ORDER BY project, name").map((r) => ({ ...r, versions: versions.get(r.id) ?? [] })),
 		report_state: all("SELECT project, name, json, updated_at FROM report_state ORDER BY project, name").map(({ json, ...r }) => ({
