@@ -9,6 +9,7 @@ export const BRIEF_RULES = `{{name}} reads items on the board, often on a phone,
 - Title: what to do or decide, in plain words. No internal codes (M7, R50, DBS-3).
 - First lines: what this is, why it's here, what you need from {{name}}.
 - Put the content in the item. Never point at a file or section to explain it (docs/x.md, PLAN §3): copy in the wording, the choices, the numbers that matter. A path may follow at the end, for the next agent.
+- Break it up: numbered lists for steps or anything in order, bullets for the rest (indent to nest). No walls of text.
 - Say where things are as a user finds them (Settings → Reader → Toolbar), not by source file.
 - Anything visible on screen gets a screenshot, with a caption saying what to look at; two for before and after.
 - check: where to go, numbered steps, what right looks like, what wrong looks like.
@@ -47,6 +48,8 @@ export type Draft = Pick<Item, "title" | "body" | "kind" | "owner"> & { options?
 
 /** A body shorter than this can't have said what it is, why it's here and what's needed. */
 const TOO_SHORT = 60;
+/** A paragraph longer than this is hard going on a phone. */
+const WALL = 500;
 const DOC = /[\w./*-]+\.md\b|\bPLAN\s*§|§\s*\d/g;
 const CODE = /\b[A-Z]{2,5}-\d+\b/g;
 const SOURCE = /[\w.-]+\/[\w./*-]+\.(?:tsx?|jsx?|mjs|py|go|rs|kt|java|swift|css|scss|html|vue|svelte)\b/g;
@@ -75,6 +78,7 @@ export function checkBrief(d: Draft, { name, images, attach }: { name: string; i
 	if (repeated.length) warnings.push(`It uses internal codes (${repeated.slice(0, 3).join(", ")}…). Say what each one means, or leave it out.`);
 	const sources = unique(body.matchAll(SOURCE));
 	if (forThem && sources.length >= 3) warnings.push(`It names source files (${sources.slice(0, 2).join(", ")}…). Say where each thing is in the app, and quote the wording, instead.`);
+	if (forThem && body.split("\n").some((line) => line.length > WALL)) warnings.push("It has a long paragraph. Break it into a list: numbered for steps or anything in order, bullets for the rest.");
 	if (d.kind === "check" && !/^\s*1[.)]\s/m.test(body)) warnings.push("A check needs numbered steps: where to go, what to do, what right and wrong look like.");
 	if (d.kind === "decision" && !/recommend/i.test(body)) warnings.push("A decision needs your recommendation and why.");
 	if (!images && (forThem || d.kind === "bug") && ["check", "review", "bug"].includes(d.kind)) {

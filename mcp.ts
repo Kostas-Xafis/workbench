@@ -591,7 +591,7 @@ const TOOLS: Tool[] = [
 				project: PROJECT,
 				priority: { type: "integer", enum: [1, 2, 3], description: "1 launch blocker, 2 before launch (default), 3 later." },
 				area: str("A short area tag, e.g. billing."),
-				body: str("The whole brief, in markdown (lists, **bold**, # headings, > quotes, `code`, ``` blocks, [links](https://…)). Required for anything {{name}} has to act on: they don't open files."),
+				body: str("The whole brief, in markdown (- and 1. lists, indent to nest, **bold**, # headings, > quotes, `code`, ``` blocks, [links](https://…)). Required for anything {{name}} has to act on: they don't open files."),
 				images: {
 					type: "array",
 					maxItems: 12,
@@ -768,7 +768,7 @@ const TOOLS: Tool[] = [
 		name: "add_note",
 		title: "Add a note",
 		description: "Adds a line to an item's history: progress, a result, a finding, or {{name}}'s own words when they report or decide something in the conversation.",
-		input: obj({ ref: REF, text: str("The note.", { minLength: 1 }) }, ["ref", "text"]),
+		input: obj({ ref: REF, text: str("The note. With more than one line it shows as markdown, so it can hold a list.", { minLength: 1 }) }, ["ref", "text"]),
 		hints: WRITE,
 		run(a, c) {
 			const id = itemId(c, a.ref);

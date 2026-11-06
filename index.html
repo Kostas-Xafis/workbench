@@ -615,6 +615,8 @@ dialog::backdrop { background: rgb(0 0 0 / .35); }
 .body-view p { margin: 0 0 8px; } .body-view ul, .body-view ol { margin: 0 0 8px; padding-left: 20px; }
 .body-view:empty::before { content: "No details."; color: var(--muted); }
 .body-view h4 { margin: 12px 0 4px; font-size: 14px; } .body-view h4:first-child { margin-top: 0; }
+.body-view li + li, .note-md li + li { margin-top: 3px; }
+.body-view li > ul, .body-view li > ol, .note-md li > ul, .note-md li > ol { margin: 3px 0 0; }
 .body-view blockquote { margin: 0 0 8px; padding: 2px 0 2px 10px; border-left: 3px solid var(--line); }
 .body-view pre { margin: 0 0 8px; padding: 8px 10px; background: var(--bg); border-radius: 7px; overflow-x: auto; font-size: 12.5px; }
 .images { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; align-items: start; }
@@ -629,6 +631,10 @@ dialog::backdrop { background: rgb(0 0 0 / .35); }
 .history { border-top: 1px solid var(--line); padding-top: 10px; font-size: 12.5px; }
 .history h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); margin: 0 0 6px; }
 .history ol { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 5px; }
+.note-md { margin-top: 3px; }
+.note-md p { margin: 0 0 4px; }
+.note-md ul, .note-md ol { display: block; margin: 0 0 4px; padding-left: 20px; }
+.note-md ul { list-style: disc; } .note-md ol { list-style: decimal; }
 .history time { color: var(--muted); margin-right: 6px; white-space: nowrap; }
 .history .who { font-weight: 600; margin-right: 4px; }
 .note-form { display: flex; gap: 8px; margin-top: 8px; }
@@ -941,23 +947,38 @@ function md(src) {
 		.replace(/`([^`]+)`/g, "<code>$1</code>")
 		.replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>")
 		.replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>');
-	const out = []; let list = null; let fence = null;
+	const out = []; const lists = []; let fence = null;
+	const closeList = () => out.push(`</li></${lists.pop().tag}>`);
+	const closeLists = () => { while (lists.length) closeList(); };
+	const openList = (tag, indent, n) => {
+		// A list interrupted by a quote or a paragraph carries on from its own number, instead of starting over at 1.
+		out.push(n && n !== "1" ? `<ol start="${n}">` : `<${tag}>`);
+		lists.push({ tag, indent });
+	};
 	for (const line of String(src || "").split("\n")) {
 		if (/^\s*```/.test(line)) {
 			if (fence) { out.push(`<pre>${esc(fence.join("\n"))}</pre>`); fence = null; }
-			else { if (list) { out.push(`</${list}>`); list = null; } fence = []; }
+			else { closeLists(); fence = []; }
 			continue;
 		}
 		if (fence) { fence.push(line); continue; }
-		const m = line.match(/^\s*(?:([-*])|(\d+)\.)\s+(.*)$/);
+		const m = line.match(/^(\s*)(?:([-*])|(\d+)[.)])\s+(.*)$/);
 		if (m) {
-			const tag = m[1] ? "ul" : "ol";
-			// A list interrupted by a quote or a blank line carries on from its own number, instead of starting over at 1.
-			if (list !== tag) { if (list) out.push(`</${list}>`); out.push(m[2] && m[2] !== "1" ? `<ol start="${m[2]}">` : `<${tag}>`); list = tag; }
-			out.push(`<li>${inline(m[3])}</li>`);
+			const tag = m[2] ? "ul" : "ol";
+			const indent = m[1].replace(/\t/g, "    ").length;
+			while (lists.length > 1 && lists.at(-1).indent > indent) closeList();
+			const top = lists.at(-1);
+			if (!top) openList(tag, indent, m[3]);
+			else if (indent >= top.indent + 2) openList(tag, indent, m[3]); // inside the open item
+			else if (top.tag !== tag) { closeList(); openList(tag, indent, m[3]); }
+			else out.push("</li>");
+			out.push(`<li>${inline(m[4])}`);
 			continue;
 		}
-		if (list) { out.push(`</${list}>`); list = null; }
+		// Between items a blank line changes nothing, and an indented line goes on with the item above.
+		if (lists.length && !line.trim()) continue;
+		if (lists.length && /^\s+\S/.test(line)) { out.push(`<br>${inline(line.trim())}`); continue; }
+		closeLists();
 		const heading = line.match(/^#{1,6}\s+(.*)$/);
 		const quote = line.match(/^>\s?(.*)$/);
 		if (heading) out.push(`<h4>${inline(heading[1])}</h4>`);
@@ -965,7 +986,7 @@ function md(src) {
 		else if (line.trim()) out.push(`<p>${inline(line)}</p>`);
 	}
 	if (fence) out.push(`<pre>${esc(fence.join("\n"))}</pre>`);
-	if (list) out.push(`</${list}>`);
+	closeLists();
 	return out.join("");
 }
 
@@ -1815,7 +1836,7 @@ function openItem(item) {
 	$("#session-link").hidden = !href;
 	if (href) $("#session-link").href = href;
 	$("#history").hidden = isNew;
-	$("#history ol").innerHTML = (item.notes || []).map((n) => `<li><time title="${esc(n.at)} UTC">${ago(n.at)}</time>${n.author ? `<span class="who">${esc(n.author === "kostas" ? setting("name") || "Kostas" : n.author)}</span>` : ""}${esc(n.text)}</li>`).join("");
+	$("#history ol").innerHTML = (item.notes || []).map((n) => `<li><time title="${esc(n.at)} UTC">${ago(n.at)}</time>${n.author ? `<span class="who">${esc(n.author === "kostas" ? setting("name") || "Kostas" : n.author)}</span>` : ""}${n.text.includes("\n") ? `<div class="note-md">${md(n.text)}</div>` : esc(n.text)}</li>`).join("");
 	$("#note").value = "";
 	if (!dlg.open) dlg.showModal();
 	if (isNew) form.title.focus();
