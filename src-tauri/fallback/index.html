@@ -1,18 +1,107 @@
 <!doctype html>
-<!-- Bundled with the app (build.frontendDist). The main window loads the board from its server instead
-     (see src/lib.rs); this page is only a fallback, for the lifecycle agent to show while the server isn't
-     reachable. It runs as a local page with no capability, so it can't invoke any command. -->
+<!-- Bundled with the app (build.frontendDist). The main window opens here and src/server.rs moves it to the
+     board once the board answers, and back here while it can't be reached. The state comes in the URL's
+     fragment as JSON: { state: "starting" | "waiting" | "taken" | "stopped", port, detail?, log?, canStart? }.
+     This page's only permission is the `retry` command (look for the board again, start it if none answers). -->
 <html lang="en">
 <head>
 	<meta charset="utf-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1">
 	<title>Workbench</title>
 	<style>
-		:root { color-scheme: light dark; font-family: system-ui, sans-serif; }
-		body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: Canvas; color: CanvasText; }
+		:root {
+			color-scheme: light dark;
+			--bg: #f6f6f4; --fg: #1d1d1b; --muted: #6b6b66; --card: #ffffff; --line: #e2e2dd;
+			--accent: #2f6f4f; --accent-fg: #ffffff; --bad: #a33a2b;
+			font-family: system-ui, sans-serif; font-size: 15px; line-height: 1.45;
+		}
+		@media (prefers-color-scheme: dark) {
+			:root { --bg: #1b1b1a; --fg: #e9e9e4; --muted: #9d9d96; --card: #252524; --line: #3a3a37;
+				--accent: #5fae86; --accent-fg: #10120f; --bad: #e0806f; }
+		}
+		body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: var(--bg); color: var(--fg); }
+		main { width: min(640px, calc(100vw - 32px)); padding: 28px; box-sizing: border-box; background: var(--card);
+			border: 1px solid var(--line); border-radius: 12px; }
+		h1 { font-size: 1.25rem; margin: 0 0 6px; display: flex; align-items: center; gap: 10px; }
+		p { margin: 6px 0; color: var(--muted); }
+		.spin { width: 14px; height: 14px; border: 2px solid var(--line); border-top-color: var(--accent);
+			border-radius: 50%; animation: spin 0.9s linear infinite; flex: none; }
+		@keyframes spin { to { transform: rotate(1turn); } }
+		.bad h1 { color: var(--bad); }
+		pre { margin: 14px 0 0; padding: 10px 12px; max-height: 45vh; overflow: auto; font-size: 12px; line-height: 1.4;
+			background: var(--bg); border: 1px solid var(--line); border-radius: 8px; white-space: pre-wrap; word-break: break-word; }
+		.actions { margin-top: 16px; display: flex; gap: 8px; align-items: center; }
+		button { font: inherit; padding: 7px 16px; border-radius: 8px; border: 1px solid var(--accent); cursor: pointer;
+			background: var(--accent); color: var(--accent-fg); }
+		button:disabled { opacity: 0.6; cursor: default; }
+		button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+		[hidden] { display: none !important; }
+		code { font-size: 0.92em; }
 	</style>
 </head>
 <body>
-	<p>Starting the board…</p>
+	<main id="box">
+		<h1><span class="spin" id="spin"></span><span id="title">Starting the board…</span></h1>
+		<p id="text"></p>
+		<p id="detail" hidden></p>
+		<pre id="log" hidden></pre>
+		<div class="actions" id="actions" hidden><button id="retry" type="button">Retry</button><span id="note"></span></div>
+	</main>
+	<script>
+		const $ = (id) => document.getElementById(id);
+		function read() {
+			try { return JSON.parse(decodeURIComponent(location.hash.slice(1))) || {}; } catch { return {}; }
+		}
+		function render() {
+			const s = read(), port = s.port || "";
+			const views = {
+				starting: { title: "Starting the board…", text: "", spin: true },
+				waiting: { title: "Waiting for the board…", spin: true,
+					text: `The board on port ${port} stopped answering. It was started outside the app, so the app waits for it to come back` +
+						(s.canStart ? ". It hasn't yet: you can start it here instead." : "."),
+					button: s.canStart ? "Start it here" : null },
+				taken: { title: `Port ${port} is taken by something else`, bad: true, button: "Retry",
+					text: `Something that isn't a Workbench answers on port ${port}, so the app didn't start the board. Stop it, or set WB_APP_URL to another port, then retry.` },
+				stopped: { title: "The board stopped", bad: true, button: "Retry",
+					text: (s.detail || "") + (s.log ? " The end of its log:" : "") },
+			};
+			const v = views[s.state] || views.starting;
+			$("title").textContent = v.title;
+			$("text").textContent = v.text;
+			$("text").hidden = !v.text;
+			$("spin").hidden = !v.spin;
+			$("box").className = v.bad ? "bad" : "";
+			const detail = s.state === "stopped" ? "" : s.detail || ""; // "stopped" has it in its text
+			$("detail").textContent = detail;
+			$("detail").hidden = !detail;
+			$("log").textContent = s.log || "";
+			$("log").hidden = !(s.state === "stopped" && s.log);
+			$("actions").hidden = !v.button;
+			$("retry").textContent = v.button || "Retry";
+			$("retry").disabled = false;
+			$("note").textContent = "";
+			document.title = v.title.replace("…", "") + " · Workbench";
+		}
+		$("retry").addEventListener("click", async () => {
+			$("retry").disabled = true;
+			$("note").textContent = "Trying…";
+			try {
+				await window.__TAURI__.core.invoke("retry");
+				// Nothing changed (same state, so no new fragment): say so and allow another try.
+				const before = location.hash;
+				setTimeout(() => {
+					if (location.hash === before && $("retry").disabled) {
+						$("retry").disabled = false;
+						$("note").textContent = "Still the same.";
+					}
+				}, 2500);
+			} catch (e) {
+				$("note").textContent = "Couldn't ask the app: " + e;
+				$("retry").disabled = false;
+			}
+		});
+		addEventListener("hashchange", render);
+		render();
+	</script>
 </body>
 </html>

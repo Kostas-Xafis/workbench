@@ -16,9 +16,12 @@ tauri-build = { version = "2.7", features = [] }
 tauri = { version = "2.12", features = ["tray-icon", "image-png"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-ureq = "3"
+# HTTP to the board on 127.0.0.1 only (server.rs ping, tray.rs count): no TLS, no JSON feature needed.
+ureq = { version = "3", default-features = false }
 tauri-plugin-autostart = "2"
 tauri-plugin-opener = "2"
+tauri-plugin-single-instance = "2"
+libc = "0.2"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # notify.rs: D-Bus signals through GIO and raising the window with an activation token. The debug-only probe

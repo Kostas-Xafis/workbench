@@ -17,7 +17,10 @@ cd src-tauri && cargo build && cargo clippy    # plain cargo works too; the bina
 bun run app:build                              # tauri build (.deb, AppImage); needs `bun run build:server` first (compiles server.ts into src-tauri/binaries/, one Bun binary with the page embedded)
 ```
 
-Phase 1 doesn't start a server: run one first. Never point a test run at the real board's database; use a copy:
+`cargo build` needs `binaries/workbench-server-x86_64-unknown-linux-gnu` (gitignored; `bun run build:server`):
+tauri-build copies it next to the app's binary (`target/debug/workbench-server`) and fails without it. The app
+attaches to a board that answers on `WB_APP_URL`'s port, else starts that sidecar, so a run that can start one
+sets `WB_APP_DB` (below). Never point a test run at the real board's database; use a copy:
 
 ```bash
 mkdir -p /tmp/wb-phase1 && cp backups/<latest>.db /tmp/wb-phase1/workbench.db
@@ -39,7 +42,7 @@ settings (bell, theme, folded sections) start at their defaults in the app.
 | `src/web.rs` | system agent | External links to the default browser, navigation guard, new windows, downloads, permission requests |
 | `src/probe.rs`, `src/probe.js` | phase-3 review | Debug-only probe that produced the findings below |
 | `build.rs` | shared | App commands that get `allow-*` permissions |
-| `fallback/index.html` | lifecycle agent | Bundled page (`frontendDist`), for "starting"/"can't reach the board" |
+| `fallback/index.html` | lifecycle agent | Bundled page (`frontendDist`) the window opens on: "Starting the board…", "Waiting for the board…", "port N is taken", "The board stopped" (log tail, Retry) |
 
 Each module has `init(builder)` (builder time: plugins, state) and/or `setup(app)` / `attach(window builder)`,
 called once from `lib.rs`. A new command needs a line in `with_commands` (lib.rs), one in build.rs, and, if the
@@ -168,6 +171,43 @@ WB_APP_URL=http://localhost:4399 WB_APP_PROBE=1 WB_APP_PROBE_MANUAL=1 WB_APP_PRO
 5. Quit (tray Quit, not window close): owned → SIGTERM, wait 5 s, SIGKILL. Attached → leave it running.
 6. Single instance: a second launch brings the first one's window to the front (`show_main`).
 
+Settled in phase 2 (server.rs):
+
+- **The window opens on the fallback page** (`tauri://localhost/index.html`) and `server::setup` returns at
+  once; a supervisor thread finds or starts the board, then grants the board's capability (`grant_board`, once)
+  and navigates the window to `WB_APP_URL`. Its state is in the fallback URL's fragment (JSON). So **web.rs's
+  navigation guard has to let the main frame go to the app's own `tauri://localhost/…` page as well as the
+  board's origin** (both are navigations Rust starts with `WebviewWindow::navigate`).
+- **Fallback capability:** `fallback`, `local: true` (the app's own page only, never a remote origin or the report
+  iframe), window `main`, one permission: `allow-retry`. `retry` looks again and starts the bundled server if
+  nothing answers (Retry, "Start it here"); the board's origin is refused it.
+- **Away for a moment:** while the board isn't reachable (a restart, `set_lan`), the board page stays up for 3 s,
+  then the fallback page shows; back on the board when it answers again (no reload if it never left).
+- **Restarts** after 1, 2, 5, 10, 15 s; a 6th unexpected exit within 60 s → "The board stopped" with the last
+  40 lines of server.log. Retry starts over. Not answering within 15 s of starting → killed, same page.
+- **An attached board that stops answering is never replaced on our own:** its launcher (the systemd unit,
+  `Restart=on-failure`, `RestartSec=3`) is about to bring it back, and a server of ours would take its port and
+  leave the unit failing to bind in a loop. Pinged every 2 s; once gone, every 1 s; when it answers again →
+  re-attached. "Waiting for the board…" after 3 s, and "Start it here" (= `retry`) after 15 s. Never automatic: it
+  may be stopped on purpose (e.g. to restore a backup).
+- **At launch, with the unit enabled** (`$XDG_CONFIG_HOME/systemd/user/default.target.wants/workbench.service`)
+  and nothing answering yet (login, both starting): wait up to 10 s for it before starting our own.
+- **If the app is killed** (crash, SIGKILL, logout), an owned server gets SIGTERM from the kernel
+  (`PR_SET_PDEATHSIG`, set in the child between fork and exec; the forking thread is the supervisor, which lives
+  as long as the app). Nothing would supervise an orphan (no crash restart, no Quit, `--lan` unchangeable, and the
+  next launch would see it as "attached"), and starting a fresh one takes well under a second. The server runs
+  in its own process group, so Ctrl-C in the app's terminal reaches only the app.
+- **server.log** gets the server's stdout/stderr (through a pipe) and the app's own notes (`… [app] …`, UTC
+  times). At 1 MiB it moves to `server.log.1` (replacing the previous one), so the two stay under 2 MiB.
+- **Interface:** `is_owned` is also true while our server starts or restarts. `lan_enabled` is the running owned
+  server's `--lan` (false when attached or none). `set_lan` returns at once (the restart runs in the background);
+  Err only when attached or app.json can't be written; with no server (port taken, failed) it's only saved.
+  `app.json` keeps keys it doesn't know. `WB_APP_LAN=1` forces `--lan` on.
+- **Single instance:** tauri-plugin-single-instance (D-Bus name from the identifier), so a dev run doesn't start
+  while the installed app runs; quit that one first.
+- **Test hook** (debug builds only): `WB_APP_TEST_CTL=<fifo>`, one command per line: `text`, `eval <js>`,
+  `lan on|off`, `info`, `exit` (as tray Quit). Output lines start with `WBTEST`. See the end of server.rs.
+
 The server reads `index.html` and `icon.svg` next to itself (`new URL("./index.html", import.meta.url)`); a
 `bun build --compile` binary has to embed them (inferred, not tried).
 
@@ -206,7 +246,8 @@ null (the badges on the left edge), polled by Rust (the page's own poll pauses w
   `server::set_lan(app, on) -> Result<(), String>` (saves the app setting `lan`, restarts an owned server; Err when
   attached). Tray Quit calls `app.exit(0)`; `server::on_run_event` stops an owned server on exit.
 - **HTTP from Rust:** `ureq` 3 (blocking, small), for both the ping (server.rs) and the tray's count (tray.rs).
-  Not a second HTTP crate.
+  Not a second HTTP crate. Added with `default-features = false` (no TLS or gzip; everything is plain HTTP on
+  loopback).
 - **App settings** (`lan`, and anything else the app keeps): `app.json` in the app's config folder
   (`~/.config/io.github.kostas-xafis.workbench/app.json`), owned by server.rs.
 
