@@ -1,0 +1,18 @@
+<!doctype html>
+<!-- Bundled with the app (build.frontendDist). The main window loads the board from its server instead
+     (see src/lib.rs); this page is only a fallback, for the lifecycle agent to show while the server isn't
+     reachable. It runs as a local page with no capability, so it can't invoke any command. -->
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>Workbench</title>
+	<style>
+		:root { color-scheme: light dark; font-family: system-ui, sans-serif; }
+		body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: Canvas; color: CanvasText; }
+	</style>
+</head>
+<body>
+	<p>Starting the board…</p>
+</body>
+</html>

@@ -1,0 +1,31 @@
+[package]
+name = "workbench-app"
+version = "0.1.0"
+description = "Workbench desktop app: a Tauri shell around the Bun board server"
+edition = "2021"
+publish = false
+
+[lib]
+name = "workbench_app_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.7", features = [] }
+
+[dependencies]
+tauri = { version = "2.12", features = ["tray-icon", "image-png"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+notify-rust = "4.19"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# Only the debug-only probe (src/probe.rs) uses these: synthetic clicks on the webview.
+gtk = "0.18"
+webkit2gtk = "2.0"
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true

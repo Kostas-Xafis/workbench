@@ -1,13 +1,18 @@
 {
 	"name": "workbench",
+	"version": "0.1.0",
 	"private": true,
 	"type": "module",
 	"bin": { "wb": "./wb.ts" },
 	"scripts": {
 		"serve": "bun server.ts",
-		"typecheck": "bunx tsc --noEmit"
+		"typecheck": "bunx tsc --noEmit",
+		"app:dev": "tauri dev",
+		"app:build": "tauri build",
+		"build:server": "echo 'build:server is phase 2: bun build --compile server.ts into src-tauri/binaries/ (the Tauri sidecar)' && exit 1"
 	},
 	"devDependencies": {
+		"@tauri-apps/cli": "^2.12.4",
 		"@types/bun": "latest"
 	}
 }

@@ -1,3 +1,7 @@
 node_modules/
 workbench.db*
 backups/
+# Desktop app (src-tauri): build output, generated ACL schemas, and the compiled server sidecar
+src-tauri/target/
+src-tauri/gen/
+src-tauri/binaries/

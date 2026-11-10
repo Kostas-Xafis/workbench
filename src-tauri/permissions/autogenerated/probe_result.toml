@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-probe-result"
+description = "Enables the probe_result command without any pre-configured scope."
+commands.allow = ["probe_result"]
+
+[[permission]]
+identifier = "deny-probe-result"
+description = "Denies the probe_result command without any pre-configured scope."
+commands.deny = ["probe_result"]
