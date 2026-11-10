@@ -68,8 +68,13 @@ fn stays_in_app<R: Runtime>(app: &AppHandle<R>, url: &Url) -> bool {
     }
     match url.scheme() {
         "tauri" | "ipc" | "about" | "data" => true,
-        // blob:http://localhost:4321/uuid belongs to the page that made it; only the board's own.
-        "blob" => Url::parse(url.path()).map(|inner| same_origin(&inner, &board)).unwrap_or(false),
+        // blob:http://localhost:4321/uuid belongs to the page that made it; only the board's own. A report runs in a
+        // sandboxed frame (opaque origin), so its blobs are blob:null/uuid: its downloads ("Download CSV") are
+        // navigations to those. A document there has an opaque origin, so no capability matches it.
+        "blob" => {
+            url.path().starts_with("null/")
+                || Url::parse(url.path()).map(|inner| same_origin(&inner, &board)).unwrap_or(false)
+        }
         "http" | "https" => url.host_str() == Some("tauri.localhost"),
         _ => false,
     }
