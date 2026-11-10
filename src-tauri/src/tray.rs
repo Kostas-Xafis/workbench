@@ -40,8 +40,15 @@ pub fn init<R: Runtime>(builder: Builder<R>) -> Builder<R> {
     builder.plugin(
         tauri_plugin_autostart::Builder::new()
             .app_name("Workbench")
+            // Opens hidden in the tray (lib.rs `started_hidden`).
+            .args([crate::HIDDEN_ARG])
             .build(),
     )
+}
+
+/// Whether the tray icon exists (see `TRAY_UP`).
+pub fn is_up() -> bool {
+    TRAY_UP.load(Ordering::Relaxed)
 }
 
 /// The pieces the poller updates.

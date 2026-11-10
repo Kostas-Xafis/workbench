@@ -11,10 +11,10 @@ Needs Rust, WebKitGTK 4.1 dev, libayatana-appindicator3-dev, librsvg2-dev, libxd
 CLI is a devDependency (`bun install`).
 
 ```bash
-bun run app:dev                                # tauri dev: builds src-tauri, opens the window on :4321
+bun run app:dev                                # tauri dev: builds the server (beforeDevCommand), then src-tauri, opens the window on :4321
 WB_APP_URL=http://localhost:4399 bun run app:dev   # against a test board instead
 cd src-tauri && cargo build && cargo clippy    # plain cargo works too; the binary is target/debug/workbench-app
-bun run app:build                              # tauri build (.deb, AppImage); needs `bun run build:server` first (compiles server.ts into src-tauri/binaries/, one Bun binary with the page embedded)
+bun run app:build                              # tauri build (.deb, AppImage); beforeBuildCommand runs `bun run build:server` (compiles server.ts into src-tauri/binaries/, one Bun binary with the page embedded)
 ```
 
 `cargo build` needs `binaries/workbench-server-x86_64-unknown-linux-gnu` (gitignored; `bun run build:server`):
@@ -263,7 +263,7 @@ null (the badges on the left edge), polled by Rust (the page's own poll pauses w
   `ToolTip` property on D-Bus), so the number is only in the icon and the menu line. Close hides the main window
   (only when the tray icon exists). **Start on login writes `$HOME/.config/autostart/Workbench.desktop`**
   (auto-launch ignores `XDG_CONFIG_HOME`; tests set `HOME`), `Exec=` the running executable (the AppImage path in an
-  AppImage). It starts the app with a visible window; a "start hidden" flag would be the lifecycle agent's.
+  AppImage). The plugin is registered with `--hidden` (`lib.rs` `HIDDEN_ARG`): the main window is created invisible (shown anyway if there's no tray), and a second `--hidden` launch doesn't raise the first one's window. In an AppImage the plugin uses the `APPIMAGE` path.
 - **Notifications** (`notify.rs`): no notify-rust, no thread per notification. `Notify` is called over GIO's
   session-bus connection, and one subscription (main thread, `setup`) listens for `ActivationToken`,
   `ActionInvoked("default")` and `NotificationClosed`. Same `tag` → `replaces_id` of the newest one, so the server
@@ -293,3 +293,11 @@ WB_APP_URL=http://localhost:4399 WB_APP_PROBE=1 ./target/debug/workbench-app | g
 
 (`XDG_CONFIG_HOME` with a `user-dirs.dirs` setting `XDG_DOWNLOAD_DIR` keeps handler-less downloads out of
 `~/Downloads`.) It writes to the clipboard (save yours first) and briefly shows two notifications and a tray icon.
+
+## Packages (phase 3)
+
+`bun run app:build` makes `target/release/bundle/deb/Workbench_<v>_amd64.deb` and `…/appimage/Workbench_<v>_amd64.AppImage`.
+The binary is `workbench-app` (its Wayland app id, which the .desktop `StartupWMClass` matches), the sidecar
+`workbench-server` sits next to it (`/usr/bin`). Icons are all from the repo's `icon.svg` (`bunx @tauri-apps/cli@^2 icon icon.svg`;
+only the five sizes the bundle uses are committed; the 256 one is named `256x256.png` because Tauri turns `128x128@2x.png` into an
+invalid hicolor folder `256x256@2`).

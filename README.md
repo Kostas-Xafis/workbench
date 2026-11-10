@@ -1,6 +1,6 @@
 # Workbench
 
-One board for every project: tasks agents are doing or will do, and the checks, reviews, decisions and setup steps that wait on Kostas. Bun + SQLite, no dependencies.
+One board for every project: tasks agents are doing or will do, and the checks, reviews, decisions and setup steps that wait on Kostas. The board is a Bun server with SQLite and no runtime dependencies; the desktop app (below) is optional.
 
 ```bash
 wb open        # start the board if needed and open http://localhost:4321
@@ -42,6 +42,26 @@ WantedBy=default.target
 ```
 
 Then `systemctl --user enable --now workbench`.
+
+## Desktop app
+
+The board in its own window, instead of a browser tab. It is the same board: nothing changes in how it works, and the browser keeps working too.
+
+```bash
+sudo apt install ./Workbench_0.1.0_amd64.deb     # install (the .deb is in src-tauri/target/release/bundle/deb/)
+sudo apt remove workbench                        # remove
+bun install && bun run app:build                 # build from source: the .deb and an AppImage, in src-tauri/target/release/bundle/
+```
+
+Building needs Rust and the usual Tauri libraries (WebKitGTK 4.1, libayatana-appindicator, librsvg, libxdo, libssl; see `src-tauri/README.md`). `bun run app:build` compiles the server into the app first. `wb open` starts the app when it's installed, and otherwise opens the browser as before.
+
+- **What it adds:** its own window; a tray icon showing how many items wait on you (the red number), with a menu: Open board, Start on login, Phone access, Quit; system notifications (the board's bell works in the app, and clicking a notification brings the window back on that item, report or tracker); links to other sites open in your browser; downloads (backups, exports, `.env` files) land in `~/Downloads`. Closing the window hides it to the tray; Quit in the tray menu stops the app.
+- **How it finds the board:** it looks for a running board on port 4321 (the systemd service, say) and uses that one. If nothing answers, it starts its own server from inside the app, on `~/Projects/workbench/workbench.db` if that exists. It never takes the port from the service: if something else holds 4321, the window says so, and if the service stops, the window waits for it to come back (with a button to start the app's own). The app stops a server only when it started it.
+- **Start on login:** in the tray menu (the app opens hidden in the tray, and Open shows the window), or the systemd service above. The service keeps the board running with no app open, and survives closing it. The tray item starts the app, and the app starts a board only if none is there. Use the service if you also want the board for agents and the browser all day. With both, the service wins the port and the app attaches to it.
+- **Phone access:** the tray item "Phone access (on my network)" turns on `--lan`. It's available only when the app started the board itself; with the service running, use `wb serve --lan` or the service as before.
+- **Where things are:** the app's settings in `~/.config/io.github.kostas-xafis.workbench/app.json`, the window's own browser data in `~/.local/share/io.github.kostas-xafis.workbench`, and the server's log (the one to read when the window says the board stopped) in `~/.local/share/io.github.kostas-xafis.workbench/logs/server.log`. Because the app's window has its own browser storage, "This browser" settings (bell, theme, folded sections) start fresh there.
+- **On Wayland (GNOME):** the window's position isn't remembered (only its size), and clicking the tray icon itself does nothing: use its menu. GNOME may only flash the window instead of raising it from another desktop.
+- **Development:** `bun run app:dev` builds the server and opens the app on the board at `http://localhost:4321`. `WB_APP_URL=http://localhost:4399` points it at a test board instead; `WB_APP_DB=<file>` is the database the app's own server uses (always set it for tests).
 
 ## Settings
 

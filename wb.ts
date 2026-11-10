@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { existsSync } from "node:fs";
 import { parseArgs } from "node:util";
 import {
 	addItem,
@@ -125,7 +126,7 @@ Items are named wb-xxxx (e.g. wb-k3f9); commands take that, the bare k3f9, or an
   wb project <slug> --icon <file>  use this logo (path in the repo); --icon "" = find one again
   wb project <slug> --archive      take a finished project off the board (--unarchive brings it back)
   wb serve [--lan]                 run the board on http://localhost:${PORT}
-  wb open                          start the board if needed and open it
+  wb open                          open the desktop app; without it, start the board and open the browser
 
 Options for add/edit:
   --kind task|check|review|decision|setup|bug|idea   (default task)
@@ -824,6 +825,21 @@ try {
 			break;
 		}
 		case "open": {
+			// The desktop app, when installed: it attaches to a running board or starts its own, and a second
+			// launch just brings up the window that's already open.
+			const quiet = { stdio: ["ignore", "ignore", "ignore"] as ["ignore", "ignore", "ignore"] };
+			const app = Bun.which("workbench-app");
+			const launcher = Bun.which("gtk-launch");
+			const entry = [process.env.XDG_DATA_HOME || `${process.env.HOME}/.local/share`, ...(process.env.XDG_DATA_DIRS || "/usr/local/share:/usr/share").split(":")]
+				.some((d) => existsSync(`${d}/applications/Workbench.desktop`));
+			if (app) {
+				Bun.spawn([app], { ...quiet, detached: true }).unref();
+				break;
+			}
+			if (launcher && entry) {
+				Bun.spawn([launcher, "Workbench"], quiet).unref();
+				break;
+			}
 			if (!(await serverUp())) {
 				Bun.spawn(["bun", new URL("./server.ts", import.meta.url).pathname], {
 					stdio: ["ignore", "ignore", "ignore"],

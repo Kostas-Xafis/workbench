@@ -54,6 +54,10 @@ pub fn run() {
             server::setup(handle)?;
             main_window(handle)?;
             tray::setup(handle)?;
+            // Without a tray there would be no way to bring a hidden window back.
+            if started_hidden() && !tray::is_up() {
+                show_main(handle);
+            }
             notify::setup(handle)?;
             #[cfg(debug_assertions)]
             probe::start(handle);
@@ -112,11 +116,20 @@ pub(crate) fn grant_board<R: Runtime>(app: &AppHandle<R>, url: &Url) -> tauri::R
     Ok(())
 }
 
+/// Started by "Start on login" (tray.rs registers the autostart entry with this argument).
+pub(crate) const HIDDEN_ARG: &str = "--hidden";
+
+fn started_hidden() -> bool {
+    std::env::args().any(|a| a == HIDDEN_ARG)
+}
+
 fn main_window<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<WebviewWindow<R>> {
     let builder = WebviewWindowBuilder::new(app, MAIN, WebviewUrl::App("index.html".into()))
         .title("Workbench")
         .inner_size(1280.0, 860.0)
-        .min_inner_size(480.0, 400.0);
+        .min_inner_size(480.0, 400.0)
+        // Start on login runs the app with `--hidden`: only the tray and the server come up; Open shows the window.
+        .visible(!started_hidden());
     let builder = web::attach(app, builder);
     #[cfg(debug_assertions)]
     let builder = probe::attach(builder);

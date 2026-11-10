@@ -99,7 +99,11 @@ enum Cmd {
 
 /// Builder-time setup: the single-instance plugin, which has to be the first plugin.
 pub fn init<R: Runtime>(builder: Builder<R>) -> Builder<R> {
-    builder.plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+    builder.plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+        // A second start on login (`--hidden`) has nothing to show.
+        if argv.iter().any(|a| a == crate::HIDDEN_ARG) {
+            return;
+        }
         eprintln!("workbench-app: launched again: bringing this window to the front");
         crate::show_main(app);
     }))
