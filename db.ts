@@ -51,6 +51,8 @@ export type Project = {
 	sort: number;
 	/** When it was archived: off the rail and "All", its trackers paused. NULL = active. */
 	archived_at: string | null;
+	/** The order of its report groups in the sidebar, as a JSON list of names. See setReportOrder. */
+	report_order: string;
 };
 
 export const DB_PATH = process.env.WB_DB ?? join(import.meta.dir, "workbench.db");
@@ -124,6 +126,8 @@ export function open(path = DB_PATH) {
 	if (!projectCols.includes("icon")) db.run("ALTER TABLE projects ADD COLUMN icon TEXT NOT NULL DEFAULT ''");
 	if (!projectCols.includes("sort")) db.run("ALTER TABLE projects ADD COLUMN sort INTEGER NOT NULL DEFAULT 0");
 	if (!projectCols.includes("archived_at")) db.run("ALTER TABLE projects ADD COLUMN archived_at TEXT");
+	// The order of its report groups in the sidebar, as a JSON list of names (see setReportOrder).
+	if (!projectCols.includes("report_order")) db.run("ALTER TABLE projects ADD COLUMN report_order TEXT NOT NULL DEFAULT '[]'");
 	// A report is one HTML page; publishing it again under the same name adds a version.
 	db.run(`CREATE TABLE IF NOT EXISTS reports (
 		id INTEGER PRIMARY KEY,
@@ -135,6 +139,8 @@ export function open(path = DB_PATH) {
 		updated_at TEXT NOT NULL DEFAULT (datetime('now')),
 		UNIQUE (project, name)
 	)`);
+	const reportCols = (db.query("PRAGMA table_info(reports)").all() as { name: string }[]).map((c) => c.name);
+	if (!reportCols.includes("icon")) db.run("ALTER TABLE reports ADD COLUMN icon TEXT NOT NULL DEFAULT ''");
 	db.run(`CREATE TABLE IF NOT EXISTS report_versions (
 		id INTEGER PRIMARY KEY,
 		report_id INTEGER NOT NULL REFERENCES reports(id) ON DELETE CASCADE,
@@ -562,6 +568,8 @@ export type Report = {
 	name: string;
 	title: string;
 	grp: string;
+	/** Its mark in the sidebar: one emoji or SVG markup; empty for the usual page glyph. See cleanReportIcon. */
+	icon: string;
 	created_at: string;
 	updated_at: string;
 	/** Latest version number. */
@@ -618,16 +626,66 @@ export function htmlTitle(html: string) {
 	return m ? htmlText(m[1]) : "";
 }
 
+const ICON_MAX = 8 * 1024;
+
+/**
+ * A report's icon as it's stored: one emoji or SVG markup, or empty for none. The board only ever draws the SVG
+ * through an <img>, where a browser runs no scripts and loads nothing else, so it can't reach the board's page.
+ * That also means it can't take the page's colours: currentColor would come out black whatever the theme.
+ */
+export function cleanReportIcon(icon: string) {
+	const s = icon.trim();
+	if (!s) return "";
+	if (s.startsWith("<")) {
+		if (!/^<svg[\s>]/i.test(s) || !/<\/svg>$/i.test(s)) throw new Error("an SVG icon has to be one <svg>...</svg>");
+		if (Buffer.byteLength(s) > ICON_MAX) throw new Error(`an SVG icon can be at most ${ICON_MAX / 1024} KB`);
+		if (!/\bviewBox\s*=/i.test(s)) throw new Error("an SVG icon needs a viewBox, or it won't scale to the sidebar");
+		if (/currentColor/i.test(s)) throw new Error("an SVG icon can't use currentColor: it comes out black. Use your own colours, that read on light and dark");
+		if (/<script|<foreignObject/i.test(s)) throw new Error("an SVG icon can't have scripts or foreignObject: neither works in it");
+		return s;
+	}
+	const graphemes = [...new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(s)];
+	if (graphemes.length !== 1 || !/\p{Extended_Pictographic}|\p{Regional_Indicator}|\u20E3/u.test(s))
+		throw new Error("an icon is one emoji or SVG markup");
+	return s;
+}
+
+export function setReportIcon(db: Db, id: number, icon: string) {
+	const clean = cleanReportIcon(icon);
+	if (!db.query("UPDATE reports SET icon = ? WHERE id = ?").run(clean, id).changes) throw new Error(`no report #${id}`);
+	return clean;
+}
+
+/** Whether publishing a report with this `icon` argument would leave it without an icon. Agents may not. */
+export function reportLeftWithoutIcon(db: Db, project: string, name: string, icon?: string) {
+	if (icon !== undefined) return !icon.trim();
+	const row = db.query("SELECT icon FROM reports WHERE project = ? AND name = ?").get(project, name.trim().toLowerCase()) as
+		| { icon: string }
+		| null;
+	return !row?.icon;
+}
+
+/** The order of a project's report groups in the sidebar. A group not listed follows the listed ones, by name. */
+export function setReportOrder(db: Db, slug: string, groups: unknown) {
+	if (!Array.isArray(groups) || groups.length > 500 || !groups.every((g) => typeof g === "string"))
+		throw new Error("the order has to be a list of group names");
+	const clean = [...new Set((groups as string[]).map((g) => g.trim()).filter(Boolean))];
+	if (!db.query("UPDATE projects SET report_order = ? WHERE slug = ?").run(JSON.stringify(clean), slug).changes)
+		throw new Error(`no project "${slug}"`);
+	return clean;
+}
+
 /** Adds the report, or a new version of the one with this name. An unchanged page adds nothing. */
 export function publishReport(
 	db: Db,
-	r: { project: string; name: string; html: string; title?: string; grp?: string },
+	r: { project: string; name: string; html: string; title?: string; grp?: string; icon?: string },
 	author = "",
 ): { id: number; n: number; changed: boolean } {
 	const name = r.name.trim().toLowerCase();
 	if (!name) throw new Error("report needs a name");
 	if (!r.html.trim()) throw new Error("the page is empty");
 	if (!db.query("SELECT 1 FROM projects WHERE slug = ?").get(r.project)) throw new Error(`no project "${r.project}"`);
+	const icon = r.icon === undefined ? undefined : cleanReportIcon(r.icon);
 	return db.transaction(() => {
 		let row = db.query("SELECT id FROM reports WHERE project = ? AND name = ?").get(r.project, name) as {
 			id: number;
@@ -635,15 +693,17 @@ export function publishReport(
 		const title = r.title?.trim() || htmlTitle(r.html) || name;
 		if (!row) {
 			row = db
-				.query("INSERT INTO reports (project, name, title, grp) VALUES (?, ?, ?, ?) RETURNING id")
-				.get(r.project, name, title, (r.grp ?? "").trim()) as { id: number };
+				.query("INSERT INTO reports (project, name, title, grp, icon) VALUES (?, ?, ?, ?, ?) RETURNING id")
+				.get(r.project, name, title, (r.grp ?? "").trim(), icon ?? "") as { id: number };
 		} else {
 			const sets = ["title = $title"];
 			if (r.grp !== undefined) sets.push("grp = $grp");
+			if (icon !== undefined) sets.push("icon = $icon");
 			db.query(`UPDATE reports SET ${sets.join(", ")} WHERE id = $id`).run({
 				id: row.id,
 				title,
 				...(r.grp !== undefined ? { grp: r.grp.trim() } : {}),
+				...(icon !== undefined ? { icon } : {}),
 			});
 		}
 		const latest = reportHtml(db, row.id);

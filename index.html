@@ -100,6 +100,11 @@ summary::-webkit-details-marker { display: none; }
 .rsec > summary .tools { margin-left: auto; display: flex; gap: 2px; text-transform: none; letter-spacing: 0; }
 .rsec > summary .icon-btn { width: 24px; height: 24px; }
 .glabel { font-size: 11.5px; font-weight: 600; color: var(--muted); padding: 6px 8px 2px 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.glabel.moving { display: flex; align-items: center; gap: 2px; padding-right: 2px; }
+.glabel.moving > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.glabel .icon-btn { width: 24px; height: 24px; flex: none; }
+.glabel .icon-btn:disabled { opacity: .25; cursor: default; background: transparent; }
+.rsec .lgroup.archive { margin-top: 8px; border-top: 1px solid var(--line); padding-top: 4px; }
 .lgroup > summary { display: flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 600; color: var(--muted); padding: 5px 8px 3px 10px; }
 .lgroup > summary span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lgroup > summary:hover { color: var(--ink); }
@@ -113,6 +118,8 @@ summary::-webkit-details-marker { display: none; }
 .rail-collapsed .ritem { justify-content: center; padding: 6px 0; margin: 1px 4px; }
 .rail-sep { height: 1px; background: var(--line); margin: 6px 12px; }
 .doc-ic { width: 16px; height: 16px; flex: none; color: var(--muted); }
+.rep-ic { width: 16px; height: 16px; flex: none; object-fit: contain; }
+.ritem > span.rep-ic, .res > span.rep-ic { flex: none; display: grid; place-items: center; font-size: 14px; line-height: 1; overflow: visible; }
 .tile { width: 24px; height: 24px; border-radius: 7px; display: grid; place-items: center; font-size: 11px; font-weight: 700; background: var(--hover); color: var(--muted); border: 1px solid var(--line); }
 [aria-current="true"] > .tile { border-color: var(--accent); color: var(--accent); }
 .fav { width: 16px; height: 16px; flex: none; border-radius: 3px; object-fit: contain; }
@@ -1077,6 +1084,7 @@ $("#prail").addEventListener("click", (e) => {
 
 // Links with project '' show everywhere; a project's own links show with it (and under All).
 let editingLinks = false;
+let editingReports = false;
 function railLinks() {
 	const scopes = [["", state.links.filter((l) => !l.project)]];
 	for (const p of state.projects) if (!state.project || state.project === p.slug) scopes.push([p.slug, state.links.filter((l) => l.project === p.slug)]);
@@ -1088,23 +1096,54 @@ function railLinks() {
 	}
 	return groups;
 }
+const inRail = (r) => state.project ? r.project === state.project : !isArchived(r.project);
+function reportOrder(slug) {
+	try { return JSON.parse(state.allProjects.find((p) => p.slug === slug)?.report_order || "[]"); } catch { return []; }
+}
+// A project's report groups as { label, grp, project, reports }: in the order set for them (the rest after those, by
+// name), reports without a group last. Under "All", project by project. Archived day pages aren't in here.
 function railReports() {
 	const groups = new Map();
 	for (const r of state.reports) {
-		if (state.project ? r.project !== state.project : isArchived(r.project)) continue;
-		const label = [!state.project ? projectName(r.project) : "", r.grp].filter(Boolean).join(" · ");
-		if (!groups.has(label)) groups.set(label, []);
-		groups.get(label).push(r);
+		if (!inRail(r) || r.archived) continue;
+		const key = JSON.stringify([r.project, r.grp]);
+		if (!groups.has(key)) groups.set(key, { label: [!state.project ? projectName(r.project) : "", r.grp].filter(Boolean).join(" · "), grp: r.grp, project: r.project, reports: [] });
+		groups.get(key).reports.push(r);
 	}
 	// Day pages newest first (by name, day-YYYY-MM-DD), not by title.
-	for (const rs of groups.values()) if (rs.every(isDay)) rs.sort((a, b) => b.name.localeCompare(a.name));
-	return [...groups].sort(([a], [b]) => (a === "") - (b === "") || a.localeCompare(b));
+	for (const g of groups.values()) if (g.reports.every(isDay)) g.reports.sort((a, b) => b.name.localeCompare(a.name));
+	const projectAt = (slug) => state.allProjects.findIndex((p) => p.slug === slug);
+	const at = (g) => { const i = reportOrder(g.project).indexOf(g.grp); return i < 0 ? Infinity : i; };
+	return [...groups.values()].sort((a, b) => projectAt(a.project) - projectAt(b.project) || (a.grp === "") - (b.grp === "")
+		|| (at(a) === at(b) ? 0 : at(a) - at(b)) || a.grp.localeCompare(b.grp));
+}
+// Day pages a week or more old, newest first: out of the way, not gone.
+const archivedDays = () => state.reports.filter((r) => r.archived && inRail(r)).sort((a, b) => b.name.localeCompare(a.name));
+async function moveReportGroup(grp, dir) {
+	const order = railReports().filter((g) => g.grp).map((g) => g.grp);
+	const i = order.indexOf(grp), j = i + (dir === "up" ? -1 : 1);
+	if (i < 0 || j < 0 || j >= order.length) return;
+	[order[i], order[j]] = [order[j], order[i]];
+	try {
+		const { groups } = await api(`/api/projects/${encodeURIComponent(state.project)}/report-order`, { method: "PUT", body: JSON.stringify({ groups: order }) });
+		state.allProjects.find((p) => p.slug === state.project).report_order = JSON.stringify(groups);
+		renderRail();
+		// Keep the keyboard on the heading that moved, on the other arrow once it reaches an end.
+		const head = $(`#rail [data-group="${CSS.escape(grp)}"]`);
+		const btn = head?.querySelector(`[data-move="${dir}"]`);
+		(btn && !btn.disabled ? btn : head?.querySelector(`[data-move="${dir === "up" ? "down" : "up"}"]`))?.focus();
+	} catch (err) { toast(err.message); }
 }
 const isDay = (r) => /^day-\d{4}-\d{2}-\d{2}$/.test(r.name);
 // Each report group shows this many; the rest fold away (in the folded rail they're left out).
 const GROUP_SHOWN = 2;
 // A day page's tile is its day of the month; other reports get their initials.
 const tileText = (r) => isDay(r) ? String(Number(r.name.slice(-2))) : initials(r.title);
+// A report's own icon, if it has one: an emoji, or an SVG drawn as a picture so nothing in it can run (see db.ts).
+function reportMark(r) {
+	if (!r.icon) return "";
+	return r.icon.startsWith("<") ? `<img class="rep-ic" alt="" src="data:image/svg+xml,${encodeURIComponent(r.icon)}">` : `<span class="rep-ic">${esc(r.icon)}</span>`;
+}
 const reportHref = (r) => `#report/${r.id}`;
 const isCurrent = (r) => state.report?.id === r.id;
 
@@ -1118,17 +1157,29 @@ function renderRail() {
 	if (state.collapsed) {
 		html = `<div class="rail-head">${toggle}</div>` + railTrackers(true) +
 			// The first few of each group, and the report on screen if it's further down.
-			reports.flatMap(([, rs]) => rs.filter((r, i) => i < GROUP_SHOWN || isCurrent(r)))
-				.map((r) => `<a class="ritem" href="${reportHref(r)}" title="${esc(r.title)}" aria-current="${isCurrent(r)}"><span class="tile">${esc(tileText(r))}</span></a>`).join("") +
+			[...reports.flatMap((g) => g.reports.filter((r, i) => i < GROUP_SHOWN || isCurrent(r))), ...archivedDays().filter(isCurrent)]
+				.map((r) => `<a class="ritem" href="${reportHref(r)}" title="${esc(r.title)}" aria-current="${isCurrent(r)}"><span class="tile">${reportMark(r) || esc(tileText(r))}</span></a>`).join("") +
 			(reports.length && links.length ? `<div class="rail-sep"></div>` : "") +
 			links.flatMap((g) => g.links).map((l) => `<a class="ritem link" href="${esc(l.url)}" target="_blank" rel="noreferrer" data-link="${l.id}" title="${esc(l.label)}">${fav(l)}</a>`).join("");
 	} else {
-		const nReports = reports.reduce((n, [, rs]) => n + rs.length, 0);
-		const ritem = (r) => `<a class="ritem" href="${reportHref(r)}" title="${esc(r.title)} · v${r.version}" aria-current="${isCurrent(r)}">${DOC}<span>${esc(r.title)}</span><small>${esc(ago(r.updated_at).replace(" ago", ""))}</small></a>`;
+		const nReports = reports.reduce((n, g) => n + g.reports.length, 0);
+		const ritem = (r) => `<a class="ritem" href="${reportHref(r)}" title="${esc(r.title)} · v${r.version}" aria-current="${isCurrent(r)}">${reportMark(r) || DOC}<span>${esc(r.title)}</span><small>${esc(ago(r.updated_at).replace(" ago", ""))}</small></a>`;
 		// Each group shows its first few (a Days group its newest days); the rest fold away, and the fold opens
 		// by itself when the report on screen is in it.
-		const reportList = reports.map(([label, rs]) => {
-			const head = label ? `<div class="glabel">${esc(label)}</div>` : "";
+		// With the pencil on, a project's group headings get arrows to move them.
+		const named = reports.filter((g) => g.grp);
+		const canMove = !!state.project && named.length > 1;
+		const moving = canMove && editingReports;
+		const moveBtn = (g, dir, off) => `<button type="button" class="icon-btn" data-move="${dir}" title="Move ${dir}" aria-label="Move ${esc(g.grp)} ${dir}"${off ? " disabled" : ""}>${svg16(dir === "up" ? '<path d="m4.5 10 3.5-3.5 3.5 3.5"/>' : '<path d="m4.5 6 3.5 3.5 3.5-3.5"/>')}</button>`;
+		const heading = (g) => {
+			if (!g.label) return "";
+			if (!moving || !g.grp) return `<div class="glabel">${esc(g.label)}</div>`;
+			const i = named.indexOf(g);
+			return `<div class="glabel moving" data-group="${esc(g.grp)}"><span>${esc(g.label)}</span>${moveBtn(g, "up", !i)}${moveBtn(g, "down", i === named.length - 1)}</div>`;
+		};
+		const reportList = reports.map((g) => {
+			const rs = g.reports, label = g.label;
+			const head = heading(g);
 			if (rs.length <= GROUP_SHOWN) return head + rs.map(ritem).join("");
 			const rest = rs.slice(GROUP_SHOWN);
 			const key = `more-${label}`;
@@ -1137,6 +1188,14 @@ function renderRail() {
 			return head + rs.slice(0, GROUP_SHOWN).map(ritem).join("") +
 				`<details class="lgroup fold more" data-key="${esc(key)}"${open}><summary><span>${what}</span></summary>${rest.map(ritem).join("")}</details>`;
 		}).join("");
+		const archived = archivedDays();
+		// Under "All", the archive says whose day each one is.
+		const archiveRows = state.project ? archived.map(ritem).join("") : [...new Set(archived.map((r) => r.project))]
+			.map((slug) => `<div class="glabel">${esc(projectName(slug))}</div>` + archived.filter((r) => r.project === slug).map(ritem).join("")).join("");
+		const archive = archived.length
+			? `<details class="lgroup fold more archive" data-key="reports-archive"${archived.some(isCurrent) ? " open" : isOpen("reports-archive", false)}><summary><span>Archived days (${archived.length})</span></summary>${archiveRows}</details>`
+			: "";
+		const reportTools = canMove ? `<span class="tools"><button class="icon-btn" id="report-edit" title="${moving ? "Done moving groups" : "Move groups"}" aria-pressed="${moving}" aria-label="Move report groups"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M10.5 2.5l3 3-8 8H2.5v-3z"/></svg></button></span>` : "";
 		const linkList = links.map((g) => {
 			const items = g.links.map((l) => `<a class="ritem link" href="${esc(l.url)}" target="_blank" rel="noreferrer" data-link="${l.id}" title="${esc(l.url)}">${fav(l)}<span>${esc(l.label)}</span></a>`).join("");
 			return g.label ? `<details class="lgroup fold" data-key="${esc(g.key)}"${isOpen(g.key, true)}><summary><span>${esc(g.label)}</span></summary>${items}</details>` : items;
@@ -1148,8 +1207,8 @@ function renderRail() {
 		const trkNew = `<button class="icon-btn" id="trk-new" title="Add a status tracker" aria-label="Add a status tracker">${TRK_ADD}</button>`;
 		html = `<div class="rail-head"><b>${esc(state.project ? projectName(state.project) : "All projects")}</b>${trkNew}${toggle}</div>
 			${railTrackers(false)}
-			<details class="rsec fold" data-key="rail-reports"${isOpen("rail-reports", true)}><summary>Reports <span class="count">${nReports || ""}</span></summary>
-				${reportList || `<div class="rail-empty">None yet. Publish one with <code>wb report page.html</code>.</div>`}</details>
+			<details class="rsec fold" data-key="rail-reports"${isOpen("rail-reports", true)}><summary>Reports <span class="count">${nReports || ""}</span>${reportTools}</summary>
+				${reportList + archive || `<div class="rail-empty">None yet. Publish one with <code>wb report page.html</code>.</div>`}</details>
 			<details class="rsec fold" data-key="rail-links"${isOpen("rail-links", true)}><summary>Links ${tools}</summary>
 				${linkList || `<div class="rail-empty">No links${state.project ? " for this project" : ""}.</div>`}</details>` +
 			railSources();
@@ -1223,6 +1282,9 @@ $("#rail").addEventListener("click", (e) => {
 	const tb = e.target.closest("[data-tracker]");
 	if (tb) { hideTrkPop(true); return openTracker(Number(tb.dataset.tracker)); }
 	// The tools sit inside a <summary>: don't fold the section.
+	if (e.target.closest("#report-edit")) { e.preventDefault(); editingReports = !editingReports; return renderRail(); }
+	const mv = e.target.closest("[data-move]");
+	if (mv) return moveReportGroup(mv.closest("[data-group]").dataset.group, mv.dataset.move);
 	if (e.target.closest("#link-new")) { e.preventDefault(); return openLink({ project: state.project }); }
 	if (e.target.closest("#link-edit")) { e.preventDefault(); editingLinks = !editingLinks; return renderRail(); }
 	if (e.target.closest("#link-refresh")) {
@@ -1934,7 +1996,7 @@ async function runSearch() {
 		`<button class="res" data-item="${i.id}">${kindIcon(i.kind)}<span class="rt"><div>${hl(i.title, q)}</div>
 		<small>wb-${hl(i.ref, q)} · ${i.kind} · ${i.status} · ${i.owner === "kostas" ? "you" : "agent"}${where(i.project)}</small></span></button>`).join("");
 	if (data.reports.length) html += `<div class="rgroup">Reports</div>` + data.reports.map((r) =>
-		`<a class="res" href="${reportHref(r)}">${DOC}<span class="rt"><div>${hl(r.title, q)}</div><small>${r.snippet ? hl(r.snippet, q) : `v${r.version} · ${ago(r.updated_at)}`}${where(r.project)}</small></span></a>`).join("");
+		`<a class="res" href="${reportHref(r)}">${reportMark(r) || DOC}<span class="rt"><div>${hl(r.title, q)}</div><small>${r.snippet ? hl(r.snippet, q) : `v${r.version} · ${ago(r.updated_at)}`}${where(r.project)}</small></span></a>`).join("");
 	if (data.links.length) html += `<div class="rgroup">Links</div>` + data.links.map((l) =>
 		`<a class="res" href="${esc(l.url)}" target="_blank" rel="noreferrer">${fav(l)}<span class="rt"><div>${hl(l.label, q)}</div><small>${hl(l.url, q)}</small></span></a>`).join("");
 	results.innerHTML = (html || `<div class="res-none">Nothing matches “${esc(q)}”.</div>`) +

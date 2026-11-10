@@ -35,6 +35,7 @@ import {
 	removeLink,
 	reportHtml,
 	reportState,
+	setReportOrder,
 	setReportState,
 	REPORT_STATE_MAX,
 	search,
@@ -45,7 +46,7 @@ import {
 	type Project,
 } from "./db";
 import type { Server } from "bun";
-import { publishDays } from "./day";
+import { archivedDay, currentDay, publishDays } from "./day";
 import { codeLinks, repoState, type CodeLinks } from "./git";
 import { candidateFolders, checkFolder, folderState, health } from "./health";
 import { getSettings, settingDefs, updateSettings } from "./settings";
@@ -457,7 +458,21 @@ export function serve({ lan = false } = {}) {
 				const q = (u.get("q") ?? "").trim();
 				return json(q ? search(db, q, u.get("project") || undefined) : { items: [], reports: [], links: [] });
 			},
-			"/api/reports": (req) => json(listReports(db, new URL(req.url).searchParams.get("project") || undefined)),
+			"/api/reports": (req) => {
+				const today = currentDay(db);
+				return json(listReports(db, new URL(req.url).searchParams.get("project") || undefined).map((r) => ({ ...r, archived: archivedDay(r.name, today) })));
+			},
+			// The order of a project's report groups in the sidebar: a rail convenience, so the phone can change it too.
+			"/api/projects/:slug/report-order": {
+				PUT: jsonOnly(async (req) => {
+					try {
+						const { groups } = await req.json();
+						return json({ groups: setReportOrder(db, req.params.slug, groups) });
+					} catch (e) {
+						return fail(e);
+					}
+				}),
+			},
 			"/api/reports/:id": (req) => {
 				const r = getReport(db, Number(req.params.id));
 				return r ? json(r) : json({ error: "not found" }, 404);

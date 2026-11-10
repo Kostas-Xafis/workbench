@@ -15,6 +15,8 @@ import {
 	publishReport,
 	removeLink,
 	removeReport,
+	setReportIcon,
+	reportLeftWithoutIcon,
 	resetVault,
 	listSecrets,
 	setProjectIcon,
@@ -86,9 +88,12 @@ Items are named wb-xxxx (e.g. wb-k3f9); commands take that, the bare k3f9, or an
                                    add one (--all: shown with every project)
   wb relink <id> [--group G] [--icon <url>] [--title "Label"]   change one
   wb unlink <id>                   remove one
-  wb report <page.html> [--title T] [--group G] [--name N] [--project P]
-                                   publish a report page (again under the same name = new version)
+  wb report <page.html> [--title T] [--group G] [--icon <emoji | file.svg>] [--name N] [--project P]
+                                   publish a report page (again under the same name = new version);
+                                   every report has its own icon: agents give --icon the first time
   wb reports [--project P]         reports and their versions
+  wb report-icon <id> <emoji | file.svg | none>
+                                   change a report's icon in the sidebar
   wb day [YYYY-MM-DD] [--project P] [--out file.html]
                                    publish each project's page of everything that moved that work day
                                    (${start} to ${start} next morning; default: the current one), in its
@@ -190,6 +195,14 @@ const { values: o, positionals: args } = parseArgs({
 });
 
 const db = open();
+/** A report icon as given on the command line: an .svg file's contents, or the emoji itself. */
+async function iconArg(icon: string) {
+	if (!/\.svg$/i.test(icon)) return icon;
+	const file = Bun.file(icon);
+	if (!(await file.exists())) die(`no file ${icon}`);
+	return file.text();
+}
+
 const author = process.env.WB_AUTHOR ?? (process.env.CLAUDECODE ? "agent" : "kostas");
 
 function die(msg: string): never {
@@ -616,12 +629,19 @@ try {
 			const page = Bun.file(file);
 			if (!(await page.exists())) die(`no file ${file}`);
 			const name = o.name ?? file.split("/").pop()!.replace(/\.html?$/i, "");
-			const r = publishReport(
-				db,
-				{ project: currentProject()!, name, html: await page.text(), title: o.title, grp: o.group },
-				author,
-			);
+			const project = currentProject()!;
+			const icon = o.icon === undefined ? undefined : await iconArg(o.icon);
+			if (author === "agent" && reportLeftWithoutIcon(db, project, name, icon))
+				die("every report needs its own icon in the sidebar: add --icon <emoji | file.svg>. Nothing was published.");
+			const r = publishReport(db, { project, name, html: await page.text(), title: o.title, grp: o.group, icon }, author);
 			console.log(`report #${r.id} v${r.n}${r.changed ? "" : " (unchanged)"}  http://localhost:${PORT}/#report/${r.id}`);
+			break;
+		}
+		case "report-icon": {
+			const id = Number(args[1]);
+			if (!Number.isInteger(id) || !args[2]) die("usage: wb report-icon <id> <emoji | file.svg | none>");
+			setReportIcon(db, id, args[2] === "none" ? "" : await iconArg(args[2]));
+			console.log(args[2] === "none" ? `report #${id}: no icon` : `report #${id}: icon set`);
 			break;
 		}
 		case "day": {

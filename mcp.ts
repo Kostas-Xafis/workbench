@@ -38,6 +38,8 @@ import {
 	reportHtml,
 	resolveItem,
 	search,
+	reportLeftWithoutIcon,
+	setReportIcon,
 	STATUSES,
 	updateItem,
 	type Db,
@@ -101,6 +103,7 @@ const INSTRUCTIONS = `The workbench is {{name}}'s local board of open work acros
 - When you start work {{name}} gave you: find its item (list_items with q) and start_item it, or add_item one and start it. One item per piece of work {{name}} would recognise.
 - finish_item with a note on what changed and where (commit, branch). wait_item when blocked. Everything you leave for {{name}} is its own item.
 - {{name}} doesn't open files. An item has to make sense by itself, in plain words: put the content in the body instead of pointing at docs/x.md or PLAN §3, say where things are in the app rather than in the code, and attach a screenshot (attach_image) for anything on screen. add_item has the details, and warns you about what it can see is missing: fix those with update_item.
+- Every report you publish gets its own icon in colour (publish_report's icon), so the sidebar reads at a glance.
 - Status trackers are live readings shown on the board, such as build quotas or CI minutes left. Check list_trackers before something that uses up a quota, refresh_trackers after.
 - Tools default to the project of the folder this server runs in; pass project (a slug from list_projects) to work elsewhere.`;
 
@@ -431,6 +434,7 @@ type Tool = {
 	run(a: Record<string, any>, c: Conn): Out | Promise<Out>;
 };
 
+const REPORT_ICON = str("Its icon in the sidebar: one emoji, or SVG markup (at most 8 KB, with a viewBox, in your own colours that read on light and dark; currentColor doesn't work). Every report has one: in colour, showing what the page is about at a glance.");
 const RO = { readOnlyHint: true, openWorldHint: false };
 const WRITE = { readOnlyHint: false, destructiveHint: false, openWorldHint: false };
 const itemLink = (i: Pick<Item, "ref" | "title">) => ({ uri: `wb://item/wb-${i.ref}`, name: `wb-${i.ref}`, title: i.title, mimeType: "text/markdown" });
@@ -478,6 +482,16 @@ const METER: Schema = obj(
 	},
 	["label"],
 );
+
+/** The report a tool's `report` argument names: its id (#12) or its name in the project. */
+function reportId(a: Record<string, any>, c: Conn) {
+	const id = Number(String(a.report).replace(/^#/, ""));
+	if (Number.isInteger(id) && id >= 1) return id;
+	const project = projectOf(c, a.project)!;
+	const r = listReports(c.db, project).find((r) => r.name === String(a.report).trim().toLowerCase());
+	if (!r) throw new ToolError(`no report "${a.report}" in ${project} (list_reports)`);
+	return r.id;
+}
 
 const TOOLS: Tool[] = [
 	{
@@ -800,7 +814,7 @@ const TOOLS: Tool[] = [
 			const list = listReports(c.db, project).filter((r) => a.include_days || !r.name.startsWith("day-"));
 			return {
 				text: list.length
-					? list.map((r) => `#${r.id} ${r.project}/${r.name}: ${r.title}${r.grp ? ` [${r.grp}]` : ""} v${r.version}, updated ${r.updated_at} · ${BOARD}/#report/${r.id}`).join("\n")
+					? list.map((r) => `#${r.id} ${r.project}/${r.name}: ${r.title}${r.grp ? ` [${r.grp}]` : ""}${r.icon || r.name.startsWith("day-") ? "" : " (no icon: give it one)"} v${r.version}, updated ${r.updated_at} · ${BOARD}/#report/${r.id}`).join("\n")
 					: "no reports",
 				data: { reports: list.map((r) => ({ ...r, url: `${BOARD}/#report/${r.id}` })) },
 			};
@@ -821,13 +835,7 @@ const TOOLS: Tool[] = [
 		),
 		hints: RO,
 		run(a, c) {
-			let id = Number(String(a.report).replace(/^#/, ""));
-			if (!Number.isInteger(id) || id < 1) {
-				const project = projectOf(c, a.project)!;
-				const r = listReports(c.db, project).find((r) => r.name === String(a.report).trim().toLowerCase());
-				if (!r) throw new ToolError(`no report "${a.report}" in ${project} (list_reports)`);
-				id = r.id;
-			}
+			const id = reportId(a, c);
 			const r = getReport(c.db, id);
 			const page = r && reportHtml(c.db, id, a.version);
 			if (!r || !page) throw new ToolError(`no report #${id}${a.version ? ` v${a.version}` : ""}`);
@@ -847,13 +855,14 @@ const TOOLS: Tool[] = [
 		name: "publish_report",
 		title: "Publish a report",
 		description:
-			"Publishes a self-contained HTML page to a project's sidebar; the same name again adds a version. The page runs sandboxed and gets a `wb` object to read the board (wb.items(), wb.trackers(), wb.git(), wb.fetch(source, path), wb.state…). Use var(--wb-bg), --wb-ink, --wb-accent… to match the board.",
+			"Publishes a self-contained HTML page to a project's sidebar; the same name again adds a version. The page runs sandboxed and gets a `wb` object to read the board (wb.items(), wb.trackers(), wb.git(), wb.fetch(source, path), wb.state…). Use var(--wb-bg), --wb-ink, --wb-accent… to match the board. Every report needs its own icon: give one the first time.",
 		input: obj(
 			{
 				name: str("Short name, unique in the project (e.g. release-status).", { minLength: 1, maxLength: 80 }),
 				html: str("The whole page.", { minLength: 1 }),
 				title: str("Shown in the sidebar (default: the page's <title>)."),
 				group: str("A heading in the sidebar to file it under."),
+				icon: { ...REPORT_ICON, description: `${REPORT_ICON.description} Needed the first time; left out later, the icon stays as it is.` },
 				project: PROJECT,
 			},
 			["name", "html"],
@@ -861,12 +870,35 @@ const TOOLS: Tool[] = [
 		hints: { ...WRITE, idempotentHint: true },
 		run(a, c) {
 			const project = projectOf(c, a.project)!;
-			const r = publishReport(c.db, { project, name: a.name, html: a.html, title: a.title, grp: a.group }, "agent");
+			if (reportLeftWithoutIcon(c.db, project, String(a.name), a.icon))
+				throw new ToolError("every report needs its own icon in the sidebar: pass icon (one emoji, or a small SVG in its own colours). Nothing was published.");
+			const r = publishReport(c.db, { project, name: a.name, html: a.html, title: a.title, grp: a.group, icon: a.icon }, "agent");
 			return {
 				text: `report #${r.id} v${r.n}${r.changed ? "" : " (unchanged)"} in ${project}: ${BOARD}/#report/${r.id}`,
 				data: { id: r.id, version: r.n, changed: r.changed, url: `${BOARD}/#report/${r.id}` },
 				links: [{ uri: `wb://report/${r.id}`, name: a.name, mimeType: "text/html" }],
 			};
+		},
+	},
+	{
+		name: "set_report_icon",
+		title: "Set a report's icon",
+		description:
+			"Sets the icon a published report shows in the sidebar, in place of the usual page glyph: to give one to a report that has none, or a better one. No new version is added.",
+		input: obj(
+			{
+				report: { anyOf: [{ type: "integer", minimum: 1 }, { type: "string", minLength: 1 }], description: "The report's id (#12) or its name in the project." },
+				icon: { ...REPORT_ICON, minLength: 1 },
+				project: PROJECT,
+			},
+			["report", "icon"],
+		),
+		hints: { ...WRITE, idempotentHint: true },
+		run(a, c) {
+			if (!String(a.icon ?? "").trim()) throw new ToolError("every report keeps an icon: give another one instead of removing it");
+			const id = reportId(a, c);
+			const icon = setReportIcon(c.db, id, a.icon);
+			return { text: `report #${id}: ${icon ? "icon set" : "icon removed"} · ${BOARD}/#report/${id}`, data: { id, icon } };
 		},
 	},
 	{
