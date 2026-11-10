@@ -248,7 +248,7 @@ null (the badges on the left edge), polled by Rust (the page's own poll pauses w
 - **HTTP from Rust:** `ureq` 3 (blocking, small), for both the ping (server.rs) and the tray's count (tray.rs).
   Not a second HTTP crate. Added with `default-features = false` (no TLS or gzip; everything is plain HTTP on
   loopback).
-- **App settings** (`lan`, and anything else the app keeps): `app.json` in the app's config folder
+- **App settings** (`lan`, `window` = the main window's size and maximized state, saved on close and quit by lib.rs, and anything else the app keeps): `app.json` in the app's config folder
   (`~/.config/io.github.kostas-xafis.workbench/app.json`), owned by server.rs.
 
 ### Done in phase 2: tray, notifications, web (system agent)

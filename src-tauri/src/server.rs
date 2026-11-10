@@ -689,7 +689,7 @@ fn settings_path<R: Runtime>(app: &AppHandle<R>) -> Option<PathBuf> {
     app.path().app_config_dir().ok().map(|d| d.join("app.json"))
 }
 
-fn settings<R: Runtime>(app: &AppHandle<R>) -> Map<String, Value> {
+pub(crate) fn settings<R: Runtime>(app: &AppHandle<R>) -> Map<String, Value> {
     settings_path(app)
         .and_then(|p| fs::read_to_string(p).ok())
         .and_then(|s| serde_json::from_str(&s).ok())
@@ -697,7 +697,7 @@ fn settings<R: Runtime>(app: &AppHandle<R>) -> Map<String, Value> {
 }
 
 /// Writes one key of app.json, keeping the others.
-fn save_setting<R: Runtime>(app: &AppHandle<R>, key: &str, value: Value) -> Result<(), String> {
+pub(crate) fn save_setting<R: Runtime>(app: &AppHandle<R>, key: &str, value: Value) -> Result<(), String> {
     let path = settings_path(app).ok_or("No config folder for the app")?;
     let mut all = settings(app);
     all.insert(key.into(), value);

@@ -64,11 +64,19 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { .. } = event {
+                if window.label() == MAIN {
+                    save_size(window.app_handle());
+                }
+            }
             tray::on_window_event(window, event);
         })
         .build(tauri::generate_context!())
         .expect("error while building the Workbench app")
         .run(|app, event| {
+            if let tauri::RunEvent::ExitRequested { .. } = event {
+                save_size(app);
+            }
             server::on_run_event(app, &event);
         });
 }
@@ -124,10 +132,12 @@ fn started_hidden() -> bool {
 }
 
 fn main_window<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<WebviewWindow<R>> {
+    let (width, height, maximized) = saved_size(app).unwrap_or((1280.0, 860.0, false));
     let builder = WebviewWindowBuilder::new(app, MAIN, WebviewUrl::App("index.html".into()))
         .title("Workbench")
-        .inner_size(1280.0, 860.0)
-        .min_inner_size(480.0, 400.0)
+        .inner_size(width, height)
+        .maximized(maximized)
+        .min_inner_size(MIN_SIZE.0, MIN_SIZE.1)
         // Start on login runs the app with `--hidden`: only the tray and the server come up; Open shows the window.
         .visible(!started_hidden());
     let builder = web::attach(app, builder);
@@ -140,6 +150,43 @@ fn main_window<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<WebviewWindow<R>
         window.open_devtools();
     }
     Ok(window)
+}
+
+const MIN_SIZE: (f64, f64) = (480.0, 400.0);
+
+/// The main window's size (logical pixels) and maximized state from the last run: app.json `window`
+/// `{ width, height, maximized }`. Only the size: Wayland doesn't tell or take a window's position.
+fn saved_size<R: Runtime>(app: &AppHandle<R>) -> Option<(f64, f64, bool)> {
+    let all = server::settings(app);
+    let w = all.get("window")?;
+    let (width, height) = (w.get("width")?.as_f64()?, w.get("height")?.as_f64()?);
+    let ok = |v: f64, min: f64| v.is_finite() && (min..=20_000.0).contains(&v);
+    (ok(width, MIN_SIZE.0) && ok(height, MIN_SIZE.1)).then(|| {
+        (width, height, w.get("maximized").and_then(|m| m.as_bool()).unwrap_or(false))
+    })
+}
+
+/// Keeps the main window's size for the next run (on close to tray and on quit). A maximized window keeps the
+/// size it had before, so un-maximizing next time goes back to it.
+fn save_size<R: Runtime>(app: &AppHandle<R>) {
+    let Some(window) = app.get_webview_window(MAIN) else { return };
+    let maximized = window.is_maximized().unwrap_or(false);
+    let mut value = server::settings(app).get("window").cloned().unwrap_or_else(|| serde_json::json!({}));
+    if !maximized {
+        // The webview's size, which is what `inner_size` sets: the window's own inner size also counts GTK's
+        // client-side decorations on Wayland, so it would grow by those at every run.
+        let (Ok(size), Ok(scale)) = (window.as_ref().size(), window.scale_factor()) else { return };
+        let size = size.to_logical::<f64>(scale);
+        if size.width < MIN_SIZE.0 || size.height < MIN_SIZE.1 {
+            return;
+        }
+        value["width"] = serde_json::json!(size.width.round());
+        value["height"] = serde_json::json!(size.height.round());
+    }
+    value["maximized"] = serde_json::json!(maximized);
+    if let Err(e) = server::save_setting(app, "window", value) {
+        eprintln!("workbench-app: couldn't keep the window's size: {e}");
+    }
 }
 
 /// Brings the board's window to the front (from the tray, a notification click, a second launch).
