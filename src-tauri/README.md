@@ -34,7 +34,7 @@ settings (bell, theme, folded sections) start at their defaults in the app.
 |---|---|---|
 | `src/lib.rs` | shared, rarely edited | Wires every module once; the command list; the board's capability; the main window; `show_main` |
 | `src/server.rs` | lifecycle agent | Find a running board (`/api/ping`), else start the bundled server, wait, restart on crash, stop on quit only if owned; single instance; `app_info` |
-| `src/tray.rs` | system agent | Tray icon with the count, menu Open / Needs you (N) / Start on login / Quit; close to tray |
+| `src/tray.rs` | system agent | Tray icon with the count, menu Open board / Needs you: N / Start on login / Phone access (owned server only) / Quit; close to tray |
 | `src/notify.rs` | system agent | `notify` command and click-back (a working first version is there) |
 | `src/web.rs` | system agent | External links to the default browser, navigation guard, new windows, downloads, permission requests |
 | `src/probe.rs`, `src/probe.js` | phase-3 review | Debug-only probe that produced the findings below |
@@ -209,6 +209,35 @@ null (the badges on the left edge), polled by Rust (the page's own poll pauses w
   Not a second HTTP crate.
 - **App settings** (`lan`, and anything else the app keeps): `app.json` in the app's config folder
   (`~/.config/io.github.kostas-xafis.workbench/app.json`), owned by server.rs.
+
+### Done in phase 2: tray, notifications, web (system agent)
+
+- **Tray** (`tray.rs`): icon = `icons/128x128.png` with a red dot and the number painted in (`9+` above 9, nothing
+  for 0), swapped with `set_icon` when the count changes. Count = sum of `mine` over unarchived projects from
+  `GET <board>/api/projects`, polled every 30 s with `ureq` (every 5 s while the board doesn't answer; the menu
+  line then reads "Board not reachable"). Menu: Open board, "Needs you: N" / "Nothing waits on you" (disabled),
+  Start on login (tauri-plugin-autostart, Rust side only, not granted to the page), Phone access (on my network)
+  (only when `server::is_owned` at startup; calls `server::set_lan` on a thread and shows `lan_enabled` again
+  afterwards, so an Err just puts the box back), Quit (`app.exit(0)`). The appindicator shows no tooltip (no
+  `ToolTip` property on D-Bus), so the number is only in the icon and the menu line. Close hides the main window
+  (only when the tray icon exists). **Start on login writes `$HOME/.config/autostart/Workbench.desktop`**
+  (auto-launch ignores `XDG_CONFIG_HOME`; tests set `HOME`), `Exec=` the running executable (the AppImage path in an
+  AppImage). It starts the app with a visible window; a "start hidden" flag would be the lifecycle agent's.
+- **Notifications** (`notify.rs`): no notify-rust, no thread per notification. `Notify` is called over GIO's
+  session-bus connection, and one subscription (main thread, `setup`) listens for `ActivationToken`,
+  `ActionInvoked("default")` and `NotificationClosed`. Same `tag` → `replaces_id` of the newest one, so the server
+  swaps it in place; the table of click targets forgets an id when it closes or expires, and is capped at 100.
+  A click calls `raise`: with the announced activation token it sets it on the GTK window (`set_startup_id`) and
+  presents it, which GDK/Wayland turns into `xdg_activation_v1.activate(token, surface)` (seen in WAYLAND_DEBUG
+  with a forged token; whether GNOME then raises the window for a real token needs a real click). No token →
+  `show_main`. The signal match has no sender filter, so a click can be forged with gdbus (ids must be
+  `uint32`); only ids we handed out are answered.
+- **Web** (`web.rs`, all on the main window's builder; `attach` now takes the `AppHandle` first): navigation stays
+  on `server::board_url`'s origin, `tauri://`, `http(s)://tauri.localhost`, and `blob:` of the board; other http(s)/mailto
+  URLs go to the default browser (`tauri_plugin_opener::open_url`, plugin not registered) and the navigation is
+  refused. `window.open` / `target="_blank"` never open an app window: Deny + default browser. Downloads: saved
+  in the download folder WebKit proposed under a free name (`name (1).ext`), then `download-finished`. Every
+  permission request is denied (copying needs none; `readText` isn't used).
 
 ## Probe
 

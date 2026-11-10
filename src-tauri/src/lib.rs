@@ -116,7 +116,7 @@ fn main_window<R: Runtime>(app: &AppHandle<R>, url: Url) -> tauri::Result<Webvie
         .title("Workbench")
         .inner_size(1280.0, 860.0)
         .min_inner_size(480.0, 400.0);
-    let builder = web::attach(builder);
+    let builder = web::attach(app, builder);
     #[cfg(debug_assertions)]
     let builder = probe::attach(builder);
     let window = builder.build()?;
