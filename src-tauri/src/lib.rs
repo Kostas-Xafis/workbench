@@ -138,6 +138,10 @@ fn main_window<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<WebviewWindow<R>
         .inner_size(width, height)
         .maximized(maximized)
         .min_inner_size(MIN_SIZE.0, MIN_SIZE.1)
+        // Files dropped on the window go to the page as a normal `drop` event (images on an item's dialog), not to
+        // Tauri's own drag-drop events, which would swallow them. A drop the page doesn't take would be a
+        // navigation to file://, which web.rs refuses.
+        .disable_drag_drop_handler()
         // Start on login runs the app with `--hidden`: only the tray and the server come up; Open shows the window.
         .visible(!started_hidden());
     let builder = web::attach(app, builder);
