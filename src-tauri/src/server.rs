@@ -810,13 +810,19 @@ impl Log {
             if let Some(dir) = self.path.parent() {
                 let _ = fs::create_dir_all(dir);
             }
-            self.file = OpenOptions::new().create(true).append(true).open(&self.path).ok();
+            self.file = private(OpenOptions::new().create(true).append(true)).open(&self.path).ok();
             self.size = self.file.as_ref().and_then(|f| f.metadata().ok()).map_or(0, |m| m.len());
+            #[cfg(unix)]
+            if let Some(f) = &self.file {
+                use std::os::unix::fs::PermissionsExt;
+                let _ = f.set_permissions(fs::Permissions::from_mode(0o600));
+            }
         }
         if self.size > 0 && self.size + bytes.len() as u64 > LOG_MAX {
             self.file = None;
+            // server.log.1 is this same file, so it keeps its 600.
             let _ = fs::rename(&self.path, self.path.with_extension("log.1"));
-            self.file = OpenOptions::new().create(true).write(true).truncate(true).open(&self.path).ok();
+            self.file = private(OpenOptions::new().create(true).write(true).truncate(true)).open(&self.path).ok();
             self.size = 0;
         }
         if let Some(f) = self.file.as_mut() {
@@ -825,6 +831,18 @@ impl Log {
             }
         }
     }
+}
+
+/// Created readable by Kostas only (600): the log has the server's output (report titles, paths, errors). A file
+/// from before, with a wider mode, is narrowed when it's opened.
+fn private(options: &mut OpenOptions) -> &mut OpenOptions {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600)
+    }
+    #[cfg(not(unix))]
+    options
 }
 
 fn log_tail(path: &Path, lines: usize) -> String {
