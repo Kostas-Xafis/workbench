@@ -1,27 +1,298 @@
-//! Tray icon and window-close behaviour.
+//! Tray icon, its count, and window-close behaviour.
 //!
-//! Owner: the "system" agent (phase 2). What goes here:
-//! - A tray icon (Tauri `TrayIconBuilder`, libayatana-appindicator on Linux) whose icon shows the count of
-//!   what waits on Kostas (swap it with `TrayIcon::set_icon`; findings in src-tauri/README.md).
-//! - Its menu: Open / Needs you (N) / Start on login / Quit. Open and a left click call `crate::show_main`.
-//!   On Linux the appindicator never reports clicks, only menu items, so Open has to be in the menu.
-//! - Close to tray: in [`on_window_event`], `CloseRequested` on `crate::MAIN` → `api.prevent_close()` and
-//!   hide the window. Quit (menu) exits for real (the lifecycle agent stops an owned server on exit).
-//!
-//! The count comes from the board (e.g. polling `GET /api/items` from Rust, or a command the page calls);
-//! settle that with the lifecycle agent, who owns the server URL ([`crate::server::Board`]).
+//! Owner: the "system" agent.
+//! - The tray icon (libayatana-appindicator on Linux, which reports no clicks, only menu items) shows the
+//!   board's icon, with the count of what waits on Kostas drawn into it (red dot, the number, `9+` above 9).
+//!   There's no badge API, so [`icon_with_count`] paints the PNG and `TrayIcon::set_icon` swaps it.
+//! - Menu: Open board / "Needs you: N" (a disabled line) / Start on login / Phone access (owned server only)
+//!   / Quit.
+//! - The count is polled from `GET <board>/api/projects` every 30 s: the sum of `mine` over the projects
+//!   whose `archived_at` is null. The page's own poll pauses while the window is hidden; this one doesn't.
+//! - Close to tray: `CloseRequested` on the main window hides it. Quit is in the menu and exits for real.
 
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
+
+use tauri::image::Image;
+use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
+use tauri::tray::{TrayIcon, TrayIconBuilder};
 use tauri::{AppHandle, Builder, Runtime, Window, WindowEvent};
+use tauri_plugin_autostart::ManagerExt;
 
-/// Builder-time setup (plugins such as autostart for "Start on login").
+const TRAY_ID: &str = "workbench";
+const OPEN: &str = "open";
+const AUTOSTART: &str = "autostart";
+const LAN: &str = "lan";
+const QUIT: &str = "quit";
+
+/// How often the board is asked for the count.
+const POLL: Duration = Duration::from_secs(30);
+/// How soon to try again when the board didn't answer (it may still be starting).
+const RETRY: Duration = Duration::from_secs(5);
+
+/// Set once the tray icon exists. Without one, closing the window must really close it: nothing could
+/// bring a hidden window back.
+static TRAY_UP: AtomicBool = AtomicBool::new(false);
+
+/// Builder-time setup: the autostart plugin, for "Start on login". It is not granted to the page (the
+/// board's capability lists only what lib.rs gives it); only this module calls it.
 pub fn init<R: Runtime>(builder: Builder<R>) -> Builder<R> {
-    builder
+    builder.plugin(
+        tauri_plugin_autostart::Builder::new()
+            .app_name("Workbench")
+            .build(),
+    )
 }
 
-/// Creates the tray icon and its menu. Runs in Tauri's setup, after the main window exists.
-pub fn setup<R: Runtime>(_app: &AppHandle<R>) -> tauri::Result<()> {
+/// The pieces the poller updates.
+struct Parts<R: Runtime> {
+    tray: TrayIcon<R>,
+    needs: MenuItem<R>,
+    lan: CheckMenuItem<R>,
+}
+
+/// Creates the tray icon and its menu, and starts polling the count. Runs in Tauri's setup, after the main
+/// window exists. A failure to make the tray (no appindicator host) isn't fatal: the app just has no tray.
+pub fn setup<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
+    match build(app) {
+        Ok(parts) => {
+            TRAY_UP.store(true, Ordering::Relaxed);
+            let app = app.clone();
+            std::thread::spawn(move || poll_loop(app, parts));
+        }
+        Err(e) => eprintln!("tray: no tray icon: {e}"),
+    }
     Ok(())
 }
 
-/// Window events of every window (close to tray goes here).
-pub fn on_window_event<R: Runtime>(_window: &Window<R>, _event: &WindowEvent) {}
+fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Parts<R>> {
+    let open = MenuItem::with_id(app, OPEN, "Open board", true, None::<&str>)?;
+    let needs = MenuItem::with_id(app, "needs", needs_text(Some(0)), false, None::<&str>)?;
+    let autostart = CheckMenuItem::with_id(
+        app,
+        AUTOSTART,
+        "Start on login",
+        true,
+        app.autolaunch().is_enabled().unwrap_or(false),
+        None::<&str>,
+    )?;
+    // Always there; enabled only while this app owns the server (an attached one has its own launcher).
+    // Ownership is settled after the window shows, so [`refresh_lan`] keeps it current.
+    let lan = CheckMenuItem::with_id(
+        app,
+        LAN,
+        "Phone access (on my network)",
+        crate::server::is_owned(app),
+        crate::server::lan_enabled(app),
+        None::<&str>,
+    )?;
+    let quit = MenuItem::with_id(app, QUIT, "Quit", true, None::<&str>)?;
+    let sep = PredefinedMenuItem::separator(app)?;
+    let mut items: Vec<&dyn tauri::menu::IsMenuItem<R>> = vec![&open, &needs, &sep, &autostart];
+    items.push(&lan);
+    items.push(&sep);
+    items.push(&quit);
+    let menu = Menu::with_items(app, &items)?;
+
+    let tray = TrayIconBuilder::with_id(TRAY_ID)
+        .icon(icon_with_count(0))
+        .tooltip("Workbench")
+        .menu(&menu)
+        .on_menu_event({
+            let autostart = autostart.clone();
+            let lan = lan.clone();
+            move |app, event| match event.id().as_ref() {
+                OPEN => {
+                    crate::show_main(app);
+                    refresh_lan(app, &lan);
+                }
+                AUTOSTART => toggle_autostart(app, &autostart),
+                LAN => toggle_lan(app, &lan),
+                QUIT => app.exit(0),
+                _ => {}
+            }
+        })
+        .build(app)?;
+    Ok(Parts { tray, needs, lan })
+}
+
+/// Flips what's really on disk (not the check item's own state: it isn't reliably updated yet when the
+/// click event arrives), then makes the item show it.
+fn toggle_autostart<R: Runtime>(app: &AppHandle<R>, item: &CheckMenuItem<R>) {
+    let manager = app.autolaunch();
+    let want = !manager.is_enabled().unwrap_or(false);
+    let result = if want { manager.enable() } else { manager.disable() };
+    if let Err(e) = result {
+        eprintln!("tray: start on login: {e}");
+    }
+    let _ = item.set_checked(manager.is_enabled().unwrap_or(false));
+}
+
+/// Restarting the server can take seconds: off the menu's thread. On an Err (an attached server, or the
+/// restart failed) the box goes back to what the server really does.
+fn toggle_lan<R: Runtime>(app: &AppHandle<R>, item: &CheckMenuItem<R>) {
+    let want = !crate::server::lan_enabled(app);
+    let (app, item) = (app.clone(), item.clone());
+    std::thread::spawn(move || {
+        if let Err(e) = crate::server::set_lan(&app, want) {
+            eprintln!("tray: phone access: {e}");
+        }
+        refresh_lan(&app, &item);
+    });
+}
+
+/// Enabled and checked as the server is right now (owned, started with --lan). Any thread.
+fn refresh_lan<R: Runtime>(app: &AppHandle<R>, item: &CheckMenuItem<R>) {
+    let (owned, on) = (crate::server::is_owned(app), crate::server::lan_enabled(app));
+    let item = item.clone();
+    let _ = app.run_on_main_thread(move || {
+        let _ = item.set_enabled(owned);
+        let _ = item.set_checked(on);
+    });
+}
+
+fn poll_loop<R: Runtime>(app: AppHandle<R>, parts: Parts<R>) {
+    let mut shown: Option<Option<u32>> = None;
+    loop {
+        let count = fetch_count(&app);
+        refresh_lan(&app, &parts.lan);
+        if shown != Some(count) {
+            shown = Some(count);
+            update(&app, &parts, count);
+        }
+        std::thread::sleep(if count.is_some() { POLL } else { RETRY });
+    }
+}
+
+/// Puts the count in the menu line and the icon. `None`: the board didn't answer.
+fn update<R: Runtime>(app: &AppHandle<R>, parts: &Parts<R>, count: Option<u32>) {
+    let (tray, needs) = (parts.tray.clone(), parts.needs.clone());
+    let _ = app.run_on_main_thread(move || {
+        let _ = needs.set_text(needs_text(count));
+        let _ = tray.set_icon(Some(icon_with_count(count.unwrap_or(0))));
+        let _ = tray.set_tooltip(Some(match count {
+            Some(n) if n > 0 => format!("Workbench: {n} wait on you"),
+            _ => "Workbench".to_string(),
+        }));
+    });
+}
+
+fn needs_text(count: Option<u32>) -> String {
+    match count {
+        None => "Board not reachable".to_string(),
+        Some(0) => "Nothing waits on you".to_string(),
+        Some(n) => format!("Needs you: {n}"),
+    }
+}
+
+/// Sum of `mine` over the projects that aren't archived (the badges on the board's left edge).
+fn fetch_count<R: Runtime>(app: &AppHandle<R>) -> Option<u32> {
+    let url = crate::server::board_url(app).join("/api/projects").ok()?;
+    let agent: ureq::Agent = ureq::Agent::config_builder()
+        .timeout_global(Some(Duration::from_secs(5)))
+        .build()
+        .into();
+    let body = agent.get(url.as_str()).call().ok()?.body_mut().read_to_string().ok()?;
+    let projects: serde_json::Value = serde_json::from_str(&body).ok()?;
+    let sum = projects
+        .as_array()?
+        .iter()
+        .filter(|p| p["archived_at"].is_null())
+        .map(|p| p["mine"].as_u64().unwrap_or(0))
+        .sum::<u64>();
+    Some(sum.min(u32::MAX as u64) as u32)
+}
+
+/// Window events of every window: closing the main one hides it (close to tray).
+pub fn on_window_event<R: Runtime>(window: &Window<R>, event: &WindowEvent) {
+    if let WindowEvent::CloseRequested { api, .. } = event {
+        if window.label() == crate::MAIN && TRAY_UP.load(Ordering::Relaxed) {
+            api.prevent_close();
+            let _ = window.hide();
+        }
+    }
+}
+
+// ---------- the icon ----------
+
+/// The board's icon with the count on it: a red dot in the top right corner with the number in white,
+/// `9+` above 9, nothing for 0.
+fn icon_with_count(count: u32) -> Image<'static> {
+    let base = Image::from_bytes(include_bytes!("../icons/128x128.png")).expect("the app icon is a PNG");
+    let (w, h) = (base.width(), base.height());
+    let mut rgba = base.rgba().to_vec();
+    if count > 0 {
+        paint_badge(&mut rgba, w, h, count);
+    }
+    Image::new_owned(rgba, w, h)
+}
+
+/// 3 × 5 pixel digits and `+`, one string of 15 cells per glyph, row by row.
+const GLYPHS: [&str; 11] = [
+    "111101101101111", // 0
+    "010110010010111", // 1
+    "111001111100111", // 2
+    "111001111001111", // 3
+    "101101111001001", // 4
+    "111100111001111", // 5
+    "111100111101111", // 6
+    "111001001001001", // 7
+    "111101111101111", // 8
+    "111101111001111", // 9
+    "000010111010000", // +
+];
+
+fn paint_badge(rgba: &mut [u8], w: u32, h: u32, count: u32) {
+    let s = (w as f32 / 16.0).round().max(1.0) as i32; // pixel size of the digits
+    let radius = w as f32 * 0.28;
+    let (cx, cy) = (w as f32 - radius - 1.0, radius + 1.0);
+    // Anti-aliased disc: 4 × 4 samples per pixel.
+    for y in 0..h as i32 {
+        for x in 0..w as i32 {
+            let mut inside = 0;
+            for sy in 0..4 {
+                for sx in 0..4 {
+                    let (px, py) = (x as f32 + (sx as f32 + 0.5) / 4.0, y as f32 + (sy as f32 + 0.5) / 4.0);
+                    if (px - cx).powi(2) + (py - cy).powi(2) <= radius * radius {
+                        inside += 1;
+                    }
+                }
+            }
+            if inside > 0 {
+                blend(rgba, w, x, y, [220, 38, 38], inside as f32 / 16.0);
+            }
+        }
+    }
+    let glyphs: Vec<usize> = if count > 9 { vec![9, 10] } else { vec![count as usize] };
+    let text_w = glyphs.len() as i32 * 3 * s + (glyphs.len() as i32 - 1) * s;
+    let (x0, y0) = (cx.round() as i32 - text_w / 2, cy.round() as i32 - 5 * s / 2);
+    for (gi, g) in glyphs.iter().enumerate() {
+        for (i, cell) in GLYPHS[*g].bytes().enumerate() {
+            if cell != b'1' {
+                continue;
+            }
+            let (col, row) = ((i % 3) as i32, (i / 3) as i32);
+            for dy in 0..s {
+                for dx in 0..s {
+                    let (x, y) = (x0 + gi as i32 * 4 * s + col * s + dx, y0 + row * s + dy);
+                    blend(rgba, w, x, y, [255, 255, 255], 1.0);
+                }
+            }
+        }
+    }
+}
+
+/// Mixes `color` over the pixel at (x, y) with `alpha`; the pixel's own alpha takes the larger.
+fn blend(rgba: &mut [u8], w: u32, x: i32, y: i32, color: [u8; 3], alpha: f32) {
+    if x < 0 || y < 0 || x >= w as i32 {
+        return;
+    }
+    let i = ((y as u32 * w + x as u32) * 4) as usize;
+    if i + 3 >= rgba.len() {
+        return;
+    }
+    for c in 0..3 {
+        rgba[i + c] = (rgba[i + c] as f32 * (1.0 - alpha) + color[c] as f32 * alpha).round() as u8;
+    }
+    rgba[i + 3] = rgba[i + 3].max((alpha * 255.0).round() as u8);
+}
