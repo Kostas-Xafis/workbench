@@ -508,6 +508,12 @@ impl<R: Runtime> Supervisor<R> {
             .stdin(Stdio::null())
             .stdout(writer)
             .stderr(writer2);
+        for (key, value) in without_appimage_env() {
+            match value {
+                Some(v) => cmd.env(key, v),
+                None => cmd.env_remove(key),
+            };
+        }
         #[cfg(unix)]
         {
             use std::os::unix::process::CommandExt;
@@ -726,6 +732,37 @@ fn db_path<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf, String> {
         fs::create_dir_all(dir).map_err(|e| format!("Can't create {}: {e}", dir.display()))?;
     }
     Ok(db)
+}
+
+/// In an AppImage, its AppRun points PATH, LD_LIBRARY_PATH, PYTHONHOME, GTK_*, GIO_MODULE_DIR… at the image's
+/// own files, and the server passes its environment on to what it runs for Kostas (trackers' commands, git,
+/// cloudflared): python3 doesn't even start with that PYTHONHOME. So the server gets the desktop's
+/// environment back: every variable loses the parts inside the image (`$APPDIR`), and goes if nothing is left.
+/// Empty outside an AppImage.
+fn without_appimage_env() -> Vec<(std::ffi::OsString, Option<std::ffi::OsString>)> {
+    #[cfg(unix)]
+    {
+        use std::ffi::OsString;
+        use std::os::unix::ffi::{OsStrExt, OsStringExt};
+        let (Some(appdir), Some(_)) = (std::env::var_os("APPDIR"), std::env::var_os("APPIMAGE")) else {
+            return Vec::new();
+        };
+        let appdir = appdir.as_bytes().to_vec();
+        if appdir.len() < 2 {
+            return Vec::new();
+        }
+        let inside = |part: &[u8]| part.starts_with(&appdir);
+        std::env::vars_os()
+            .filter(|(_, v)| v.as_bytes().windows(appdir.len()).any(|w| w == appdir.as_slice()))
+            .map(|(k, v)| {
+                let kept: Vec<&[u8]> = v.as_bytes().split(|b| *b == b':').filter(|p| !p.is_empty() && !inside(p)).collect();
+                let value = (!kept.is_empty()).then(|| OsString::from_vec(kept.join(&b':')));
+                (k, value)
+            })
+            .collect()
+    }
+    #[cfg(not(unix))]
+    Vec::new()
 }
 
 /// The workbench systemd user unit is enabled, so a board is expected on login without us.
