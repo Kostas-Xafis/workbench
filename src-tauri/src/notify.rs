@@ -34,6 +34,13 @@ pub const CLICKED_EVENT: &str = "notification-clicked";
 
 /// How many notifications we remember a click target for. Far more than are ever on screen.
 const MAX_KNOWN: usize = 100;
+/// Longer titles and bodies are cut (characters, with an ellipsis); the board's are far shorter.
+const MAX_TITLE: usize = 200;
+const MAX_BODY: usize = 2000;
+/// A `target` bigger than this, as JSON, is refused: the board's are `{ "item": 12 }`.
+const MAX_TARGET: usize = 4096;
+/// The .desktop file's name (Workbench.desktop), for the desktop to put the notification under the app.
+const DESKTOP_ENTRY: &str = "Workbench";
 
 #[derive(Clone, Serialize)]
 pub struct Clicked {
@@ -143,6 +150,16 @@ fn escape_markup(s: &str) -> String {
     s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
 }
 
+/// `s` cut to `max` characters, the last one an ellipsis when it was longer.
+fn cap(s: &str, max: usize) -> String {
+    if s.chars().count() <= max {
+        return s.to_string();
+    }
+    let mut out: String = s.chars().take(max.saturating_sub(1)).collect();
+    out.push('…');
+    out
+}
+
 /// What a click does: window to the front, then the page hears `{ tag, target }`.
 fn clicked<R: Runtime>(app: &AppHandle<R>, id: u32) {
     let (entry, token) = {
@@ -167,6 +184,14 @@ pub async fn notify<R: Runtime>(
     tag: Option<String>,
     target: Option<Value>,
 ) -> Result<u32, String> {
+    let title = cap(&title, MAX_TITLE);
+    let body = body.map(|b| cap(&b, MAX_BODY));
+    if let Some(t) = &target {
+        let size = serde_json::to_string(t).map_or(usize::MAX, |j| j.len());
+        if size > MAX_TARGET {
+            return Err(format!("notify: target is {size} bytes as JSON, more than {MAX_TARGET}"));
+        }
+    }
     #[cfg(target_os = "linux")]
     {
         let replaces = tag.as_ref().and_then(|t| known().lock().unwrap().by_tag.get(t).copied()).unwrap_or(0);
@@ -178,7 +203,7 @@ pub async fn notify<R: Runtime>(
     }
     #[cfg(not(target_os = "linux"))]
     {
-        let _ = (title, body, tag, target, escape_markup(""), &GENERATION);
+        let _ = (title, body, tag, target, escape_markup(""), &GENERATION, DESKTOP_ENTRY);
         Err("notifications are only implemented on Linux".into())
     }
 }
@@ -200,7 +225,7 @@ mod dbus {
     /// Notify(app_name, replaces_id, icon, summary, body, actions, hints, timeout) → id. Blocking, short.
     pub fn send(title: &str, body: &str, icon: &str, replaces: u32) -> Result<u32, String> {
         let actions = vec!["default".to_string(), "Open".to_string()];
-        let hints: HashMap<String, Variant> = HashMap::new();
+        let hints: HashMap<String, Variant> = HashMap::from([("desktop-entry".to_string(), super::DESKTOP_ENTRY.to_variant())]);
         let params = ("Workbench", replaces, icon, title, body, actions, hints, -1i32).to_variant();
         let reply = connection()?
             .call_sync(
@@ -257,5 +282,19 @@ mod dbus {
                 }
             },
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::cap;
+
+    #[test]
+    fn cap_cuts_on_characters_with_an_ellipsis() {
+        assert_eq!(cap("short", 200), "short");
+        assert_eq!(cap(&"x".repeat(200), 200), "x".repeat(200));
+        let cut = cap(&"é".repeat(250), 200);
+        assert_eq!(cut.chars().count(), 200);
+        assert!(cut.ends_with("é…"));
     }
 }
