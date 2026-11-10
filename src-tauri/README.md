@@ -217,7 +217,7 @@ null (the badges on the left edge), polled by Rust (the page's own poll pauses w
   `GET <board>/api/projects`, polled every 30 s with `ureq` (every 5 s while the board doesn't answer; the menu
   line then reads "Board not reachable"). Menu: Open board, "Needs you: N" / "Nothing waits on you" (disabled),
   Start on login (tauri-plugin-autostart, Rust side only, not granted to the page), Phone access (on my network)
-  (only when `server::is_owned` at startup; calls `server::set_lan` on a thread and shows `lan_enabled` again
+  (always there, enabled only while `server::is_owned`, refreshed on every poll, Open and set_lan; calls `server::set_lan` on a thread and shows `lan_enabled` again
   afterwards, so an Err just puts the box back), Quit (`app.exit(0)`). The appindicator shows no tooltip (no
   `ToolTip` property on D-Bus), so the number is only in the icon and the menu line. Close hides the main window
   (only when the tray icon exists). **Start on login writes `$HOME/.config/autostart/Workbench.desktop`**

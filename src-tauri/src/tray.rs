@@ -48,7 +48,7 @@ pub fn init<R: Runtime>(builder: Builder<R>) -> Builder<R> {
 struct Parts<R: Runtime> {
     tray: TrayIcon<R>,
     needs: MenuItem<R>,
-    lan: Option<CheckMenuItem<R>>,
+    lan: CheckMenuItem<R>,
 }
 
 /// Creates the tray icon and its menu, and starts polling the count. Runs in Tauri's setup, after the main
@@ -76,25 +76,20 @@ fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Parts<R>> {
         app.autolaunch().is_enabled().unwrap_or(false),
         None::<&str>,
     )?;
-    // Only a server this app started has a --lan switch. (Fixed at startup: the menu isn't rebuilt.)
-    let lan = if crate::server::is_owned(app) {
-        Some(CheckMenuItem::with_id(
-            app,
-            LAN,
-            "Phone access (on my network)",
-            true,
-            crate::server::lan_enabled(app),
-            None::<&str>,
-        )?)
-    } else {
-        None
-    };
+    // Always there; enabled only while this app owns the server (an attached one has its own launcher).
+    // Ownership is settled after the window shows, so [`refresh_lan`] keeps it current.
+    let lan = CheckMenuItem::with_id(
+        app,
+        LAN,
+        "Phone access (on my network)",
+        crate::server::is_owned(app),
+        crate::server::lan_enabled(app),
+        None::<&str>,
+    )?;
     let quit = MenuItem::with_id(app, QUIT, "Quit", true, None::<&str>)?;
     let sep = PredefinedMenuItem::separator(app)?;
     let mut items: Vec<&dyn tauri::menu::IsMenuItem<R>> = vec![&open, &needs, &sep, &autostart];
-    if let Some(l) = &lan {
-        items.push(l);
-    }
+    items.push(&lan);
     items.push(&sep);
     items.push(&quit);
     let menu = Menu::with_items(app, &items)?;
@@ -107,13 +102,12 @@ fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Parts<R>> {
             let autostart = autostart.clone();
             let lan = lan.clone();
             move |app, event| match event.id().as_ref() {
-                OPEN => crate::show_main(app),
-                AUTOSTART => toggle_autostart(app, &autostart),
-                LAN => {
-                    if let Some(l) = &lan {
-                        toggle_lan(app, l);
-                    }
+                OPEN => {
+                    crate::show_main(app);
+                    refresh_lan(app, &lan);
                 }
+                AUTOSTART => toggle_autostart(app, &autostart),
+                LAN => toggle_lan(app, &lan),
                 QUIT => app.exit(0),
                 _ => {}
             }
@@ -143,10 +137,17 @@ fn toggle_lan<R: Runtime>(app: &AppHandle<R>, item: &CheckMenuItem<R>) {
         if let Err(e) = crate::server::set_lan(&app, want) {
             eprintln!("tray: phone access: {e}");
         }
-        let actual = crate::server::lan_enabled(&app);
-        let _ = app.run_on_main_thread(move || {
-            let _ = item.set_checked(actual);
-        });
+        refresh_lan(&app, &item);
+    });
+}
+
+/// Enabled and checked as the server is right now (owned, started with --lan). Any thread.
+fn refresh_lan<R: Runtime>(app: &AppHandle<R>, item: &CheckMenuItem<R>) {
+    let (owned, on) = (crate::server::is_owned(app), crate::server::lan_enabled(app));
+    let item = item.clone();
+    let _ = app.run_on_main_thread(move || {
+        let _ = item.set_enabled(owned);
+        let _ = item.set_checked(on);
     });
 }
 
@@ -154,6 +155,7 @@ fn poll_loop<R: Runtime>(app: AppHandle<R>, parts: Parts<R>) {
     let mut shown: Option<Option<u32>> = None;
     loop {
         let count = fetch_count(&app);
+        refresh_lan(&app, &parts.lan);
         if shown != Some(count) {
             shown = Some(count);
             update(&app, &parts, count);
@@ -164,8 +166,7 @@ fn poll_loop<R: Runtime>(app: AppHandle<R>, parts: Parts<R>) {
 
 /// Puts the count in the menu line and the icon. `None`: the board didn't answer.
 fn update<R: Runtime>(app: &AppHandle<R>, parts: &Parts<R>, count: Option<u32>) {
-    let (tray, needs, lan) = (parts.tray.clone(), parts.needs.clone(), parts.lan.clone());
-    let app2 = app.clone();
+    let (tray, needs) = (parts.tray.clone(), parts.needs.clone());
     let _ = app.run_on_main_thread(move || {
         let _ = needs.set_text(needs_text(count));
         let _ = tray.set_icon(Some(icon_with_count(count.unwrap_or(0))));
@@ -173,9 +174,6 @@ fn update<R: Runtime>(app: &AppHandle<R>, parts: &Parts<R>, count: Option<u32>) 
             Some(n) if n > 0 => format!("Workbench: {n} wait on you"),
             _ => "Workbench".to_string(),
         }));
-        if let Some(l) = lan {
-            let _ = l.set_checked(crate::server::lan_enabled(&app2));
-        }
     });
 }
 
