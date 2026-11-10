@@ -19,6 +19,7 @@
 		"targets": ["deb", "appimage"],
 		"category": "Productivity",
 		"shortDescription": "One board for every project",
+		"externalBin": ["binaries/workbench-server"],
 		"icon": ["icons/32x32.png", "icons/64x64.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.png"]
 	}
 }

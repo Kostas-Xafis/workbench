@@ -49,11 +49,10 @@ pub fn run() {
     builder
         .setup(|app| {
             let handle = app.handle();
-            let board = server::setup(handle)?;
-            grant_board(handle, &board.url)?;
-            let url = board.url.clone();
-            app.manage(board);
-            main_window(handle, url)?;
+            // Returns at once: the window opens on the bundled fallback page, and server.rs grants the board's
+            // capability (grant_board) and navigates to the board once it answers.
+            server::setup(handle)?;
+            main_window(handle)?;
             tray::setup(handle)?;
             notify::setup(handle)?;
             #[cfg(debug_assertions)]
@@ -76,20 +75,22 @@ fn with_commands<R: Runtime>(builder: tauri::Builder<R>) -> tauri::Builder<R> {
     {
         builder.invoke_handler(tauri::generate_handler![
             server::app_info,
+            server::retry,
             notify::notify,
             probe::probe_result
         ])
     }
     #[cfg(not(debug_assertions))]
     {
-        builder.invoke_handler(tauri::generate_handler![server::app_info, notify::notify])
+        builder.invoke_handler(tauri::generate_handler![server::app_info, server::retry, notify::notify])
     }
 }
 
 /// Grants [`BOARD_PERMISSIONS`] to the board's exact origin (scheme, host and port), in the main window
-/// only. Built at runtime because the port comes from `WB_APP_URL`; there are no static capability files
-/// (tauri.conf.json sets `app.security.capabilities` to `[]`).
-fn grant_board<R: Runtime>(app: &AppHandle<R>, url: &Url) -> tauri::Result<()> {
+/// only. server.rs calls it once, before it first navigates the window to the board. Built at runtime because
+/// the port comes from `WB_APP_URL`; there are no static capability files (tauri.conf.json sets
+/// `app.security.capabilities` to `[]`).
+pub(crate) fn grant_board<R: Runtime>(app: &AppHandle<R>, url: &Url) -> tauri::Result<()> {
     let pattern = format!("{}/*", url.origin().ascii_serialization());
     #[cfg(debug_assertions)]
     let pattern = match probe::pattern_override() {
@@ -111,8 +112,8 @@ fn grant_board<R: Runtime>(app: &AppHandle<R>, url: &Url) -> tauri::Result<()> {
     Ok(())
 }
 
-fn main_window<R: Runtime>(app: &AppHandle<R>, url: Url) -> tauri::Result<WebviewWindow<R>> {
-    let builder = WebviewWindowBuilder::new(app, MAIN, WebviewUrl::External(url))
+fn main_window<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<WebviewWindow<R>> {
+    let builder = WebviewWindowBuilder::new(app, MAIN, WebviewUrl::App("index.html".into()))
         .title("Workbench")
         .inner_size(1280.0, 860.0)
         .min_inner_size(480.0, 400.0);
