@@ -193,6 +193,23 @@ the bell shows). Everything else (clipboard, `<a download>`, vault crypto, repor
 Tray count (no page change): the sum of `mine` over the projects in `GET /api/projects` whose `archived_at` is
 null (the badges on the left edge), polled by Rust (the page's own poll pauses while the window is hidden).
 
+### Added before phase 2
+
+- **`WB_APP=1`** is in the environment of every server the app starts (owned), so the server (health.ts) can
+  speak of the app's own start on login and phone setting instead of the systemd unit. An attached server
+  doesn't have it; the page knows it's in the app from `window.isTauri` either way.
+- **`WB_APP_DB`** (dev and tests): the database the app gives an owned server, in place of the default. The
+  default is the real `~/Projects/workbench/workbench.db`, so **every test run that can start a server sets
+  `WB_APP_DB`** (and `WB_APP_URL` to a test port). Never let a test start a server on the real database.
+- **Rust interface between modules** (server.rs; the lifecycle agent implements, the others only call):
+  `server::board_url(app) -> Url`, `server::is_owned(app) -> bool`, `server::lan_enabled(app) -> bool`,
+  `server::set_lan(app, on) -> Result<(), String>` (saves the app setting `lan`, restarts an owned server; Err when
+  attached). Tray Quit calls `app.exit(0)`; `server::on_run_event` stops an owned server on exit.
+- **HTTP from Rust:** `ureq` 3 (blocking, small), for both the ping (server.rs) and the tray's count (tray.rs).
+  Not a second HTTP crate.
+- **App settings** (`lan`, and anything else the app keeps): `app.json` in the app's config folder
+  (`~/.config/io.github.kostas-xafis.workbench/app.json`), owned by server.rs.
+
 ## Probe
 
 Debug builds only (`mod probe` is `cfg(debug_assertions)`); release builds have neither the code nor the

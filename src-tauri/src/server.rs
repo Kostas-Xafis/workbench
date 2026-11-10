@@ -14,7 +14,7 @@
 //! Phase 1 only reads `WB_APP_URL` and reports the board as attached, without checking it answers.
 
 use serde::Serialize;
-use tauri::{AppHandle, Builder, RunEvent, Runtime, State, Url};
+use tauri::{AppHandle, Builder, Manager, RunEvent, Runtime, State, Url};
 
 /// Where the board is, and whether this app started it. Managed state, set in `setup`.
 pub struct Board {
@@ -39,6 +39,30 @@ pub fn setup<R: Runtime>(_app: &AppHandle<R>) -> Result<Board, Box<dyn std::erro
 
 /// App-level events (exit requested, exit): stop an owned server here.
 pub fn on_run_event<R: Runtime>(_app: &AppHandle<R>, _event: &RunEvent) {}
+
+// The interface other modules use (tray.rs, web.rs). Keep these signatures: the lifecycle agent changes what's
+// behind them (e.g. `Board` behind a lock once `owned` changes at runtime), the system agent only calls them.
+
+/// The board's URL as the app uses it now (scheme, host, port; the tray polls `/api/projects` on it).
+pub fn board_url<R: Runtime>(app: &AppHandle<R>) -> Url {
+    app.state::<Board>().url.clone()
+}
+
+/// true when this app started the server it shows (and so stops it on quit, and controls `--lan`).
+pub fn is_owned<R: Runtime>(app: &AppHandle<R>) -> bool {
+    app.state::<Board>().owned
+}
+
+/// Whether the owned server was started with `--lan` (the app setting `lan`). false for an attached server.
+pub fn lan_enabled<R: Runtime>(_app: &AppHandle<R>) -> bool {
+    false
+}
+
+/// Turns `--lan` on or off for the owned server: saves the app setting `lan` and restarts the server.
+/// Err for an attached server (its own launcher decides). Phase-1 stub; the lifecycle agent implements it.
+pub fn set_lan<R: Runtime>(_app: &AppHandle<R>, _on: bool) -> Result<(), String> {
+    Err("not implemented yet".into())
+}
 
 #[derive(Serialize)]
 pub struct AppInfo {
