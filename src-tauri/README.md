@@ -279,6 +279,15 @@ null (the badges on the left edge), polled by Rust (the page's own poll pauses w
   refused. `window.open` / `target="_blank"` never open an app window: Deny + default browser. Downloads: saved
   in the download folder WebKit proposed under a free name (`name (1).ext`), then `download-finished`. Every
   permission request is denied (copying needs none; `readText` isn't used).
+- **Opening in the browser works like a popup blocker** (`open_external`, phase 3). The hooks can't tell a click
+  from a script, or the board's frame from a report's iframe: a report can navigate its own frame (each one would
+  be an open) and the app has no popup blocker for `window.open`. In a browser neither opens a tab. So the limits
+  are by volume and target, for navigations and new windows together: http, https and mailto only; a token bucket
+  of 3 opens, refilled by 1 every 5 s (a dropped open is logged with `eprintln` and does nothing else); the same
+  URL again within 3 s is dropped; loopback targets (`localhost`, `*.localhost`, `127.0.0.0/8`, `::1`, `0.0.0.0`)
+  are refused unless they are the board's own origin, port included (`localhost` = `127.0.0.1`), so the report's
+  "New tab ↗" still opens. LAN addresses stay allowed (Health links to the board's LAN URLs). **What's left:** a
+  report (or a script in the board page) can still open one tab every 5 s, to any http(s) site, without a click.
 
 ## Probe
 
