@@ -105,9 +105,37 @@ fn open_external<R: Runtime>(app: &AppHandle<R>, url: &Url) {
         eprintln!("web: not opening {url}: {why}");
         return;
     }
+    // In an AppImage the browser would start with the image's LD_LIBRARY_PATH, GTK_PATH, PYTHONHOME...: open it
+    // the way the opener would (xdg-open, else gio open), with the desktop's environment (server.rs).
+    if !crate::server::without_appimage_env().is_empty() {
+        return open_with_host_env(url);
+    }
     if let Err(e) = tauri_plugin_opener::open_url(url.as_str(), None::<&str>) {
         eprintln!("web: could not open {url}: {e}");
     }
+}
+
+/// `xdg-open <url>` (or `gio open <url>` without xdg-open) with [`crate::server::host_env`], reaped on a thread.
+/// The URL is http(s) or mailto, so it can't be taken for an option.
+fn open_with_host_env(url: &Url) {
+    for launcher in [&["xdg-open"][..], &["gio", "open"][..]] {
+        let mut cmd = std::process::Command::new(launcher[0]);
+        cmd.args(&launcher[1..])
+            .arg(url.as_str())
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null());
+        crate::server::host_env(&mut cmd);
+        match cmd.spawn() {
+            Ok(mut child) => {
+                std::thread::spawn(move || child.wait());
+                return;
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(e) => return eprintln!("web: could not open {url}: {e}"),
+        }
+    }
+    eprintln!("web: could not open {url}: neither xdg-open nor gio is there");
 }
 
 // ---------- what open_external lets through ----------

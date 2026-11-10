@@ -508,12 +508,7 @@ impl<R: Runtime> Supervisor<R> {
             .stdin(Stdio::null())
             .stdout(writer)
             .stderr(writer2);
-        for (key, value) in without_appimage_env() {
-            match value {
-                Some(v) => cmd.env(key, v),
-                None => cmd.env_remove(key),
-            };
-        }
+        host_env(&mut cmd);
         #[cfg(unix)]
         {
             use std::os::unix::process::CommandExt;
@@ -738,8 +733,8 @@ fn db_path<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf, String> {
 /// own files, and the server passes its environment on to what it runs for Kostas (trackers' commands, git,
 /// cloudflared): python3 doesn't even start with that PYTHONHOME. So the server gets the desktop's
 /// environment back: every variable loses the parts inside the image (`$APPDIR`), and goes if nothing is left.
-/// Empty outside an AppImage.
-fn without_appimage_env() -> Vec<(std::ffi::OsString, Option<std::ffi::OsString>)> {
+/// Empty outside an AppImage. [`host_env`] applies it to a command; web.rs uses it for the browser too.
+pub(crate) fn without_appimage_env() -> Vec<(std::ffi::OsString, Option<std::ffi::OsString>)> {
     #[cfg(unix)]
     {
         use std::ffi::OsString;
@@ -763,6 +758,16 @@ fn without_appimage_env() -> Vec<(std::ffi::OsString, Option<std::ffi::OsString>
     }
     #[cfg(not(unix))]
     Vec::new()
+}
+
+/// Gives `cmd` the desktop's environment instead of the AppImage's (see [`without_appimage_env`]).
+pub(crate) fn host_env(cmd: &mut Command) {
+    for (key, value) in without_appimage_env() {
+        match value {
+            Some(v) => cmd.env(key, v),
+            None => cmd.env_remove(key),
+        };
+    }
 }
 
 /// The workbench systemd user unit is enabled, so a board is expected on login without us.
