@@ -12,7 +12,7 @@
 //!   to the clipboard without a permission, notifications go through the `notify` command (notify.rs).
 
 use std::collections::HashSet;
-use std::ffi::OsStr;
+use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 
@@ -113,11 +113,14 @@ fn downloads() -> &'static Mutex<Downloads> {
 fn on_download<R: Runtime>(app: &AppHandle<R>, event: DownloadEvent<'_>) {
     match event {
         DownloadEvent::Requested { url, destination } => {
-            let name = destination
-                .file_name()
-                .map(|n| n.to_owned())
-                .unwrap_or_else(|| "download".into());
-            let dir = destination.parent().map(Path::to_path_buf).unwrap_or_default();
+            // The folder is ours to pick, not the proposed path's: for a suggested name like ".." (a
+            // Content-Disposition or a `download` attribute) wry proposes `Downloads/../ (1)..`, one level up.
+            let dir = app
+                .path()
+                .download_dir()
+                .or_else(|_| app.path().home_dir())
+                .unwrap_or_else(|_| destination.parent().map(Path::to_path_buf).unwrap_or_default());
+            let name = safe_name(destination.file_name());
             let _ = std::fs::create_dir_all(&dir);
             let mut d = downloads().lock().unwrap();
             let target = unique_path(&dir, &name, &d.reserved);
@@ -145,6 +148,32 @@ fn on_download<R: Runtime>(app: &AppHandle<R>, event: DownloadEvent<'_>) {
             let _ = app.emit_to(crate::MAIN, DOWNLOAD_EVENT, payload);
         }
         _ => {}
+    }
+}
+
+/// The proposed file name as a plain, visible file name: no leading dots (no `.bashrc`, `..`), no path
+/// separators, at most 200 bytes (a longer one fails to save), `download` if nothing is left.
+fn safe_name(name: Option<&OsStr>) -> OsString {
+    const MAX: usize = 200;
+    let raw = name.map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let mut s: String = raw.trim().trim_start_matches('.').replace(['/', '\\', '\0'], "_");
+    if s.len() > MAX {
+        // Keep a short extension ("….csv"), cut the rest on a character boundary.
+        let ext = Path::new(&s).extension().map(|e| e.to_string_lossy().into_owned()).filter(|e| e.len() <= 16);
+        let keep = MAX - ext.as_ref().map_or(0, |e| e.len() + 1);
+        let mut cut = keep;
+        while !s.is_char_boundary(cut) {
+            cut -= 1;
+        }
+        s.truncate(cut);
+        if let Some(e) = ext {
+            s = format!("{s}.{e}");
+        }
+    }
+    if s.trim().is_empty() {
+        "download".into()
+    } else {
+        s.into()
     }
 }
 
