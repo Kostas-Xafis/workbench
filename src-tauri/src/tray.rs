@@ -141,8 +141,19 @@ fn toggle_lan<R: Runtime>(app: &AppHandle<R>, item: &CheckMenuItem<R>) {
     let want = !crate::server::lan_enabled(app);
     let (app, item) = (app.clone(), item.clone());
     std::thread::spawn(move || {
-        if let Err(e) = crate::server::set_lan(&app, want) {
-            eprintln!("tray: phone access: {e}");
+        match crate::server::set_lan(&app, want) {
+            // set_lan returns before the restart: wait until the new server runs (or 20 s), or the box would show
+            // the old state until the next poll, up to 30 s later.
+            Ok(()) => {
+                let until = std::time::Instant::now() + Duration::from_secs(20);
+                while crate::server::lan_enabled(&app) != want
+                    && crate::server::is_owned(&app)
+                    && std::time::Instant::now() < until
+                {
+                    std::thread::sleep(Duration::from_millis(200));
+                }
+            }
+            Err(e) => eprintln!("tray: phone access: {e}"),
         }
         refresh_lan(&app, &item);
     });
