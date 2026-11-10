@@ -30,11 +30,14 @@ export type Health = {
 	checks: Check[];
 	agents: { stdio: string; http: string; configured: string; wb: string | null };
 	phone: { lan: boolean; urls: { url: string; qr: string }[] };
+	/** The Workbench app started this board (WB_APP=1): login start and phone access are the app's, in its tray menu. */
+	app: boolean;
 	startup: { supported: boolean; unitPath: string; installed: boolean; enabled: string; active: string; underSystemd: boolean; unit: string; install: string };
 	board: { port: number; bun: string; db: string; dbBytes: number; backups: string; startedAt: number };
 };
 
 const STARTED = Date.now();
+const APP = process.env.WB_APP === "1";
 
 async function run(argv: string[], timeout = 10_000) {
 	try {
@@ -197,11 +200,13 @@ async function systemctl(...args: string[]) {
 }
 
 export async function startup(): Promise<Health["startup"]> {
-	const supported = process.platform === "linux" && !!Bun.which("systemctl");
+	// Started by the app: its own start on login replaces the unit, whose path (in a compiled binary) isn't real.
+	const app = APP;
+	const supported = !app && process.platform === "linux" && !!Bun.which("systemctl");
 	const unitPath = join(homedir(), ".config/systemd/user/workbench.service");
-	const server = resolve(import.meta.dir, "server.ts");
-	const unit = `[Unit]\nDescription=Workbench board\n\n[Service]\nExecStart=${process.execPath} ${server}\nRestart=on-failure\n\n[Install]\nWantedBy=default.target\n`;
-	const install = `mkdir -p ${dirname(unitPath)} && cat > ${unitPath} <<'EOF'\n${unit}EOF\nsystemctl --user daemon-reload && systemctl --user enable --now workbench`;
+	const server = app ? "" : resolve(import.meta.dir, "server.ts");
+	const unit = app ? "" : `[Unit]\nDescription=Workbench board\n\n[Service]\nExecStart=${process.execPath} ${server}\nRestart=on-failure\n\n[Install]\nWantedBy=default.target\n`;
+	const install = app ? "" : `mkdir -p ${dirname(unitPath)} && cat > ${unitPath} <<'EOF'\n${unit}EOF\nsystemctl --user daemon-reload && systemctl --user enable --now workbench`;
 	const installed = existsSync(unitPath);
 	return {
 		supported,
@@ -236,6 +241,7 @@ export async function health(db: Db, { port, lan }: { port: number; lan: boolean
 			configured: claudeConfig(),
 			wb: wbBin,
 		},
+		app: APP,
 		phone: { lan, urls: urls.map((url, i) => ({ url, qr: i === 0 ? qrSvg(url) : "" })) },
 		startup: await startup(),
 		board: { port, bun: Bun.version, db: DB_PATH, dbBytes, backups: BACKUP_DIR, startedAt: STARTED },

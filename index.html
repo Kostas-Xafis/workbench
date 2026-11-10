@@ -2661,6 +2661,18 @@ envDlg.addEventListener("close", closeEnv);
 // The bell and the switch in Settings → Notifications are the same thing (wb.notify); what pops up, and when, is
 // chosen there (prefs notify.*).
 const notify = { on: localGet("notify") === "on", items: null, reports: null, trackers: null };
+// In the Workbench desktop app (src-tauri/README.md, "Page ↔ app"): notifications go through the app's `notify`
+// command, because WebKit there denies `Notification` without asking. A refused call turns appNotify off for good,
+// and everything falls back to the web path below.
+const app = window.isTauri === true && window.__TAURI__ ? window.__TAURI__ : null;
+let appNotify = !!app?.core && !!app?.event;
+if (appNotify) {
+	app.event.listen("notification-clicked", (e) => openTarget(e.payload?.target)).catch(() => { appNotify = false; renderNotify(); renderSettings(); });
+	app.event.listen("download-finished", (e) => {
+		const d = e.payload || {};
+		toast(d.success ? `Saved to Downloads: ${d.name}` : `Couldn't save ${d.name || "the download"}`);
+	}).catch(() => {});
+}
 // Kinds of event, each a switch in Settings → Notifications, on by default: [key, label, hint].
 const NOTIFY_KINDS = [
 	["needs", "Something new needs you", "An item handed to you: a decision, a check, a review or a setup step"],
@@ -2670,7 +2682,7 @@ const NOTIFY_KINDS = [
 	["trackers", "Status trackers", "One starts to warn, turns bad or stops reading"],
 ];
 const notifyWants = (kind) => pref(`notify.${kind}`, true) !== false;
-const notifyOn = () => notify.on && window.Notification?.permission === "granted";
+const notifyOn = () => notify.on && (appNotify || window.Notification?.permission === "granted");
 // Quiet hours: from–to wraps past midnight when from is later than to; "All weekend too" adds Saturday and Sunday.
 const minutesOf = (hhmm, def) => {
 	const m = /^(\d{1,2}):(\d{2})$/.exec(hhmm || "") || /^(\d{1,2}):(\d{2})$/.exec(def);
@@ -2686,13 +2698,13 @@ function quietAt(d = new Date()) {
 }
 function renderNotify() {
 	const b = $("#notify");
-	b.hidden = !("Notification" in window);
+	b.hidden = !(appNotify || "Notification" in window);
 	const on = notifyOn();
 	b.setAttribute("aria-pressed", on);
 	b.title = on ? `Desktop notifications on${quietAt() ? ", quiet hours now" : ""}. Settings → Notifications chooses which` : "Turn on desktop notifications";
 }
 async function setNotifyOn(on) {
-	if (on && Notification.permission !== "granted" && (await Notification.requestPermission()) !== "granted") {
+	if (on && !appNotify && Notification.permission !== "granted" && (await Notification.requestPermission()) !== "granted") {
 		renderNotify();
 		renderSettings();
 		return toast(Notification.permission === "denied" ? "Notifications are blocked for this page in the browser settings" : "Notifications stay off: the browser wasn't allowed to show them");
@@ -2706,7 +2718,11 @@ async function setNotifyOn(on) {
 }
 $("#notify").onclick = () => setNotifyOn(!notifyOn());
 // Desktops show a Notification right away; Chrome on Android only from an installed app, so it throws there.
-function ping(title, body, tag, open) {
+function ping(title, body, tag, open, target) {
+	if (appNotify) {
+		app.core.invoke("notify", { title, body, tag, target: target ?? null }).catch((e) => { console.warn(e); appNotify = false; ping(title, body, tag, open); renderNotify(); renderSettings(); });
+		return true;
+	}
 	try {
 		const n = new Notification(title, { body, tag, icon: "/favicon.svg" });
 		n.onclick = () => { window.focus(); open?.(); n.close(); };
@@ -2730,7 +2746,7 @@ function heldSet(list) {
 }
 function summarise(held) {
 	if (!held.length) return;
-	if (held.length === 1) return ping(held[0].title, held[0].body, held[0].tag, () => openTarget(held[0].open));
+	if (held.length === 1) return ping(held[0].title, held[0].body, held[0].tag, () => openTarget(held[0].open), held[0].open);
 	const n = (k) => held.filter((h) => h.kind === k).length;
 	const s = (c) => (c === 1 ? "" : "s");
 	const parts = [
@@ -2741,7 +2757,7 @@ function summarise(held) {
 		n("trackers") && `${n("trackers")} tracker${s(n("trackers"))} to look at`,
 	].filter(Boolean);
 	const first = held.find((h) => h.kind === "needs");
-	ping("While you were away", parts.join(" · ") + (first ? `\n${first.body}` : ""), "wb-away", first ? () => openTarget(first.open) : null);
+	ping("While you were away", parts.join(" · ") + (first ? `\n${first.body}` : ""), "wb-away", first ? () => openTarget(first.open) : null, first?.open);
 }
 async function notifyCheck() {
 	if (!notifyOn()) return;
@@ -2794,7 +2810,7 @@ function notifyEmit(events, away, now = new Date()) {
 		heldSet([]);
 		if (away) summarise(held.filter((h) => notifyWants(h.kind)));
 	}
-	for (const e of events) ping(e.title, e.body, e.tag, () => openTarget(e.open));
+	for (const e of events) ping(e.title, e.body, e.tag, () => openTarget(e.open), e.open);
 }
 setInterval(() => { renderNotify(); notifyCheck().catch(() => {}); }, 20000);
 
@@ -2858,7 +2874,7 @@ function setPref(key, value) {
 // "This board" or "This browser", and offers "Default" when the value isn't the default.
 const SCOPE = {
 	board: ["This board", "Saved in the workbench: the same in every browser, and for the CLI and agents"],
-	browser: ["This browser", "Saved in this browser only, so your phone and laptop can differ"],
+	browser: app ? ["This app", "Saved in this app only, apart from your browsers and your phone"] : ["This browser", "Saved in this browser only, so your phone and laptop can differ"],
 };
 const bindAttr = (b) => (b.setting ? `data-setting="${esc(b.setting)}"` : `data-pref="${esc(b.pref)}"`);
 const bindValue = (b) => (b.setting ? setting(b.setting) : pref(b.pref, b.def));
@@ -3016,9 +3032,10 @@ function healthCards(h) {
 		? `<p>On: anyone on this network can open and change the board. There's no login, so keep it to networks you trust.</p>
 			<div class="row" style="align-items:flex-start;flex-wrap:nowrap">${qr}<div style="display:flex;flex-direction:column;gap:4px;min-width:0">${ph.urls.map((u) => `<a href="${esc(u.url)}" target="_blank" rel="noreferrer">${esc(u.url)}</a>`).join("") || `<span class="muted">No network address found.</span>`}</div></div>
 			<p class="hint">The vault, data sources and Settings stay on this computer.</p>`
-		: `<p>Off: the board answers this computer only. To open it from your phone, it has to listen on the network. There's no login, so do that only on a network you trust.</p>${restart}`);
+		: `<p>Off: the board answers this computer only. To open it from your phone, it has to listen on the network. There's no login, so do that only on a network you trust.</p>${h.app ? `<p>In the Workbench app, switch it on in the tray menu: <b>Phone access (on my network)</b>.</p>` : restart}`);
 	let startup;
-	if (!su.supported) startup = card("off", "Start on login", "<p>Set up here only on Linux with systemd. Elsewhere, start the board from your login items (the README has the command).</p>");
+	if (h.app) startup = card("", "Start on login", "<p>The Workbench app handles this itself. Switch it in the app's tray menu: <b>Start on login</b>.</p>");
+	else if (!su.supported) startup = card("off", "Start on login", "<p>Set up here only on Linux with systemd. Elsewhere, start the board from your login items (the README has the command).</p>");
 	else if (su.installed && su.enabled === "enabled" && su.active === "active")
 		startup = card("ok", "Start on login", `<p>Runs as a user service: it starts when you log in and comes back if it stops.${su.underSystemd ? "" : " This board was started separately, on its own."}</p>
 			<span class="muted">After updating the workbench, restart it:</span>${cmdRow("systemctl --user restart workbench")}`);
@@ -3027,7 +3044,7 @@ function healthCards(h) {
 	else
 		startup = card("off", "Start on login", `<p>Not set up: the board runs only while you keep it open. As a user service it starts when you log in and comes back if it stops.</p>
 			<span class="muted">Stop the board you started by hand first (they'd share a port), then:</span>${cmdRow(su.install, true)}`);
-	const about = card("", "This board", `<dl>
+	const about = card("", "This board", `${h.app ? "<p>Runs inside the Workbench app.</p>" : ""}<dl>
 		<dt>Address</dt><dd>localhost:${b.port}</dd>
 		<dt>Running for</dt><dd>${runningFor(b.startedAt)}</dd>
 		<dt>Bun</dt><dd>${esc(b.bun)}</dd>
@@ -3159,8 +3176,9 @@ onSettingsChange((key) => {
 /* ---------- Settings → Notifications (tab "notify") ---------- */
 // The switch is the bell's (setNotifyOn); the rest are prefs notifyCheck reads each time (notify.*).
 const NOTIFY_ONLY_NEEDS = ["needs", "stuck"];
-const browserScope = `<span class="scope browser" title="${SCOPE.browser[1]}">This browser</span>`;
+const browserScope = `<span class="scope browser" title="${SCOPE.browser[1]}">${SCOPE.browser[0]}</span>`;
 function notifyState() {
+	if (appNotify) return notify.on ? ["ok", `On. The app sends them through your system's notifications.${quietAt() ? " Quiet hours now." : ""}`] : ["off", "Off. Turning them on sends them through your system's notifications, which you can silence there."];
 	if (!("Notification" in window)) return window.isSecureContext
 		? ["bad", "This browser doesn't offer desktop notifications."]
 		: ["off", `Notifications need the board at localhost or over https. Opened over plain http, as from a phone on your network (${esc(location.host)}), the browser doesn't offer them.`];
@@ -3184,7 +3202,7 @@ function setNotifyRender() {
 	const supported = "Notification" in window;
 	const [dot, status] = notifyState();
 	const on = notifyOn();
-	const blocked = !supported || Notification.permission === "denied";
+	const blocked = !appNotify && (!supported || Notification.permission === "denied");
 	const master = optRow({
 		label: `Desktop notifications${browserScope}`,
 		hint: `<span class="nt-status"><span class="sdot ${dot}"></span><span>${status}</span></span>`,
@@ -3213,7 +3231,7 @@ function setNotifyRender() {
 		hint: on ? "Shows one now, even with the board in front, so you can see how they look." : "Turn notifications on first.",
 		control: `<button type="button" class="ghost sm" data-notify="test"${on ? "" : " disabled"}>Send a test</button>`,
 	});
-	return `<p class="set-intro">Notifications pop up only while the board isn't the window in front, and never for changes you make here yourself. Each browser has its own: turn them on wherever you want them.</p>
+	return `<p class="set-intro">Notifications pop up only while the board isn't the window in front, and never for changes you make here yourself. ${app ? "This app has its own setting, apart from your browsers" : "Each browser has its own"}: turn them on wherever you want them.</p>
 		${optGroup("Notifications", [master, test])}
 		${optGroup("What to tell you about", [presets, ...kinds], on ? "" : "Saved now, used once notifications are on.")}
 		${optGroup("Quiet hours", quietRows, "Nothing pops up during quiet hours. When they end, one notification sums up what happened meanwhile, such as “While you were away: 3 things need you”, unless you're already looking at the board.")}`;
@@ -3843,7 +3861,7 @@ function setLookRender() {
 		control: "",
 	});
 	const keys = `<div class="so-wide"><dl class="lk-keys">${SHORTCUTS().map(([k, what]) => `<dt>${kbdKeys(k)}</dt><dd>${esc(what)}</dd>`).join("")}</dl></div>`;
-	return `<p class="set-intro">How the board looks in this browser. Your phone and your computer can each have their own.</p>
+	return `<p class="set-intro">How the board looks in ${app ? "this app" : "this browser"}. Your phone and your computer can each have their own.</p>
 		${optGroup("Look", [theme, density])}
 		${optGroup("Board", [start, order, lookSectionRows()])}
 		${optGroup("Keyboard shortcuts", [keys], narrow() ? "With a keyboard attached." : "")}`;
