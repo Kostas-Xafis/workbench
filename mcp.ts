@@ -17,6 +17,7 @@
  * can be removed: it's an agent's way to replace a picture it got wrong, and the item's history keeps the line.
  */
 import { readFileSync } from "node:fs";
+import iconPath from "./icon.svg" with { type: "file" };
 import {
 	addItem,
 	addLink,
@@ -83,7 +84,7 @@ const M = "io.modelcontextprotocol/";
 const VERSION = "1.0.0";
 const OPEN: Status[] = ["todo", "doing", "waiting"];
 
-const ICON = `data:image/svg+xml;base64,${readFileSync(new URL("./icon.svg", import.meta.url)).toString("base64")}`;
+const ICON = `data:image/svg+xml;base64,${readFileSync(iconPath).toString("base64")}`;
 const SERVER_INFO = {
 	name: "workbench",
 	title: "Workbench",

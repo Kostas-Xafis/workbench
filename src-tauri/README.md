@@ -14,7 +14,7 @@ CLI is a devDependency (`bun install`).
 bun run app:dev                                # tauri dev: builds src-tauri, opens the window on :4321
 WB_APP_URL=http://localhost:4399 bun run app:dev   # against a test board instead
 cd src-tauri && cargo build && cargo clippy    # plain cargo works too; the binary is target/debug/workbench-app
-bun run app:build                              # tauri build (.deb, AppImage); needs build:server first (phase 2)
+bun run app:build                              # tauri build (.deb, AppImage); needs `bun run build:server` first (compiles server.ts into src-tauri/binaries/, one Bun binary with the page embedded)
 ```
 
 Phase 1 doesn't start a server: run one first. Never point a test run at the real board's database; use a copy:

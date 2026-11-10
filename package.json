@@ -9,7 +9,7 @@
 		"typecheck": "bunx tsc --noEmit",
 		"app:dev": "tauri dev",
 		"app:build": "tauri build",
-		"build:server": "echo 'build:server is phase 2: bun build --compile server.ts into src-tauri/binaries/ (the Tauri sidecar)' && exit 1"
+		"build:server": "bun build --compile --minify --bytecode --sourcemap server.ts --outfile src-tauri/binaries/workbench-server-$(rustc --print host-tuple)"
 	},
 	"devDependencies": {
 		"@tauri-apps/cli": "^2.12.4",

@@ -45,6 +45,11 @@ import {
 	type Project,
 } from "./db";
 import type { Server } from "bun";
+// Embedded when compiled (bun build --compile), plain file paths under `bun server.ts`. (bun's types call an .html import a bundle.)
+import pagePath from "./index.html" with { type: "file" };
+import iconPath from "./icon.svg" with { type: "file" };
+import pkg from "./package.json";
+import { DB_PATH } from "./db";
 import { publishDays } from "./day";
 import { codeLinks, repoState, type CodeLinks } from "./git";
 import { candidateFolders, checkFolder, folderState, health } from "./health";
@@ -84,6 +89,8 @@ import {
 } from "./trackers";
 
 export const PORT = Number(process.env.WB_PORT ?? 4321);
+// The compiled binary (bun build --compile) runs from bun's embedded file system.
+const COMPILED = Bun.main.startsWith("/$bunfs/") || Bun.main.includes("~BUN");
 const SETTINGS_LOCAL = "settings open only on this computer (localhost)";
 const COMMAND_LOCAL = "a tracker's command can be set only from the board on this computer (localhost), or with wb tracker";
 
@@ -102,8 +109,8 @@ function jsonOnly<R extends Request>(handler: (req: R, srv: Server<unknown>) => 
 
 export function serve({ lan = false } = {}) {
 	const db = open();
-	const page = Bun.file(new URL("./index.html", import.meta.url));
-	const icon = Bun.file(new URL("./icon.svg", import.meta.url));
+	const page = Bun.file(pagePath as unknown as string);
+	const icon = Bun.file(iconPath);
 	const json = (data: unknown, status = 200) => Response.json(data, { status });
 	const fail = (e: unknown) => json({ error: (e as Error).message }, 400);
 	// The vault answers only this computer (not `--lan`, where the token would cross the network in the clear),
@@ -222,6 +229,9 @@ export function serve({ lan = false } = {}) {
 		routes: {
 			// no-cache: the browser asks again each time (cheap, it gets 304), so an updated board shows at once.
 			"/": () => new Response(page, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-cache" } }),
+			// What the desktop app asks to tell a running board from anything else on the port: cheap, no auth, no database.
+			"/api/ping": () =>
+				Response.json({ app: "workbench", version: pkg.version, db: DB_PATH, pid: process.pid, lan }, { headers: { "cache-control": "no-store" } }),
 			"/favicon.svg": () =>
 				new Response(icon, { headers: { "content-type": "image/svg+xml", "cache-control": "max-age=3600" } }),
 			"/api/projects": {
@@ -379,7 +389,7 @@ export function serve({ lan = false } = {}) {
 						if (!file) return json({ error: "no such backup" }, 404);
 						const su = await startup();
 						const env = ["WB_DB", "WB_PORT", "WB_BACKUPS", "WB_SOURCES_KEY"].filter((k) => process.env[k]).map((k) => `${k}=${shellWord(process.env[k]!)}`);
-						const start = [...env, ...process.argv.map(shellWord)].join(" ");
+						const start = [...env, ...(COMPILED ? [process.execPath, ...process.argv.slice(2)] : process.argv).map(shellWord)].join(" ");
 						return json(restoreSteps(file, { systemd: su.underSystemd, pid: process.pid, start }));
 					},
 					"/api/data/export": (req: Request, srv: Server<unknown>) => {
@@ -832,6 +842,11 @@ export function serve({ lan = false } = {}) {
 }
 
 if (import.meta.main) {
+	// A compiled binary has no source folder to keep a database in: it needs to be told (the app does).
+	if (COMPILED && !process.env.WB_DB) {
+		console.error("WB_DB is not set: the compiled server needs the path of the database to use.");
+		process.exit(1);
+	}
 	const s = serve({ lan: process.argv.includes("--lan") });
 	console.log(`workbench on http://${s.hostname}:${s.port}`);
 }
