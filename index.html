@@ -254,9 +254,13 @@ mark { background: color-mix(in srgb, var(--review) 30%, transparent); color: in
 .owner { font-size: 11px; font-weight: 600; border-radius: 5px; padding: 0 5px; background: var(--hover); }
 .owner.kostas { background: color-mix(in srgb, var(--p1) 14%, transparent); color: var(--p1); }
 .st-doing { color: var(--accent); font-weight: 600; } .st-waiting { color: var(--review); font-weight: 600; }
-.gl { width: 13px; height: 13px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; vertical-align: -2px; }
+/* Stroke widths go on an icon's shapes, never on its <svg>: WebKitGTK (2.52) applies the page zoom to an outer <svg>'s
+   stroke-width and its shapes inherit that zoomed width, so at 200% in the app the strokes come out twice as thick. */
+.gl { width: 13px; height: 13px; flex: none; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; vertical-align: -2px; }
+.gl > * { stroke-width: 1.6; }
 .meta .gl { margin-right: 3px; }
-.sec > summary .gl { width: 16px; height: 16px; color: var(--dot); stroke-width: 1.5; }
+.sec > summary .gl { width: 16px; height: 16px; color: var(--dot); }
+.sec > summary .gl > * { stroke-width: 1.5; }
 .p1 { color: var(--p1); font-weight: 700; }
 .ref { font: 600 11.5px ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--muted); background: var(--hover); border: 0; border-radius: 5px; padding: 1px 5px; cursor: copy; }
 .ref:hover { color: var(--accent); }
@@ -587,7 +591,8 @@ code.cmd { white-space: normal; overflow-wrap: anywhere; }
 
 /* Settings → Appearance */
 .so.lk-sec { gap: 10px; padding: 6px 14px 6px 8px; }
-.lk-sec .kic .gl { width: 16px; height: 16px; stroke-width: 1.5; }
+.lk-sec .kic .gl { width: 16px; height: 16px; }
+.lk-sec .kic .gl > * { stroke-width: 1.5; }
 .lk-name { font-size: 13.5px; font-weight: 500; }
 .lk-keys { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 9px 18px; margin: 0; align-items: center; }
 .lk-keys dt { display: flex; align-items: center; gap: 3px; }
@@ -706,17 +711,17 @@ dialog::backdrop { background: rgb(0 0 0 / .35); }
 <aside id="rail" aria-label="Reports and links"></aside>
 <div id="content">
 	<header class="top">
-		<div class="here"><button class="icon-btn" id="rail-open" title="Reports and links" aria-label="Reports and links"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2.5 4h11M2.5 8h11M2.5 12h11"/></svg></button><span id="here"></span></div>
+		<div class="here"><button class="icon-btn" id="rail-open" title="Reports and links" aria-label="Reports and links"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor"><g stroke-width="1.5"><path d="M2.5 4h11M2.5 8h11M2.5 12h11"/></g></svg></button><span id="here"></span></div>
 		<div class="search-wrap">
-			<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="7" cy="7" r="4.75"/><path d="m10.5 10.5 3 3"/></svg>
+			<svg viewBox="0 0 16 16" fill="none" stroke="currentColor"><g stroke-width="1.6"><circle cx="7" cy="7" r="4.75"/><path d="m10.5 10.5 3 3"/></g></svg>
 			<input id="search" type="search" placeholder="Search" autocomplete="off" aria-controls="results"><kbd>Ctrl K</kbd>
 			<div id="results" role="listbox" hidden></div>
 		</div>
 		<div class="top-right">
 			<a class="ghost vault-btn" id="usage-btn" href="/usage" title="Claude usage: tokens and cost, for this project or all of them">
-				<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2.5 13.5h11M4.5 11V8M8 11V4.5M11.5 11V6.5"/></svg><span>Usage</span></a>
+				<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-linecap="round"><g stroke-width="1.5"><path d="M2.5 13.5h11M4.5 11V8M8 11V4.5M11.5 11V6.5"/></g></svg><span>Usage</span></a>
 			<button class="ghost vault-btn" id="vault-btn" title="Secrets vault" aria-pressed="false">
-				<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="7" width="10" height="7" rx="1.5"/><path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2"/></svg><span>Vault</span></button>
+				<svg viewBox="0 0 16 16" fill="none" stroke="currentColor"><g stroke-width="1.5"><rect x="3" y="7" width="10" height="7" rx="1.5"/><path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2"/></g></svg><span>Vault</span></button>
 			<button class="primary" id="new">New</button>
 		</div>
 	</header>
@@ -725,8 +730,8 @@ dialog::backdrop { background: rgb(0 0 0 / .35); }
 			<div class="seg" id="who" role="group" aria-label="Who acts"></div>
 			<span class="spacer"></span>
 			<button type="button" class="upd-pill" id="upd-pill" hidden></button>
-			<button class="icon-btn" id="fold-toggle" title="Fold all sections" aria-label="Fold all sections"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m4.5 2.5 3.5 3.5 3.5-3.5M4.5 13.5 8 10l3.5 3.5"/></svg></button>
-			<button class="icon-btn" id="notify" title="Desktop notifications" aria-label="Desktop notifications" aria-pressed="false" hidden><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M4 11V7a4 4 0 0 1 8 0v4l1.5 1.5h-11zM6.5 13.5a1.5 1.5 0 0 0 3 0"/></svg></button>
+			<button class="icon-btn" id="fold-toggle" title="Fold all sections" aria-label="Fold all sections"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor"><g stroke-width="1.5"><path d="m4.5 2.5 3.5 3.5 3.5-3.5M4.5 13.5 8 10l3.5 3.5"/></g></svg></button>
+			<button class="icon-btn" id="notify" title="Desktop notifications" aria-label="Desktop notifications" aria-pressed="false" hidden><svg viewBox="0 0 16 16" fill="none" stroke="currentColor"><g stroke-width="1.4"><path d="M4 11V7a4 4 0 0 1 8 0v4l1.5 1.5h-11zM6.5 13.5a1.5 1.5 0 0 0 3 0"/></g></svg></button>
 		</div>
 		<div id="sections"></div>
 	</main>
@@ -738,7 +743,7 @@ dialog::backdrop { background: rgb(0 0 0 / .35); }
 			<select id="r-version" title="Version" aria-label="Version"></select>
 			<button type="button" class="pill" id="r-newer" hidden></button>
 			<span class="spacer"></span>
-			<button type="button" class="icon-btn" id="r-reload" title="Reload the page" aria-label="Reload"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M13 8a5 5 0 1 1-1.6-3.7M13 2.5v2.8h-2.8"/></svg></button>
+			<button type="button" class="icon-btn" id="r-reload" title="Reload the page" aria-label="Reload"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor"><g stroke-width="1.5"><path d="M13 8a5 5 0 1 1-1.6-3.7M13 2.5v2.8h-2.8"/></g></svg></button>
 			<button type="button" class="ghost sm" id="r-share" title="Share a read-only copy through a temporary public link" aria-pressed="false" hidden>Share</button>
 			<a class="ghost sm" id="r-newtab" target="_blank">New tab ↗</a>
 		</div>
@@ -1077,7 +1082,7 @@ const logo = (p) => p.slug
 	: `<img class="plogo" alt="" src="/favicon.svg">`;
 let iconRound = 0;
 const fav = (l) => `<img class="fav" alt="" data-letter="${esc((l.label.trim()[0] || "?").toUpperCase())}" src="/api/links/${l.id}/icon?v=${encodeURIComponent(l.icon_url || l.url)}-${iconRound}">`;
-const DOC = `<svg class="doc-ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M3.75 1.75h5.5l3 3v9.5h-8.5z"/><path d="M9.25 1.75v3h3M6 8.25h4M6 10.75h4"/></svg>`;
+const DOC = `<svg class="doc-ic" viewBox="0 0 16 16" fill="none" stroke="currentColor"><g stroke-width="1.3"><path d="M3.75 1.75h5.5l3 3v9.5h-8.5z"/><path d="M9.25 1.75v3h3M6 8.25h4M6 10.75h4"/></g></svg>`;
 
 async function api(path, opts = {}) {
 	const res = await fetch(path, { ...opts, headers: { "content-type": "application/json", ...opts.headers } });
@@ -1093,7 +1098,7 @@ function renderProjects() {
 	const btn = (p) => `<button class="pbtn" data-project="${esc(p.slug)}" aria-current="${p.slug === state.project}"
 		title="${esc(p.name)}${p.mine ? ` · ${p.mine} waiting on you` : ""}">${logo(p)}<span class="pname">${esc(p.slug ? p.name : "All")}</span>${p.mine ? `<span class="badge">${p.mine}</span>` : ""}</button>`;
 	const settingsBtn = `<button type="button" class="pbtn set-pbtn" id="settings-btn" title="Settings" aria-label="Settings" aria-pressed="${inSettings()}">
-		<span class="set-ic"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2.5 4.5h6M11.5 4.5h2M2.5 11.5h2M7.5 11.5h6"/><circle cx="10" cy="4.5" r="1.5"/><circle cx="6" cy="11.5" r="1.5"/></svg></span><span class="pname">Settings</span></button>`;
+		<span class="set-ic"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor"><g stroke-width="1.4"><path d="M2.5 4.5h6M11.5 4.5h2M2.5 11.5h2M7.5 11.5h6"/><circle cx="10" cy="4.5" r="1.5"/><circle cx="6" cy="11.5" r="1.5"/></g></svg></span><span class="pname">Settings</span></button>`;
 	paint($("#prail"), btn({ slug: "", name: "All projects", mine: total }) + `<div class="prail-sep"></div>` + state.projects.map(btn).join("") + settingsBtn);
 	const p = state.projects.find((p) => p.slug === state.project);
 	paint($("#here"), `<span class="here" style="gap:10px">${logo(p ?? { slug: "" })}<div><b>${esc(p ? p.name : "All projects")}</b>
@@ -1195,7 +1200,7 @@ const isCurrent = (r) => state.report?.id === r.id;
 function renderRail() {
 	document.body.classList.toggle("rail-collapsed", state.collapsed);
 	const toggle = `<button class="icon-btn" id="rail-toggle" title="${state.collapsed ? "Show reports and links" : "Fold the sidebar"}" aria-label="Toggle sidebar">
-		<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">${state.collapsed ? '<path d="m6 4 4 4-4 4"/>' : '<path d="m10 4-4 4 4 4"/>'}</svg></button>`;
+		<svg viewBox="0 0 16 16" fill="none" stroke="currentColor"><g stroke-width="1.5">${state.collapsed ? '<path d="m6 4 4 4-4 4"/>' : '<path d="m10 4-4 4 4 4"/>'}</g></svg></button>`;
 	const reports = railReports();
 	const links = railLinks();
 	let html;
@@ -1240,15 +1245,15 @@ function renderRail() {
 		const archive = archived.length
 			? `<details class="lgroup fold more archive" data-key="reports-archive"${archived.some(isCurrent) ? " open" : isOpen("reports-archive", false)}><summary><span>Archived days (${archived.length})</span></summary>${archiveRows}</details>`
 			: "";
-		const reportTools = canMove ? `<span class="tools"><button class="icon-btn" id="report-edit" title="${moving ? "Done moving groups" : "Move groups"}" aria-pressed="${moving}" aria-label="Move report groups"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M10.5 2.5l3 3-8 8H2.5v-3z"/></svg></button></span>` : "";
+		const reportTools = canMove ? `<span class="tools"><button class="icon-btn" id="report-edit" title="${moving ? "Done moving groups" : "Move groups"}" aria-pressed="${moving}" aria-label="Move report groups"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor"><g stroke-width="1.4"><path d="M10.5 2.5l3 3-8 8H2.5v-3z"/></g></svg></button></span>` : "";
 		const linkList = links.map((g) => {
 			const items = g.links.map((l) => `<a class="ritem link" href="${esc(l.url)}" target="_blank" rel="noreferrer" data-link="${l.id}" title="${esc(l.url)}">${fav(l)}<span>${esc(l.label)}</span></a>`).join("");
 			return g.label ? `<details class="lgroup fold" data-key="${esc(g.key)}"${isOpen(g.key, true)}><summary><span>${esc(g.label)}</span></summary>${items}</details>` : items;
 		}).join("");
 		const tools = `<span class="tools">
-			<button class="icon-btn" id="link-new" title="Add a link" aria-label="Add a link"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M8 3v10M3 8h10"/></svg></button>
-			${state.links.length ? `<button class="icon-btn" id="link-edit" title="${editingLinks ? "Done editing" : "Edit links"}" aria-pressed="${editingLinks}" aria-label="Edit links"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M10.5 2.5l3 3-8 8H2.5v-3z"/></svg></button>` : ""}
-			${editingLinks ? `<button class="icon-btn" id="link-refresh" title="Look up every site's icon again" aria-label="Refresh icons"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M13 8a5 5 0 1 1-1.6-3.7M13 2.5v2.8h-2.8"/></svg></button>` : ""}</span>`;
+			<button class="icon-btn" id="link-new" title="Add a link" aria-label="Add a link"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor"><g stroke-width="1.6"><path d="M8 3v10M3 8h10"/></g></svg></button>
+			${state.links.length ? `<button class="icon-btn" id="link-edit" title="${editingLinks ? "Done editing" : "Edit links"}" aria-pressed="${editingLinks}" aria-label="Edit links"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor"><g stroke-width="1.4"><path d="M10.5 2.5l3 3-8 8H2.5v-3z"/></g></svg></button>` : ""}
+			${editingLinks ? `<button class="icon-btn" id="link-refresh" title="Look up every site's icon again" aria-label="Refresh icons"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor"><g stroke-width="1.5"><path d="M13 8a5 5 0 1 1-1.6-3.7M13 2.5v2.8h-2.8"/></g></svg></button>` : ""}</span>`;
 		const trkNew = `<button class="icon-btn" id="trk-new" title="Add a status tracker" aria-label="Add a status tracker">${TRK_ADD}</button>`;
 		html = `<div class="rail-head"><b>${esc(state.project ? projectName(state.project) : "All projects")}</b>${trkNew}${toggle}</div>
 			${railTrackers(false)}
@@ -1270,7 +1275,7 @@ function renderRail() {
 }
 
 // Data sources a report can call with wb.fetch (wb source add): names and base URLs, never header values.
-const PLUG = `<svg class="doc-ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><ellipse cx="8" cy="3.75" rx="5" ry="2"/><path d="M3 3.75v8.5c0 1.1 2.24 2 5 2s5-.9 5-2v-8.5M3 8c0 1.1 2.24 2 5 2s5-.9 5-2"/></svg>`;
+const PLUG = `<svg class="doc-ic" viewBox="0 0 16 16" fill="none" stroke="currentColor"><g stroke-width="1.3"><ellipse cx="8" cy="3.75" rx="5" ry="2"/><path d="M3 3.75v8.5c0 1.1 2.24 2 5 2s5-.9 5-2v-8.5M3 8c0 1.1 2.24 2 5 2s5-.9 5-2"/></g></svg>`;
 function railSources() {
 	const list = state.sources.filter((s) => !state.project || s.project === state.project);
 	if (!list.length) return "";
@@ -1371,7 +1376,7 @@ $("#link-cancel").onclick = () => linkDlg.close();
 // Under the project's name in the rail: its trackers, then the global ones. A tracker is a few meters
 // (value of max, or a state in words), each with a level; grey until it warns.
 const LOCAL = ["localhost", "127.0.0.1", "[::1]"].includes(location.hostname);
-const TRK_ADD = `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M2 12.5a6 6 0 0 1 9.4-4.95"/><path d="M8 12.5l2.2-3.3"/><path d="M12.5 10v5M10 12.5h5"/></svg>`;
+const TRK_ADD = `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-linecap="round"><g stroke-width="1.4"><path d="M2 12.5a6 6 0 0 1 9.4-4.95"/><path d="M8 12.5l2.2-3.3"/><path d="M12.5 10v5M10 12.5h5"/></g></svg>`;
 const EVERY = [[300, "5 min"], [900, "15 min"], [1800, "30 min"], [3600, "1 hour"], [10800, "3 hours"], [21600, "6 hours"], [43200, "12 hours"], [86400, "1 day"], [0, "Only when asked"]];
 const SERIES = ["var(--accent)", "var(--review)", "var(--decision)", "var(--check)", "var(--setup)"];
 const fmtNum = (n) => Number(n).toLocaleString("en-US", { maximumFractionDigits: 2 });
@@ -1864,7 +1869,7 @@ function syncFoldToggle() {
 	if (b.title === label) return;
 	b.title = label;
 	b.setAttribute("aria-label", label);
-	b.querySelector("svg").innerHTML = FOLD_IC[fold ? "fold" : "open"];
+	b.querySelector("svg g").innerHTML = FOLD_IC[fold ? "fold" : "open"];
 }
 $("#fold-toggle").onclick = () => {
 	const open = !anySectionOpen();
@@ -2490,7 +2495,7 @@ const ICON = {
 	duplicate: '<rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M3.5 10.5h-.5a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1h6.5a1 1 0 0 1 1 1v.5M9.5 7.5v4M7.5 9.5h4"/>',
 	trash: '<path d="M2.5 4.5h11M6 4.5V3h4v1.5M4 4.5l.7 9h6.6l.7-9"/>',
 };
-const icon = (name) => `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4">${ICON[name]}</svg>`;
+const icon = (name) => `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor"><g stroke-width="1.4">${ICON[name]}</g></svg>`;
 
 async function deriveVault(password, salt = vault.info.salt, iterations = vault.info.iterations) {
 	const base = await crypto.subtle.importKey("raw", te.encode(password), "PBKDF2", false, ["deriveBits"]);
@@ -3219,7 +3224,8 @@ const projDlg = $("#proj-dlg");
 const projForm = $("#proj-form");
 let currentProj = null;
 const ST_LABEL = { ok: "OK", warn: "Needs a look", bad: "Broken", off: "Not set up" };
-const svg16 = (d, w = 1.5) => `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="${w}">${d}</svg>`;
+// The width goes on a <g>, not the <svg>: WebKitGTK zooms an outer <svg>'s stroke-width (see .gl in the styles).
+const svg16 = (d, w = 1.5) => `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor"><g stroke-width="${w}">${d}</g></svg>`;
 const SLIDERS = '<path d="M2.5 4.5h6M11.5 4.5h2M2.5 11.5h2M7.5 11.5h6"/><circle cx="10" cy="4.5" r="1.5"/><circle cx="6" cy="11.5" r="1.5"/>';
 const cmdRow = (cmd, multi = false) => `<div class="row">${multi ? `<pre class="cmd">${esc(cmd)}</pre>` : `<code class="cmd">${esc(cmd)}</code>`}<button type="button" class="ghost sm" data-copy="${esc(cmd)}">Copy</button></div>`;
 const fmtBytes = (n) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1e3))} KB`);

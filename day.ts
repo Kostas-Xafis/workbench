@@ -251,7 +251,9 @@ h3 { font-size: 11.5px; text-transform: uppercase; letter-spacing: .6px; color: 
 .tile { position: relative; }
 .tile .i { position: absolute; top: 11px; right: 11px; width: 16px; height: 16px; color: var(--wb-muted, #6f6b64); opacity: .8; }
 .tile.good .i { color: var(--wb-good, #15803d); opacity: 1; }
-.i { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+/* The width goes on the shapes: WebKitGTK zooms an outer <svg>'s own stroke-width, and in the app that drew these twice as thick at 200%. */
+.i { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+.i > * { stroke-width: 1.6; }
 h3 { display: flex; align-items: center; gap: 6px; }
 h3 .i.done { color: var(--wb-good, #15803d); }
 h3 .i.doing { color: var(--wb-accent, #3d5afe); }
