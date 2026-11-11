@@ -57,6 +57,7 @@ const BOARD_PERMISSIONS: &[&str] = &[
 ];
 
 pub fn run() {
+    webkit_painting();
     let context = tauri::generate_context!();
     // The updater's settings (endpoints, pubkey) come with the release pipeline; a build without them has no updater.
     let has_feed = context.config().plugins.0.contains_key("updater");
@@ -103,6 +104,17 @@ pub fn run() {
             }
             server::on_run_event(app, &event);
         });
+}
+
+/// WebKitGTK (2.46 and later) paints pages with Skia on the GPU. On some drivers, seen on NVIDIA, small outline
+/// icons (SVG strokes: the Usage, Vault and refresh icons) come out filled in. Painting on the CPU draws them
+/// right, and the board is a light page, so the app asks for that, unless `WEBKIT_SKIA_ENABLE_CPU_RENDERING` is
+/// already set (`=0` gives the GPU back). Set before anything starts WebKit: its web process inherits it.
+fn webkit_painting() {
+    #[cfg(target_os = "linux")]
+    if std::env::var_os("WEBKIT_SKIA_ENABLE_CPU_RENDERING").is_none() {
+        std::env::set_var("WEBKIT_SKIA_ENABLE_CPU_RENDERING", "1");
+    }
 }
 
 /// Every command, in one list (Tauri takes one invoke handler).
