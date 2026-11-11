@@ -4692,7 +4692,7 @@ function setStartRender() {
 		return optRow({
 			label: `<span class="sdot ${st === "done" ? "ok" : c.st === "warn" ? "warn" : "off"}"></span>${esc(s.title)}${st === "skipped" ? `<span class="scope">Skipped</span>` : ""}`,
 			hint: esc(c.text),
-			control: `<a class="ghost sm" href="#welcome/${s.key}">${st === "done" ? "Open" : "Set up"}</a>`,
+			control: `<a class="ghost sm" href="#welcome/${s.key}">${st === "done" || s.key === "board" ? "Open" : "Set up"}</a>`,
 		});
 	});
 	const complete = setupComplete();
