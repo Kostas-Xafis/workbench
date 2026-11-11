@@ -42,7 +42,8 @@ settings (bell, theme, folded sections) start at their defaults in the app.
 | `src/web.rs` | system agent | External links to the default browser, navigation guard, new windows, downloads, permission requests |
 | `src/probe.rs`, `src/probe.js` | phase-3 review | Debug-only probe that produced the findings below |
 | `build.rs` | shared | App commands that get `allow-*` permissions |
-| `fallback/index.html` | lifecycle agent | Bundled page (`frontendDist`) the window opens on: "Starting the board…", "Waiting for the board…", "port N is taken", "The board stopped" (log tail, Retry) |
+| `src/update.rs` | updates | Updates of the app (tauri-plugin-updater): checks, the `update_*` commands, install and restart, the tray's "Update to …" line (through `tray::set_update`) |
+| `fallback/index.html` | lifecycle agent | Bundled page (`frontendDist`) the window opens on: "Starting the board…", "Waiting for the board…", "port N is taken", "An older Workbench board is on port N" (a board from before `/api/ping`: its `/` is the board page, the ping a 404; with the restart command when the service runs it), "The board stopped" (log tail, Retry) |
 
 Each module has `init(builder)` (builder time: plugins, state) and/or `setup(app)` / `attach(window builder)`,
 called once from `lib.rs`. A new command needs a line in `with_commands` (lib.rs), one in build.rs, and, if the
@@ -288,6 +289,60 @@ null (the badges on the left edge), polled by Rust (the page's own poll pauses w
   are refused unless they are the board's own origin, port included (`localhost` = `127.0.0.1`), so the report's
   "New tab ↗" still opens. LAN addresses stay allowed (Health links to the board's LAN URLs). **What's left:** a
   report (or a script in the board page) can still open one tab every 5 s, to any http(s) site, without a click.
+
+## Updates (update.rs)
+
+**Feed** (the contract with the release pipeline): the updater's standard `latest.json` at
+`https://github.com/Kostas-Xafis/workbench/releases/latest/download/latest.json`, its artifacts signed with the release key whose
+public half is `plugins.updater.pubkey` in tauri.conf.json (the pipeline owns the key and that block). The plugin is registered
+only when tauri.conf.json has `plugins.updater` (its config needs a `pubkey`, and a missing block would stop the app at start);
+without it Settings → Updates says the build has no feed. Platform entries: `linux-x86_64-appimage` (the AppImage, updated in
+place) and, for a .deb install to update itself, `linux-x86_64-deb` (the signed .deb). Without a deb entry a .deb install still
+learns the version and notes (from the AppImage entry) and offers the .deb by hand. The server (`updates.ts`) reads the same
+`latest.json` for a board in a plain browser (`WB_UPDATE_FEED` overrides it, for tests).
+
+**How each install updates** (`update::kind`): AppImage → the plugin replaces the file at `$APPIMAGE`. .deb → the plugin (2.14)
+downloads the signed .deb and runs `pkexec dpkg -i` (GNOME's password prompt), falling back to zenity/kdialog + sudo; if that fails
+or is cancelled the page shows the `.deb` link and `sudo apt install ~/Downloads/<file>`. Anything else (`cargo build`, `tauri dev`,
+an unknown bundle) never installs here: the page says to pull and build again. Restart is `AppHandle::request_restart`:
+`RunEvent::Exit` runs first (server.rs stops an owned server: SIGTERM, 5 s, SIGKILL), then the single-instance lock is released,
+then the new binary (the AppImage path in an AppImage) starts with the same arguments.
+
+**State** in app.json `updates`: `auto` (default true), `skipped`, `later: { version, until }`, `checkedAt`, `seen` (the last
+version that ran: a newer one at launch is "Updated to"), `notes: { version, notes }` (kept just before installing, for that note).
+Checks: 15 s after launch, then every 6 hours while `auto` is on; "Check now" whatever the setting. Nothing is downloaded until
+`update_install`.
+
+**Page ↔ app**, all granted to the board's origin (lib.rs `BOARD_PERMISSIONS`):
+
+| Name | Kind | Payload → result |
+|---|---|---|
+| `update_state` | command | → the state below |
+| `update_check` | command | asks the feed now → state |
+| `update_install` | command | `{ version }` → `()`; installs the update the app found itself, only if it's still `version`; progress comes as `update-state` |
+| `update_later` / `update_skip` | command | `{ version }` (`update_skip` takes `null` to stop skipping) → state |
+| `update_auto` | command | `{ on }` → state |
+| `update_seen` | command | the page showed the "Updated to" note |
+| `update-state` | event | the state, on every change: `{ enabled, version, kind, auto, checking, checkedAt, error, available: { version, notes, date, install: "app" \| "manual", page, deb } \| null, skipped, later, busy: null \| "download" \| "install" \| "restart", done, total, justUpdated: { from, to, notes, page } \| null }` |
+| `update-open` | event | the tray's "Update to …": open the update dialog |
+
+`update_install` is the one command here that changes the app. It's allowed because the page chooses nothing but the version it
+showed: the app installs the update it found itself, from the fixed feed, after the plugin has checked its signature against the
+release key; a .deb install still needs the user's password. No updater plugin permission is granted to any page.
+
+**Testing with a local feed** (never against the real board: a test identifier keeps the test app's settings, storage and
+single-instance lock apart from the installed app's):
+
+1. `bunx tauri signer generate -w /tmp/upd/test.key -p "" --ci`.
+2. A config per version, e.g. `/tmp/upd/test-0.1.1.json`: `{ "identifier": "io.github.kostas-xafis.workbench.updtest",
+   "version": "0.1.1", "bundle": { "createUpdaterArtifacts": true }, "plugins": { "updater": { "pubkey": "<test.key.pub>",
+   "endpoints": ["http://127.0.0.1:4398/latest.json"], "dangerousInsecureTransportProtocol": true } } }`.
+3. `TAURI_SIGNING_PRIVATE_KEY="$(cat /tmp/upd/test.key)" TAURI_SIGNING_PRIVATE_KEY_PASSWORD="" bunx tauri build --debug --config
+   /tmp/upd/test-0.1.0.json`, then the same for 0.1.1 (`--debug` keeps `WB_APP_TEST_CTL` and devtools).
+4. Serve a folder on 127.0.0.1:4398 with the 0.1.1 AppImage and a `latest.json`: `{ "version": "0.1.1", "notes": "…",
+   "pub_date": "…", "platforms": { "linux-x86_64-appimage": { "url": "http://127.0.0.1:4398/Workbench_0.1.1_amd64.AppImage",
+   "signature": "<contents of the .AppImage.sig>" } } }`.
+5. Copy the 0.1.0 AppImage somewhere writable and run it with `WB_APP_URL=http://localhost:4397 WB_APP_DB=<a copy of a backup>`.
 
 ## Probe
 

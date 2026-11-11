@@ -143,7 +143,25 @@ const LOOK: Defs = {
 };
 /* ---------- end: Appearance ---------- */
 
-export const SETTINGS: Defs = { ...YOU, ...NOTIFY, ...DATA, ...PRIVACY, ...LOOK };
+/* ---------- Updates ---------- */
+// updates.ts. The desktop app keeps its own (automatic checks, skipped version) in its app.json; these are for a
+// board opened in a plain browser.
+const UPDATES: Defs = {
+	// Off by default: the board makes no call to the internet unless asked to.
+	"updates.check": { about: "Check once a day for a new release", default: false, check: bool },
+	"updates.skip": {
+		about: "Skipped release",
+		default: "",
+		check: (v) => {
+			const s = text(40)(v).replace(/^v/, "");
+			if (s && !/^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/.test(s)) throw new Error("a version like 0.2.0, or empty");
+			return s;
+		},
+	},
+};
+/* ---------- end: Updates ---------- */
+
+export const SETTINGS: Defs = { ...YOU, ...NOTIFY, ...DATA, ...PRIVACY, ...LOOK, ...UPDATES };
 
 /* ---------- Storage ---------- */
 

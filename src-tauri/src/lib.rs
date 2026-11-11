@@ -8,6 +8,7 @@
 //! - `server` (lifecycle agent): find or start the board, single instance, `app_info`.
 //! - `tray`, `notify`, `web` (system agent): tray icon and menu, notifications with click-back,
 //!   links/navigation/downloads.
+//! - `update`: updates of the app itself (tauri-plugin-updater), offered on the board and in the tray.
 //! - `probe` (debug builds only): answers the phase-1 questions; never compiled into a release.
 //!
 //! A new command means a line in [`with_commands`], one in build.rs, and a permission in
@@ -18,6 +19,7 @@ mod notify;
 mod probe;
 mod server;
 mod tray;
+mod update;
 mod web;
 
 use tauri::ipc::CapabilityBuilder;
@@ -35,19 +37,33 @@ const BOARD_PERMISSIONS: &[&str] = &[
     // window.__TAURI__.event.listen / unlisten, for `notification-clicked`. Not emit: the page has nothing to tell Rust.
     "core:event:allow-listen",
     "core:event:allow-unlisten",
+    // Updates of the app (update.rs). Install takes only the version the page showed and installs the update the
+    // app found itself, signed with the release key: the page chooses no URL, file or program. The rest read the
+    // state, ask the fixed feed, or keep the page's choices (later, skip, automatic checks) in app.json.
+    "allow-update-state",
+    "allow-update-check",
+    "allow-update-install",
+    "allow-update-later",
+    "allow-update-skip",
+    "allow-update-auto",
+    "allow-update-seen",
 ];
 
 pub fn run() {
+    let context = tauri::generate_context!();
+    // The updater's settings (endpoints, pubkey) come with the release pipeline; a build without them has no updater.
+    let has_feed = context.config().plugins.0.contains_key("updater");
     let builder = tauri::Builder::default();
     // Order matters only for server::init: the single-instance plugin has to be registered first.
     let builder = server::init(builder);
     let builder = notify::init(builder);
     let builder = tray::init(builder);
     let builder = web::init(builder);
+    let builder = update::init(builder, has_feed);
     let builder = with_commands(builder);
 
     builder
-        .setup(|app| {
+        .setup(move |app| {
             let handle = app.handle();
             // Returns at once: the window opens on the bundled fallback page, and server.rs grants the board's
             // capability (grant_board) and navigates to the board once it answers.
@@ -59,6 +75,7 @@ pub fn run() {
                 show_main(handle);
             }
             notify::setup(handle)?;
+            update::setup(handle, has_feed);
             #[cfg(debug_assertions)]
             probe::start(handle);
             Ok(())
@@ -71,7 +88,7 @@ pub fn run() {
             }
             tray::on_window_event(window, event);
         })
-        .build(tauri::generate_context!())
+        .build(context)
         .expect("error while building the Workbench app")
         .run(|app, event| {
             if let tauri::RunEvent::ExitRequested { .. } = event {
@@ -89,12 +106,30 @@ fn with_commands<R: Runtime>(builder: tauri::Builder<R>) -> tauri::Builder<R> {
             server::app_info,
             server::retry,
             notify::notify,
+            update::update_state,
+            update::update_check,
+            update::update_install,
+            update::update_later,
+            update::update_skip,
+            update::update_auto,
+            update::update_seen,
             probe::probe_result
         ])
     }
     #[cfg(not(debug_assertions))]
     {
-        builder.invoke_handler(tauri::generate_handler![server::app_info, server::retry, notify::notify])
+        builder.invoke_handler(tauri::generate_handler![
+            server::app_info,
+            server::retry,
+            notify::notify,
+            update::update_state,
+            update::update_check,
+            update::update_install,
+            update::update_later,
+            update::update_skip,
+            update::update_auto,
+            update::update_seen
+        ])
     }
 }
 

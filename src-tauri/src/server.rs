@@ -253,8 +253,8 @@ enum Phase {
     Backoff { until: Instant, n: usize },
     /// The attached board stopped answering at `since`; looking for it every second.
     Lost { since: Instant },
-    /// Something that isn't a Workbench answers on the port.
-    Taken { what: String },
+    /// Something that isn't a Workbench answers on the port; `old`: it's a Workbench board from before `/api/ping`.
+    Taken { what: String, old: bool },
     /// Our server didn't come up, or kept stopping. `log` is server.log's tail at that moment.
     Failed { why: String, log: String },
 }
@@ -275,6 +275,8 @@ struct Owned {
 enum Ping {
     Board { pid: u32 },
     Other(String),
+    /// A Workbench board from before `/api/ping` (its page answers, the ping is a 404): it runs old code.
+    Old,
     Nothing,
 }
 
@@ -334,6 +336,7 @@ impl<R: Runtime> Supervisor<R> {
                 let body = resp.body_mut().with_config().limit(64 * 1024).read_to_string();
                 match body.ok().and_then(|b| serde_json::from_str::<PingBody>(&b).ok()) {
                     Some(p) if status == 200 && p.app == "workbench" => Ping::Board { pid: p.pid },
+                    _ if status == 404 && self.is_old_board() => Ping::Old,
                     _ => Ping::Other(format!("It answers /api/ping with HTTP {status}, not as a Workbench does.")),
                 }
             }
@@ -341,6 +344,15 @@ impl<R: Runtime> Supervisor<R> {
             Err(ureq::Error::ConnectionFailed) => Ping::Nothing,
             Err(e) => Ping::Other(format!("It doesn't answer /api/ping as a Workbench does ({e}).")),
         }
+    }
+
+    /// The board's page at `/` is a Workbench's (an older board without `/api/ping` still serves it).
+    fn is_old_board(&self) -> bool {
+        let url = format!("http://127.0.0.1:{}/", self.port);
+        self.agent.get(&url).call().ok().is_some_and(|mut r| {
+            r.status().as_u16() == 200
+                && r.body_mut().with_config().limit(256 * 1024).read_to_string().is_ok_and(|b| b.contains("<title>Workbench</title>"))
+        })
     }
 
     fn find_or_start(&mut self, at_launch: bool) {
@@ -351,7 +363,11 @@ impl<R: Runtime> Supervisor<R> {
             }
             Ping::Other(what) => {
                 self.note(&format!("port {} is taken. {what}", self.port));
-                self.set(Phase::Taken { what });
+                self.set(Phase::Taken { what, old: false });
+            }
+            Ping::Old => {
+                self.note(&format!("an older Workbench (no /api/ping) answers on port {}: not attached", self.port));
+                self.set(Phase::Taken { what: String::new(), old: true });
             }
             Ping::Nothing if at_launch && service_enabled() => {
                 self.note("nothing answers yet, but the workbench systemd unit is enabled: waiting for it");
@@ -431,7 +447,8 @@ impl<R: Runtime> Supervisor<R> {
                         self.note(&format!("the service's board answers (pid {pid}): attached"));
                         self.set(Phase::Connected { owned: false });
                     }
-                    Ping::Other(what) => self.set(Phase::Taken { what }),
+                    Ping::Other(what) => self.set(Phase::Taken { what, old: false }),
+                    Ping::Old => self.set(Phase::Taken { what: String::new(), old: true }),
                     Ping::Nothing if now >= until => {
                         self.note("the service didn't start a board: starting our own");
                         self.start();
@@ -657,7 +674,9 @@ impl<R: Runtime> Supervisor<R> {
             Phase::Backoff { n, .. } => json!({ "state": "starting", "port": port, "detail": restart(*n) }),
             Phase::Lost { since } => json!({ "state": "waiting", "port": port,
                 "canStart": since.elapsed() >= OFFER_START_AFTER }),
-            Phase::Taken { what } => json!({ "state": "taken", "port": port, "detail": what }),
+            Phase::Taken { what, old: false } => json!({ "state": "taken", "port": port, "detail": what }),
+            Phase::Taken { old: true, .. } => json!({ "state": "old", "port": port,
+                "service": service_enabled() || service_running() }),
             Phase::Failed { why, log } => json!({ "state": "stopped", "port": port, "detail": why, "log": log }),
         };
         v.to_string()
@@ -768,6 +787,17 @@ pub(crate) fn host_env(cmd: &mut Command) {
             None => cmd.env_remove(key),
         };
     }
+}
+
+/// The workbench systemd user unit runs right now (enabled or not).
+fn service_running() -> bool {
+    Command::new("systemctl")
+        .args(["--user", "is-active", "--quiet", "workbench"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .is_ok_and(|s| s.success())
 }
 
 /// The workbench systemd user unit is enabled, so a board is expected on login without us.
