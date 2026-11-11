@@ -49,6 +49,7 @@ import {
 	type Status,
 } from "./db";
 import { BRIEF_RULES, checkBrief } from "./brief";
+import { integrationGuide } from "./integrate";
 import { repoState } from "./git";
 import { addImage, imageBytes, imageData, imageInfo, imageSummary, prepareImage, removeImage, type Prepared } from "./images";
 import { PRESETS } from "./presets";
@@ -529,6 +530,25 @@ const TOOLS: Tool[] = [
 		async run(a, c) {
 			const slug = projectOf(c, a.project)!;
 			return { text: await overview(c, slug), links: [{ uri: `wb://project/${slug}`, name: slug, mimeType: "text/markdown" }] };
+		},
+	},
+	{
+		name: "integration_guide",
+		title: "Wire a project into the workbench",
+		description:
+			"How to set a project up so every agent in it uses the workbench, and what's already done: the project on the board, the standard rules block in its AGENTS.md or CLAUDE.md (versioned, so running it again updates it), and Claude Code's MCP server and permissions. Follow the steps it gives; it says which ones to ask {{name}} about first. Same as `wb integrate`.",
+		input: obj({
+			folder: str("The project's folder (absolute). Default: the given project's folder, else the folder this server runs in."),
+			project: str("Project slug, to use its folder."),
+		}),
+		hints: RO,
+		run(a, c) {
+			let dir = a.folder?.trim() || "";
+			if (!dir && a.project) dir = projects(c.db).find((p) => p.slug === projectOf(c, a.project))?.path ?? "";
+			if (!dir && c.project) dir = projects(c.db).find((p) => p.slug === c.project)?.path ?? "";
+			if (!dir && c.transport === "stdio") dir = process.env.CLAUDE_PROJECT_DIR || process.cwd();
+			if (!dir) throw new ToolError("which folder? Pass folder (the project's absolute path) or project");
+			return { text: integrationGuide(c.db, dir) };
 		},
 	},
 	{
@@ -1190,6 +1210,17 @@ const PROMPTS: Prompt[] = [
 			const items = listItems(c.db, { project: slug, owner: "agent", status: OPEN });
 			const list = items.length ? items.map((i) => `- ${itemLine(c, i, false)}`).join("\n") : "(nothing open for agents)";
 			return `Here is the open agent work in ${slug}, most urgent first (doing, then todo by priority, then waiting):\n\n${list}\n\nPick the item to do next: one already in progress in this session, else the most urgent todo. Read it with get_item, tell me which one you picked and why in a sentence, then do it.\n\n${personal(TRACKING, c)}`;
+		},
+	},
+	{
+		name: "integrate",
+		title: "Wire this project into the workbench",
+		description: "Set a project up so its agents use the board: the project on the board, the rules in its agent file, Claude Code's MCP server.",
+		arguments: [{ name: "project", description: "Project slug (default: the current one, or this folder)" }],
+		get(a, c) {
+			const p = a.project ? projects(c.db).find((x) => x.slug === projectOrRpc(c, a.project)) : undefined;
+			const dir = p?.path || projects(c.db).find((x) => x.slug === c.project)?.path || process.env.CLAUDE_PROJECT_DIR || process.cwd();
+			return `Set this project up to work with the workbench by following the guide below. Ask me before you add the project to the board, change my Claude Code settings or move any to-do lists.\n\n${integrationGuide(c.db, dir)}`;
 		},
 	},
 	{

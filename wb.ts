@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
 import { parseArgs } from "node:util";
+import { resolve as resolvePath } from "node:path";
 import {
 	addItem,
 	addLink,
@@ -41,6 +42,7 @@ import { PORT } from "./server";
 import { addSource, KEY_PATH, listSources, removeSource } from "./sources";
 import { PRESETS } from "./presets";
 import { checkBrief, WRITING_GUIDE } from "./brief";
+import { integrationGuide } from "./integrate";
 import { addImage, imageBytes, imageData, imageInfo, imageSummary, prepareImage, removeImage } from "./images";
 import { dayStartHour, ownerDefaultsText, ownerFor, yourName } from "./settings";
 import {
@@ -79,6 +81,8 @@ Items are named wb-xxxx (e.g. wb-k3f9); commands take that, the bare k3f9, or an
   wb answer <ref> "choice"          answer a decision (or the option's number); it goes back to the agent
   wb edit <ref> [options]           change fields
   wb guide                          how to write an item ${name} can follow: read it before filing one
+  wb integrate [folder] [--project P]   for an agent: wire this project into the workbench (the board, the rules
+                                   in AGENTS.md or CLAUDE.md, Claude Code's MCP server); says what's done and what's left
   wb image add <ref> <file> "caption"   put a screenshot on an item, or --image <file> --caption "…" on wb add
   wb image save <id> <file>         write one to a file, to look at it (wb show lists them)
   wb image rm <id>                  take one off
@@ -488,6 +492,17 @@ try {
 		case "guide":
 			console.log(WRITING_GUIDE.replaceAll("{{name}}", yourName(db)));
 			break;
+		case "integrate": {
+			let dir = args[1] ? resolvePath(args[1]) : process.cwd();
+			if (o.project) {
+				const p = projects(db).find((p) => p.slug === o.project);
+				if (!p) die(`unknown project "${o.project}" (wb projects)`);
+				if (!p.path) die(`project ${p.slug} has no folder; set one with wb project ${p.slug} <path>`);
+				dir = p.path;
+			}
+			console.log(integrationGuide(db, dir));
+			break;
+		}
 		case "image": {
 			const sub = args[1];
 			if (sub === "add") {

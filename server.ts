@@ -72,6 +72,7 @@ import { existsSync } from "node:fs";
 import { addImage, imageData, prepareImage, removeImage, setImageCaption } from "./images";
 import { mcpHttp } from "./mcp";
 import { refreshUsage, usageData } from "./usage";
+import { agentFiles, integratePrompt, integrateSummary } from "./integrate";
 import { PRESETS } from "./presets";
 import {
 	addTracker,
@@ -454,12 +455,12 @@ export function serve({ lan = false } = {}) {
 			// Settings: projects with their folder and what points at them, folders that could be projects, and health.
 			"/api/settings/projects": (req, srv) =>
 				localRead(req, srv)
-					? json(projectsWithCounts(db).map((p) => ({ ...p, folder: folderState(p.path), usage: projectUsage(db, p.slug) })))
+					? json(projectsWithCounts(db).map((p) => ({ ...p, folder: folderState(p.path), usage: projectUsage(db, p.slug), agents: p.path ? { ...agentFiles(p.path), prompt: integratePrompt(p.path) } : null })))
 					: json({ error: SETTINGS_LOCAL }, 403),
 			"/api/settings/folders": (req, srv) =>
 				localRead(req, srv) ? json(candidateFolders(db)) : json({ error: SETTINGS_LOCAL }, 403),
 			"/api/settings/health": async (req, srv) =>
-				localRead(req, srv) ? json(await health(db, { port: PORT, lan })) : json({ error: SETTINGS_LOCAL }, 403),
+				localRead(req, srv) ? json({ ...(await health(db, { port: PORT, lan })), integrate: integrateSummary(db) }) : json({ error: SETTINGS_LOCAL }, 403),
 			"/api/projects/:slug/logo": async (req) => {
 				const p = projects(db).find((p) => p.slug === req.params.slug);
 				const logo = p && (await projectLogo(p));
