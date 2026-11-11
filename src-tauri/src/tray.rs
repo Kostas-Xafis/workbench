@@ -4,8 +4,8 @@
 //! - The tray icon (libayatana-appindicator on Linux, which reports no clicks, only menu items) shows the
 //!   board's icon, with the count of what waits on Kostas drawn into it (red dot, the number, `9+` above 9).
 //!   There's no badge API, so [`icon_with_count`] paints the PNG and `TrayIcon::set_icon` swaps it.
-//! - Menu: Open board / "Needs you: N" (a disabled line) / Start on login / Phone access (owned server only)
-//!   / Quit.
+//! - Menu: Open board / "Needs you: N" (a disabled line) / "Update to 0.2.0…" (only while update.rs has one to
+//!   offer; opens the board's update dialog) / Start on login / Phone access (owned server only) / Quit.
 //! - The count is polled from `GET <board>/api/projects` every 30 s: the sum of `mine` over the projects
 //!   whose `archived_at` is null. The page's own poll pauses while the window is hidden; this one doesn't.
 //! - Close to tray: `CloseRequested` on the main window hides it. Quit is in the menu and exits for real.
@@ -16,7 +16,7 @@ use std::time::Duration;
 use tauri::image::Image;
 use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{TrayIcon, TrayIconBuilder};
-use tauri::{AppHandle, Builder, Runtime, Window, WindowEvent};
+use tauri::{AppHandle, Builder, Manager, Runtime, Window, WindowEvent};
 use tauri_plugin_autostart::ManagerExt;
 
 const TRAY_ID: &str = "workbench";
@@ -24,6 +24,7 @@ const OPEN: &str = "open";
 const AUTOSTART: &str = "autostart";
 const LAN: &str = "lan";
 const QUIT: &str = "quit";
+const UPDATE: &str = "update";
 
 /// How often the board is asked for the count.
 const POLL: Duration = Duration::from_secs(30);
@@ -49,6 +50,32 @@ pub fn init<R: Runtime>(builder: Builder<R>) -> Builder<R> {
 /// Whether the tray icon exists (see `TRAY_UP`).
 pub fn is_up() -> bool {
     TRAY_UP.load(Ordering::Relaxed)
+}
+
+/// The menu and its "Update to …" line, which [`set_update`] puts in and takes out (a menu item can't be hidden).
+struct UpdateLine<R: Runtime> {
+    menu: Menu<R>,
+    item: MenuItem<R>,
+    shown: std::sync::Mutex<Option<String>>,
+}
+
+/// Shows "Update to <version>…" in the menu (under the count), or takes it out with `None`. Any thread.
+pub fn set_update<R: Runtime>(app: &AppHandle<R>, version: Option<String>) {
+    let Some(line) = app.try_state::<UpdateLine<R>>() else { return };
+    let mut shown = line.shown.lock().unwrap_or_else(|e| e.into_inner());
+    if *shown == version {
+        return;
+    }
+    *shown = version.clone();
+    let (menu, item) = (line.menu.clone(), line.item.clone());
+    let _ = app.run_on_main_thread(move || {
+        let _ = menu.remove(&item);
+        if let Some(v) = version {
+            let _ = item.set_text(format!("Update to {v}…"));
+            // After "Open board" and the count.
+            let _ = menu.insert(&item, 2);
+        }
+    });
 }
 
 /// The pieces the poller updates.
@@ -100,6 +127,8 @@ fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Parts<R>> {
     items.push(&sep);
     items.push(&quit);
     let menu = Menu::with_items(app, &items)?;
+    let update = MenuItem::with_id(app, UPDATE, "Update…", true, None::<&str>)?;
+    app.manage(UpdateLine { menu: menu.clone(), item: update, shown: std::sync::Mutex::new(None) });
 
     let tray = TrayIconBuilder::with_id(TRAY_ID)
         .icon(icon_with_count(0))
@@ -113,6 +142,7 @@ fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Parts<R>> {
                     crate::show_main(app);
                     refresh_lan(app, &lan);
                 }
+                UPDATE => crate::update::open_dialog(app),
                 AUTOSTART => toggle_autostart(app, &autostart),
                 LAN => toggle_lan(app, &lan),
                 QUIT => app.exit(0),

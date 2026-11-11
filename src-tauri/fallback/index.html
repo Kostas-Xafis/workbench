@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- Bundled with the app (build.frontendDist). The main window opens here and src/server.rs moves it to the
      board once the board answers, and back here while it can't be reached. The state comes in the URL's
-     fragment as JSON: { state: "starting" | "waiting" | "taken" | "stopped", port, detail?, log?, canStart? }.
+     fragment as JSON: { state: "starting" | "waiting" | "taken" | "old" | "stopped", port, detail?, log?, canStart?, service? }.
      This page's only permission is the `retry` command (look for the board again, start it if none answers). -->
 <html lang="en">
 <head>
@@ -43,6 +43,7 @@
 	<main id="box">
 		<h1><span class="spin" id="spin"></span><span id="title">Starting the board…</span></h1>
 		<p id="text"></p>
+		<pre id="cmd" hidden></pre>
 		<p id="detail" hidden></p>
 		<pre id="log" hidden></pre>
 		<div class="actions" id="actions" hidden><button id="retry" type="button">Retry</button><span id="note"></span></div>
@@ -62,6 +63,10 @@
 					button: s.canStart ? "Start it here" : null },
 				taken: { title: `Port ${port} is taken by something else`, bad: true, button: "Retry",
 					text: `Something that isn't a Workbench answers on port ${port}, so the app didn't start the board. Stop it, or set WB_APP_URL to another port, then retry.` },
+				old: { title: `An older Workbench board is on port ${port}`, bad: true, button: "Retry",
+					text: `It runs code from before the app, so the app can't use it. Restart it so it runs the current version, then retry` +
+						(s.service ? ":" : ". If you started it by hand, stop it and run it again."),
+					cmd: s.service ? "systemctl --user restart workbench" : "" },
 				stopped: { title: "The board stopped", bad: true, button: "Retry",
 					text: (s.detail || "") + (s.log ? " The end of its log:" : "") },
 			};
@@ -71,6 +76,8 @@
 			$("text").hidden = !v.text;
 			$("spin").hidden = !v.spin;
 			$("box").className = v.bad ? "bad" : "";
+			$("cmd").textContent = v.cmd || "";
+			$("cmd").hidden = !v.cmd;
 			const detail = s.state === "stopped" ? "" : s.detail || ""; // "stopped" has it in its text
 			$("detail").textContent = detail;
 			$("detail").hidden = !detail;

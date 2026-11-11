@@ -56,6 +56,7 @@ import { archivedDay, currentDay, publishDays } from "./day";
 import { codeLinks, repoState, type CodeLinks } from "./git";
 import { candidateFolders, checkFolder, folderState, health } from "./health";
 import { getSettings, settingDefs, updateSettings } from "./settings";
+import { checkNow, startUpdateChecks, updateInfo } from "./updates";
 // Settings → Data
 import { BACKUP_DIR, backupFile, backupsKeep, compactDb, dbStats, exportAll, restoreSteps, shellWord, tidy, tidyCount, tidyKeep, type TidyKeep } from "./db";
 import { startup } from "./health";
@@ -322,6 +323,17 @@ export function serve({ lan = false } = {}) {
 				}),
 			},
 			"/api/settings/defs": () => json(settingDefs()),
+			// Settings → Updates (updates.ts): this server's version, how it runs, and the newest release it knows of.
+			// Read by anyone who can open the board (the board bar says when there's a newer one); "Check now" calls the
+			// internet, so only from this computer.
+			"/api/update": () => json(updateInfo(db, COMPILED)),
+			"/api/update/check": {
+				POST: jsonOnly(async (req, srv) => {
+					if (!boardOnly(req, srv)) return json({ error: SETTINGS_LOCAL }, 403);
+					await checkNow();
+					return json(updateInfo(db, COMPILED));
+				}),
+			},
 
 			// Settings → You and your day: routes
 			// end: You and your day routes
@@ -896,6 +908,7 @@ export function serve({ lan = false } = {}) {
 	});
 	// Shares outlive the board (see share.ts): take back the ones still running, close the expired ones.
 	resumeShares(db);
+	startUpdateChecks(db);
 	return server;
 }
 
