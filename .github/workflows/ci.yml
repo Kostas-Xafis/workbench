@@ -1,0 +1,66 @@
+# Checks on every push and pull request to master: the TypeScript (server, CLI, scripts), the desktop app's Rust,
+# and that the server still compiles into one binary (the app's sidecar and the release's standalone server).
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  BUN_VERSION: 1.4.4
+  CARGO_TERM_COLOR: always
+
+jobs:
+  server:
+    name: Typecheck and server build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - run: bun install --frozen-lockfile
+      - run: bun run typecheck
+      - name: Compile the server into one binary
+        run: bun build --compile --minify --bytecode --sourcemap server.ts --outfile workbench-server
+      - name: The binary starts and answers /api/ping
+        run: |
+          dir=$(mktemp -d)
+          WB_PORT=4399 WB_DB="$dir/workbench.db" WB_BACKUPS="$dir/backups" ./workbench-server > "$dir/log" 2>&1 &
+          for i in $(seq 50); do curl -fsS http://127.0.0.1:4399/api/ping && exit 0; sleep 0.2; done
+          cat "$dir/log"; exit 1
+
+  app:
+    name: Desktop app (cargo check, clippy, test)
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: src-tauri
+    steps:
+      - uses: actions/checkout@v4
+      - name: Linux libraries for Tauri (WebKitGTK 4.1)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      # tauri-build copies the sidecar next to the app's binary and fails without it; cargo check doesn't run it.
+      - name: Placeholder sidecar
+        run: mkdir -p binaries && touch "binaries/workbench-server-$(rustc --print host-tuple)"
+      - run: cargo check --locked --all-targets
+      - run: cargo clippy --locked --all-targets -- -D warnings
+      - run: cargo test --locked

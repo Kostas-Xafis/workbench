@@ -9,6 +9,8 @@
 		"typecheck": "bunx tsc --noEmit",
 		"app:dev": "tauri dev",
 		"app:build": "tauri build",
+		"app:build:release": "tauri build --config src-tauri/tauri.release.conf.json",
+		"release": "bun scripts/release.ts",
 		"build:server": "bun build --compile --minify --bytecode --sourcemap server.ts --outfile src-tauri/binaries/workbench-server-$(rustc --print host-tuple)"
 	},
 	"devDependencies": {
