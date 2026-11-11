@@ -24,5 +24,11 @@
 		"shortDescription": "One board for every project",
 		"externalBin": ["binaries/workbench-server"],
 		"icon": ["icons/32x32.png", "icons/64x64.png", "icons/128x128.png", "icons/256x256.png", "icons/icon.png"]
+	},
+	"plugins": {
+		"updater": {
+			"pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEQ4NzZCNjM0NUQ3QzA1NjAKUldSZ0JYeGROTFoyMkxWeS9LM1pUWC9NaWQxRDUvakFNcUdzMTl2UHFwYThsZ3lRMUQ3dnNrcXkK",
+			"endpoints": ["https://github.com/Kostas-Xafis/workbench/releases/latest/download/latest.json"]
+		}
 	}
 }

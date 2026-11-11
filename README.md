@@ -50,7 +50,7 @@ Then `systemctl --user enable --now workbench`.
 The board in its own window, instead of a browser tab. It is the same board: nothing changes in how it works, and the browser keeps working too.
 
 ```bash
-sudo apt install ./Workbench_0.1.0_amd64.deb     # install (the .deb is in src-tauri/target/release/bundle/deb/)
+sudo apt install ./Workbench_<version>_amd64.deb # install a .deb from https://github.com/Kostas-Xafis/workbench/releases
 sudo apt remove workbench                        # remove
 bun install && bun run app:build                 # build from source: the .deb and an AppImage, in src-tauri/target/release/bundle/
 ```
@@ -64,6 +64,24 @@ Building needs Rust and the usual Tauri libraries (WebKitGTK 4.1, libayatana-app
 - **Where things are:** the app's settings in `~/.config/io.github.kostas-xafis.workbench/app.json`, the window's own browser data in `~/.local/share/io.github.kostas-xafis.workbench`, and the server's log (the one to read when the window says the board stopped) in `~/.local/share/io.github.kostas-xafis.workbench/logs/server.log`. Because the app's window has its own browser storage, "This browser" settings (bell, theme, folded sections) start fresh there.
 - **On Wayland (GNOME):** the window's position isn't remembered (only its size), and clicking the tray icon itself does nothing: use its menu. GNOME may only flash the window instead of raising it from another desktop.
 - **Development:** `bun run app:dev` builds the server and opens the app on the board at `http://localhost:4321`. `WB_APP_URL=http://localhost:4399` points it at a test board instead; `WB_APP_DB=<file>` is the database the app's own server uses (always set it for tests).
+
+## Releases
+
+A version tag builds and publishes a release on GitHub (Actions → Release): the desktop app as a `.deb` and an AppImage, the server alone as one executable (`workbench-server_<version>_linux_x86_64`, for running the board without the app, e.g. as the systemd service above), `SHA256SUMS`, and the signed files the app's update check reads (`*.sig`, `latest.json`). The notes are the commit subjects since the previous tag.
+
+```bash
+bun run release 0.2.0 --dry-run   # show the version fields it would change
+bun run release 0.2.0             # bump package.json, Cargo.toml and Cargo.lock, commit "Release 0.2.0", tag v0.2.0
+git push --atomic origin master v0.2.0   # publish: the tag starts the release build
+bun run release 0.2.0 --push      # the same, in one go
+```
+
+- **Versions:** `package.json` is the one the server reports (`/api/ping`) and the app shows (tauri.conf.json reads it); `src-tauri/Cargo.toml` and `Cargo.lock` carry the same number. Always bump them with `bun run release`: the build refuses a tag that doesn't match all three. It runs from a clean `master` (`--any-branch` to tag elsewhere) and never pushes unless `--push` is given.
+- **Pre-releases:** `bun run release 0.2.0-rc.1` makes a GitHub pre-release. Installed apps don't see it (their update check reads `releases/latest`), so it's the way to try a build before everyone gets it.
+- **Signing:** update files are signed with a private key that lives only in the repository's secrets (`TAURI_SIGNING_PRIVATE_KEY`, `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`) and in `~/.tauri/workbench.key` on Kostas's machine; the app carries its public half (`plugins.updater.pubkey` in `src-tauri/tauri.conf.json`) and refuses an update not signed with it. Losing the key means installed apps can't update any more: they'd need a new version installed by hand.
+- **Building a release locally:** `bun run app:build:release` with both variables set builds the same signed files; `bun scripts/release-assets.ts <version>` gathers them into `dist/` with `latest.json` and `SHA256SUMS` (`--unsigned` after a plain `bun run app:build`).
+- **The standalone server** needs `WB_DB` (the database's path); `WB_PORT` and `WB_BACKUPS` as for `bun server.ts`. For the service: `ExecStart=/path/to/workbench-server_<version>_linux_x86_64` with `Environment=WB_DB=/home/kostas/Projects/workbench/workbench.db`.
+- **CI:** every push and pull request to master runs the typecheck, compiles the server and checks it answers, and runs `cargo check`, `clippy` (warnings fail) and `cargo test` on the app (Actions → CI).
 
 ## Settings
 

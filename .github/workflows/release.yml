@@ -1,0 +1,94 @@
+# A release, from a version tag (`bun run release 0.2.0 --push`, or push a vX.Y.Z tag). Builds on Linux x86_64 and
+# publishes a GitHub Release with the .deb, the AppImage, the standalone server binary, their .sig files, the
+# updater's latest.json, and SHA256SUMS. A pre-release tag (v0.2.0-rc.1) makes a GitHub pre-release, which
+# /releases/latest (and so the app's update check) skips.
+#
+# Needs two repository secrets (Settings → Secrets and variables → Actions): TAURI_SIGNING_PRIVATE_KEY (the
+# whole private key file made by `tauri signer generate`) and TAURI_SIGNING_PRIVATE_KEY_PASSWORD. Its public half
+# is plugins.updater.pubkey in src-tauri/tauri.conf.json.
+name: Release
+
+on:
+  push:
+    tags: ["v[0-9]+.[0-9]+.[0-9]+*"]
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+env:
+  BUN_VERSION: 1.4.4
+  CARGO_TERM_COLOR: always
+
+jobs:
+  release:
+    name: Build and publish
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # every commit and tag, for the release notes
+      - name: The tag matches every version field
+        id: version
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          v="${tag#v}"
+          pkg=$(jq -r .version package.json)
+          cargo=$(sed -n '/^\[package\]/,/^\[/s/^version = "\(.*\)"/\1/p' src-tauri/Cargo.toml)
+          lock=$(grep -A1 '^name = "workbench-app"$' src-tauri/Cargo.lock | sed -n 's/^version = "\(.*\)"/\1/p')
+          echo "tag $tag, package.json $pkg, Cargo.toml $cargo, Cargo.lock $lock"
+          if [ "$pkg" != "$v" ] || [ "$cargo" != "$v" ] || [ "$lock" != "$v" ]; then
+            echo "::error::Tag $tag doesn't match the versions in the repository. Cut releases with: bun run release $v"
+            exit 1
+          fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          case "$v" in *-*) echo "prerelease=true" >> "$GITHUB_OUTPUT";; *) echo "prerelease=false" >> "$GITHUB_OUTPUT";; esac
+      - name: The signing key is there
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ]; then
+            echo "::error::The repository secret TAURI_SIGNING_PRIVATE_KEY is missing, so the update files can't be signed."
+            exit 1
+          fi
+      - name: Linux libraries for Tauri (WebKitGTK 4.1) and the AppImage tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev \
+            build-essential file patchelf xdg-utils
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          shared-key: release
+      - run: bun install --frozen-lockfile
+      - name: Build the app (.deb, AppImage, signed update files) and the server
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          APPIMAGE_EXTRACT_AND_RUN: "1" # the AppImage tools run without FUSE
+        run: bun run app:build:release
+      - name: Release notes
+        run: bun scripts/release-notes.ts "$GITHUB_REF_NAME" | tee notes.md
+      - name: Gather the files, latest.json and SHA256SUMS
+        run: bun scripts/release-assets.ts "${{ steps.version.outputs.version }}" --out dist --notes notes.md
+      - name: Publish the GitHub Release
+        if: ${{ !env.ACT }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --verify-tag \
+            --title "Workbench ${{ steps.version.outputs.version }}" \
+            --notes-file notes.md \
+            --prerelease=${{ steps.version.outputs.prerelease }}
+      - name: Under act, list what would be published
+        if: ${{ env.ACT }}
+        run: ls -la dist && cat dist/latest.json && cat notes.md
