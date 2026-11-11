@@ -1,0 +1,20 @@
+{
+	"$schema": "https://schema.tauri.app/config/2",
+	"productName": "Workbench Nightly",
+	"mainBinaryName": "workbench-nightly",
+	"identifier": "io.github.kostas-xafis.workbench.nightly",
+	"bundle": {
+		"targets": ["appimage"],
+		"createUpdaterArtifacts": false,
+		"icon": [
+			"icons/nightly/32x32.png",
+			"icons/nightly/64x64.png",
+			"icons/nightly/128x128.png",
+			"icons/nightly/256x256.png",
+			"icons/nightly/icon.png"
+		]
+	},
+	"plugins": {
+		"updater": null
+	}
+}

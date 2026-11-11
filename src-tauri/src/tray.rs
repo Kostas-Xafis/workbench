@@ -266,7 +266,8 @@ pub fn on_window_event<R: Runtime>(window: &Window<R>, event: &WindowEvent) {
 /// The board's icon with the count on it: a red dot in the top right corner with the number in white,
 /// `9+` above 9, nothing for 0.
 fn icon_with_count(count: u32) -> Image<'static> {
-    let base = Image::from_bytes(include_bytes!("../icons/128x128.png")).expect("the app icon is a PNG");
+    let png: &[u8] = if crate::NIGHTLY { include_bytes!("../icons/nightly/128x128.png") } else { include_bytes!("../icons/128x128.png") };
+    let base = Image::from_bytes(png).expect("the app icon is a PNG");
     let (w, h) = (base.width(), base.height());
     let mut rgba = base.rgba().to_vec();
     if count > 0 {

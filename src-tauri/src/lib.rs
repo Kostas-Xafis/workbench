@@ -29,6 +29,10 @@ use tauri::{AppHandle, Manager, Runtime, Url, WebviewUrl, WebviewWindow, Webview
 /// Label of the board's window. Events for the page go to this label.
 pub const MAIN: &str = "main";
 
+/// A nightly build (`bun run nightly`, built with `WB_CHANNEL=nightly`): it runs next to the installed app, so by
+/// default it uses its own port and its own copy of the data, never the real board's, and has its own icon.
+pub(crate) const NIGHTLY: bool = cfg!(wb_nightly);
+
 /// What the board page (and only the page at the board's own origin) may call. Nothing here runs a
 /// program, reads or writes a file, or opens a URL the page chooses. Do not add core:default or any
 /// plugin's default set here: those include commands a page should never have.
@@ -174,7 +178,7 @@ fn started_hidden() -> bool {
 fn main_window<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<WebviewWindow<R>> {
     let (width, height, maximized) = saved_size(app).unwrap_or((1280.0, 860.0, false));
     let builder = WebviewWindowBuilder::new(app, MAIN, WebviewUrl::App("index.html".into()))
-        .title("Workbench")
+        .title(&app.package_info().name)
         .inner_size(width, height)
         .maximized(maximized)
         .min_inner_size(MIN_SIZE.0, MIN_SIZE.1)

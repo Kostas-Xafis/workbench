@@ -66,6 +66,22 @@ Building needs Rust and the usual Tauri libraries (WebKitGTK 4.1, libayatana-app
 - **On Wayland (GNOME):** the window's position isn't remembered (only its size), and clicking the tray icon itself does nothing: use its menu. GNOME may only flash the window instead of raising it from another desktop.
 - **Development:** `bun run app:dev` builds the server and opens the app on the board at `http://localhost:4321`. `WB_APP_URL=http://localhost:4399` points it at a test board instead; `WB_APP_DB=<file>` is the database the app's own server uses (always set it for tests).
 
+## Nightly: try a build before releasing it
+
+`bun run nightly` builds what's in the folder you run it in (any branch or worktree, uncommitted changes too) as a second app, **Workbench Nightly**, and starts it next to the installed one. Try the change in it, and release once it's right.
+
+```bash
+bun run nightly                 # build, install, (re)start Workbench Nightly
+bun run nightly --fresh-data    # … with a fresh copy of the real board's data
+bun run nightly --no-launch     # build and install only
+```
+
+- **Apart from the real app:** its own name and orange icon in the launcher and the tray, its own window and settings, and its own board on port 4322 (the real app keeps 4321). Both run at once.
+- **Its own data:** a copy of the real board in `~/.local/share/workbench-nightly/`, made the first time and again with `--fresh-data`. What you do in the nightly never reaches the real board; `wb` and the agents keep using the real one. Its trackers and day pages run on the copy too.
+- **Version:** the next patch plus the build time and commit, e.g. `0.2.2-nightly.202611112130+5d45c20` (`.dirty` when built with uncommitted changes); Settings → Updates shows it. A nightly has no update check: the next build is the next `bun run nightly`, which stops the running one and starts the new one.
+- **Where it goes:** the AppImage at `~/Applications/Workbench-Nightly.AppImage`, its launcher entry in `~/.local/share/applications/workbench-nightly.desktop`. To remove it: delete those two and `~/.local/share/workbench-nightly/`.
+- **Faster, for the page alone:** `WB_PORT=4399 WB_DB=<copy> bun server.ts` and a browser at `localhost:4399` show a page or server change in seconds, without building the app (see "Development" above).
+
 ## Releases
 
 A version tag builds and publishes a release on GitHub (Actions → Release): the desktop app as a `.deb` and an AppImage, the server alone as one executable (`workbench-server_<version>_linux_x86_64`, for running the board without the app, e.g. as the systemd service above), `SHA256SUMS`, and the signed files the app's update check reads (`*.sig`, `latest.json`). The notes are the commit subjects since the previous tag.

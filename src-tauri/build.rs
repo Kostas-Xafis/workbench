@@ -1,4 +1,10 @@
 fn main() {
+    // `WB_CHANNEL=nightly` (scripts/nightly.ts) builds the nightly: its own port, data, icon (lib.rs NIGHTLY).
+    println!("cargo:rerun-if-env-changed=WB_CHANNEL");
+    println!("cargo::rustc-check-cfg=cfg(wb_nightly)");
+    if std::env::var("WB_CHANNEL").as_deref() == Ok("nightly") {
+        println!("cargo:rustc-cfg=wb_nightly");
+    }
     // App commands. Each gets allow-/deny- permissions (e.g. "allow-app-info"), granted at runtime: app_info,
     // notify, update_* and zoom to the board's origin (src/lib.rs), retry to the bundled fallback page only (src/server.rs).
     // probe_result exists only in debug builds (src/probe.rs); in release its permission is defined but never

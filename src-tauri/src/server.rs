@@ -112,7 +112,8 @@ pub fn init<R: Runtime>(builder: Builder<R>) -> Builder<R> {
 /// Starts finding or starting the board in the background and returns at once. Runs inside Tauri's setup,
 /// before the main window (which opens on the fallback page) is created.
 pub fn setup<R: Runtime>(app: &AppHandle<R>) -> Result<(), Box<dyn std::error::Error>> {
-    let raw = std::env::var("WB_APP_URL").unwrap_or_else(|_| "http://localhost:4321".into());
+    let default_url = if crate::NIGHTLY { "http://localhost:4322" } else { "http://localhost:4321" };
+    let raw = std::env::var("WB_APP_URL").unwrap_or_else(|_| default_url.into());
     let url: Url = raw.parse().map_err(|e| format!("WB_APP_URL {raw:?}: {e}"))?;
     let port = url.port_or_known_default().unwrap_or(4321);
     let (tx, rx) = mpsc::channel();
@@ -735,7 +736,10 @@ fn db_path<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf, String> {
         None => {
             let home = app.path().home_dir().map_err(|e| e.to_string())?;
             let dev = home.join("Projects/workbench/workbench.db");
-            if dev.exists() {
+            if crate::NIGHTLY {
+                // The nightly's own copy (scripts/nightly.ts makes it from the real board): never the real data.
+                app.path().data_dir().map_err(|e| e.to_string())?.join("workbench-nightly/workbench.db")
+            } else if dev.exists() {
                 dev
             } else {
                 app.path().data_dir().map_err(|e| e.to_string())?.join("workbench/workbench.db")
