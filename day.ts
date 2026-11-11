@@ -206,6 +206,15 @@ export function daysBefore(day: string, n: number) {
 	return Array.from({ length: n }, (_, i) => localDate(new Date(from.getFullYear(), from.getMonth(), from.getDate() - 1 - i)));
 }
 
+/** A day page leaves the sidebar's "Days" for its archive once this many days have passed. Nothing is deleted. */
+const ARCHIVE_AFTER_DAYS = 7;
+
+/** Whether this report is a day page old enough to be archived, on the work day `today`. */
+export function archivedDay(name: string, today: string) {
+	const day = name.match(/^day-(\d{4}-\d{2}-\d{2})$/)?.[1];
+	return !!day && day <= daysBefore(today, ARCHIVE_AFTER_DAYS).at(-1)!;
+}
+
 /** Brings every project's day pages up to date: today's, and the last `back` days not yet published as over. */
 export async function publishDays(db: Db, back = 7) {
 	const today = currentDay(db);

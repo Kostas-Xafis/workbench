@@ -100,6 +100,11 @@ summary::-webkit-details-marker { display: none; }
 .rsec > summary .tools { margin-left: auto; display: flex; gap: 2px; text-transform: none; letter-spacing: 0; }
 .rsec > summary .icon-btn { width: 24px; height: 24px; }
 .glabel { font-size: 11.5px; font-weight: 600; color: var(--muted); padding: 6px 8px 2px 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.glabel.moving { display: flex; align-items: center; gap: 2px; padding-right: 2px; }
+.glabel.moving > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.glabel .icon-btn { width: 24px; height: 24px; flex: none; }
+.glabel .icon-btn:disabled { opacity: .25; cursor: default; background: transparent; }
+.rsec .lgroup.archive { margin-top: 8px; border-top: 1px solid var(--line); padding-top: 4px; }
 .lgroup > summary { display: flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 600; color: var(--muted); padding: 5px 8px 3px 10px; }
 .lgroup > summary span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lgroup > summary:hover { color: var(--ink); }
@@ -113,6 +118,8 @@ summary::-webkit-details-marker { display: none; }
 .rail-collapsed .ritem { justify-content: center; padding: 6px 0; margin: 1px 4px; }
 .rail-sep { height: 1px; background: var(--line); margin: 6px 12px; }
 .doc-ic { width: 16px; height: 16px; flex: none; color: var(--muted); }
+.rep-ic { width: 16px; height: 16px; flex: none; object-fit: contain; }
+.ritem > span.rep-ic, .res > span.rep-ic { flex: none; display: grid; place-items: center; font-size: 14px; line-height: 1; overflow: visible; }
 .tile { width: 24px; height: 24px; border-radius: 7px; display: grid; place-items: center; font-size: 11px; font-weight: 700; background: var(--hover); color: var(--muted); border: 1px solid var(--line); }
 [aria-current="true"] > .tile { border-color: var(--accent); color: var(--accent); }
 .fav { width: 16px; height: 16px; flex: none; border-radius: 3px; object-fit: contain; }
@@ -280,6 +287,7 @@ mark { background: color-mix(in srgb, var(--review) 30%, transparent); color: in
 
 /* Vault */
 .vault-btn { display: inline-flex; align-items: center; gap: 6px; }
+a.vault-btn { color: inherit; text-decoration: none; }
 .vault-btn svg, .sm svg { width: 14px; height: 14px; }
 .sm { display: inline-flex; align-items: center; gap: 5px; }
 .vault-btn[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
@@ -357,6 +365,9 @@ dialog.narrow { width: min(460px, calc(100vw - 32px)); }
 .set-row .main code { font-size: 11.5px; margin-left: 6px; color: var(--muted); }
 .set-row .main small { display: block; color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .set-row .meta { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.set-row .main small.ag { display: flex; align-items: center; gap: 6px; margin-top: 2px; }
+.set-row .main small.ag .sdot { margin-top: 0; }
+.set-row .main small.ag span:last-child { overflow: hidden; text-overflow: ellipsis; }
 .set-row .plogo { width: 32px; height: 32px; border-radius: 9px; }
 .set-row .tools { display: flex; gap: 2px; align-items: center; }
 .ord { display: flex; flex-direction: column; }
@@ -368,6 +379,8 @@ dialog.narrow { width: min(460px, calc(100vw - 32px)); }
 .chk p { margin: 3px 0 0; font-size: 13px; overflow-wrap: anywhere; }
 .sdot { width: 9px; height: 9px; border-radius: 50%; margin-top: 6px; background: var(--muted); flex: none; }
 .sdot.ok { background: var(--check); } .sdot.warn { background: var(--review); } .sdot.bad { background: var(--bug); }
+/* .warn is also the board's warning badge; a dot keeps its shape. */
+.sdot.warn { padding: 0; margin-left: 0; border-radius: 50%; }
 .sdot.off { background: transparent; border: 1.5px solid var(--muted); }
 .st { font-size: 12px; color: var(--muted); white-space: nowrap; font-weight: 600; }
 .st.ok { color: var(--check); } .st.warn { color: var(--review); } .st.bad { color: var(--bug); }
@@ -624,7 +637,11 @@ dialog::backdrop { background: rgb(0 0 0 / .35); }
 .images a { display: block; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--bg); line-height: 0; }
 .images img { display: block; width: 100%; height: auto; max-height: 60vh; object-fit: contain; }
 .images figcaption { display: flex; gap: 8px; align-items: flex-start; margin-top: 5px; font-size: 13px; overflow-wrap: anywhere; }
-.images figcaption span { flex: 1; min-width: 0; }
+.images figcaption .cap { flex: 1; min-width: 0; border: 1px solid transparent; background: transparent; border-radius: 6px; padding: 2px 5px; margin: -2px 0 0 -5px; font: inherit; color: var(--ink); }
+.images figcaption .cap:hover { border-color: var(--line); }
+.images figcaption .cap:focus { outline: none; border-color: var(--accent, var(--line)); background: var(--bg); }
+.images figure.pending img { opacity: .55; }
+#form.dropping { outline: 2px dashed var(--accent, var(--muted)); outline-offset: -6px; }
 .images .rm { flex: none; border: 0; background: none; padding: 0 2px; color: var(--muted); font-size: 12px; cursor: pointer; }
 .images .rm:hover { color: var(--ink); text-decoration: underline; }
 .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
@@ -670,6 +687,8 @@ dialog::backdrop { background: rgb(0 0 0 / .35); }
 			<div id="results" role="listbox" hidden></div>
 		</div>
 		<div class="top-right">
+			<a class="ghost vault-btn" id="usage-btn" href="/usage" title="Claude usage: tokens and cost, for this project or all of them">
+				<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2.5 13.5h11M4.5 11V8M8 11V4.5M11.5 11V6.5"/></svg><span>Usage</span></a>
 			<button class="ghost vault-btn" id="vault-btn" title="Secrets vault" aria-pressed="false">
 				<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="7" width="10" height="7" rx="1.5"/><path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2"/></svg><span>Vault</span></button>
 			<button class="primary" id="new">New</button>
@@ -718,11 +737,12 @@ dialog::backdrop { background: rgb(0 0 0 / .35); }
 	</div>
 	<label class="field-col" id="options-field">Choices, one per line (you answer with a click)<textarea name="options" rows="3" placeholder="CRDT sync&#10;Last write wins"></textarea></label>
 	<div>
-		<div class="row" style="margin-bottom:6px"><b style="font-size:12px;color:var(--muted)">DETAILS</b><span class="spacer"></span><button type="button" class="ghost" id="edit-body">Edit</button></div>
+		<div class="row" style="margin-bottom:6px"><b style="font-size:12px;color:var(--muted)">DETAILS</b><span class="spacer"></span><button type="button" class="ghost" id="add-image" title="Add a picture. You can also paste one or drop it anywhere on this box">Add image</button><button type="button" class="ghost" id="edit-body">Edit</button></div>
 		<div class="body-view" id="body-view"></div>
 		<textarea name="body" hidden placeholder="Steps, context, links (markdown)"></textarea>
 	</div>
 	<div class="images" id="images" hidden></div>
+	<input type="file" id="image-file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden>
 	<div class="answer-box" id="answer-box" hidden>
 		<h3>Answer</h3>
 		<div class="opts" id="answer-opts"></div>
@@ -1077,6 +1097,7 @@ $("#prail").addEventListener("click", (e) => {
 
 // Links with project '' show everywhere; a project's own links show with it (and under All).
 let editingLinks = false;
+let editingReports = false;
 function railLinks() {
 	const scopes = [["", state.links.filter((l) => !l.project)]];
 	for (const p of state.projects) if (!state.project || state.project === p.slug) scopes.push([p.slug, state.links.filter((l) => l.project === p.slug)]);
@@ -1088,23 +1109,54 @@ function railLinks() {
 	}
 	return groups;
 }
+const inRail = (r) => state.project ? r.project === state.project : !isArchived(r.project);
+function reportOrder(slug) {
+	try { return JSON.parse(state.allProjects.find((p) => p.slug === slug)?.report_order || "[]"); } catch { return []; }
+}
+// A project's report groups as { label, grp, project, reports }: in the order set for them (the rest after those, by
+// name), reports without a group last. Under "All", project by project. Archived day pages aren't in here.
 function railReports() {
 	const groups = new Map();
 	for (const r of state.reports) {
-		if (state.project ? r.project !== state.project : isArchived(r.project)) continue;
-		const label = [!state.project ? projectName(r.project) : "", r.grp].filter(Boolean).join(" · ");
-		if (!groups.has(label)) groups.set(label, []);
-		groups.get(label).push(r);
+		if (!inRail(r) || r.archived) continue;
+		const key = JSON.stringify([r.project, r.grp]);
+		if (!groups.has(key)) groups.set(key, { label: [!state.project ? projectName(r.project) : "", r.grp].filter(Boolean).join(" · "), grp: r.grp, project: r.project, reports: [] });
+		groups.get(key).reports.push(r);
 	}
 	// Day pages newest first (by name, day-YYYY-MM-DD), not by title.
-	for (const rs of groups.values()) if (rs.every(isDay)) rs.sort((a, b) => b.name.localeCompare(a.name));
-	return [...groups].sort(([a], [b]) => (a === "") - (b === "") || a.localeCompare(b));
+	for (const g of groups.values()) if (g.reports.every(isDay)) g.reports.sort((a, b) => b.name.localeCompare(a.name));
+	const projectAt = (slug) => state.allProjects.findIndex((p) => p.slug === slug);
+	const at = (g) => { const i = reportOrder(g.project).indexOf(g.grp); return i < 0 ? Infinity : i; };
+	return [...groups.values()].sort((a, b) => projectAt(a.project) - projectAt(b.project) || (a.grp === "") - (b.grp === "")
+		|| (at(a) === at(b) ? 0 : at(a) - at(b)) || a.grp.localeCompare(b.grp));
+}
+// Day pages a week or more old, newest first: out of the way, not gone.
+const archivedDays = () => state.reports.filter((r) => r.archived && inRail(r)).sort((a, b) => b.name.localeCompare(a.name));
+async function moveReportGroup(grp, dir) {
+	const order = railReports().filter((g) => g.grp).map((g) => g.grp);
+	const i = order.indexOf(grp), j = i + (dir === "up" ? -1 : 1);
+	if (i < 0 || j < 0 || j >= order.length) return;
+	[order[i], order[j]] = [order[j], order[i]];
+	try {
+		const { groups } = await api(`/api/projects/${encodeURIComponent(state.project)}/report-order`, { method: "PUT", body: JSON.stringify({ groups: order }) });
+		state.allProjects.find((p) => p.slug === state.project).report_order = JSON.stringify(groups);
+		renderRail();
+		// Keep the keyboard on the heading that moved, on the other arrow once it reaches an end.
+		const head = $(`#rail [data-group="${CSS.escape(grp)}"]`);
+		const btn = head?.querySelector(`[data-move="${dir}"]`);
+		(btn && !btn.disabled ? btn : head?.querySelector(`[data-move="${dir === "up" ? "down" : "up"}"]`))?.focus();
+	} catch (err) { toast(err.message); }
 }
 const isDay = (r) => /^day-\d{4}-\d{2}-\d{2}$/.test(r.name);
 // Each report group shows this many; the rest fold away (in the folded rail they're left out).
 const GROUP_SHOWN = 2;
 // A day page's tile is its day of the month; other reports get their initials.
 const tileText = (r) => isDay(r) ? String(Number(r.name.slice(-2))) : initials(r.title);
+// A report's own icon, if it has one: an emoji, or an SVG drawn as a picture so nothing in it can run (see db.ts).
+function reportMark(r) {
+	if (!r.icon) return "";
+	return r.icon.startsWith("<") ? `<img class="rep-ic" alt="" src="data:image/svg+xml,${encodeURIComponent(r.icon)}">` : `<span class="rep-ic">${esc(r.icon)}</span>`;
+}
 const reportHref = (r) => `#report/${r.id}`;
 const isCurrent = (r) => state.report?.id === r.id;
 
@@ -1118,17 +1170,29 @@ function renderRail() {
 	if (state.collapsed) {
 		html = `<div class="rail-head">${toggle}</div>` + railTrackers(true) +
 			// The first few of each group, and the report on screen if it's further down.
-			reports.flatMap(([, rs]) => rs.filter((r, i) => i < GROUP_SHOWN || isCurrent(r)))
-				.map((r) => `<a class="ritem" href="${reportHref(r)}" title="${esc(r.title)}" aria-current="${isCurrent(r)}"><span class="tile">${esc(tileText(r))}</span></a>`).join("") +
+			[...reports.flatMap((g) => g.reports.filter((r, i) => i < GROUP_SHOWN || isCurrent(r))), ...archivedDays().filter(isCurrent)]
+				.map((r) => `<a class="ritem" href="${reportHref(r)}" title="${esc(r.title)}" aria-current="${isCurrent(r)}"><span class="tile">${reportMark(r) || esc(tileText(r))}</span></a>`).join("") +
 			(reports.length && links.length ? `<div class="rail-sep"></div>` : "") +
 			links.flatMap((g) => g.links).map((l) => `<a class="ritem link" href="${esc(l.url)}" target="_blank" rel="noreferrer" data-link="${l.id}" title="${esc(l.label)}">${fav(l)}</a>`).join("");
 	} else {
-		const nReports = reports.reduce((n, [, rs]) => n + rs.length, 0);
-		const ritem = (r) => `<a class="ritem" href="${reportHref(r)}" title="${esc(r.title)} · v${r.version}" aria-current="${isCurrent(r)}">${DOC}<span>${esc(r.title)}</span><small>${esc(ago(r.updated_at).replace(" ago", ""))}</small></a>`;
+		const nReports = reports.reduce((n, g) => n + g.reports.length, 0);
+		const ritem = (r) => `<a class="ritem" href="${reportHref(r)}" title="${esc(r.title)} · v${r.version}" aria-current="${isCurrent(r)}">${reportMark(r) || DOC}<span>${esc(r.title)}</span><small>${esc(ago(r.updated_at).replace(" ago", ""))}</small></a>`;
 		// Each group shows its first few (a Days group its newest days); the rest fold away, and the fold opens
 		// by itself when the report on screen is in it.
-		const reportList = reports.map(([label, rs]) => {
-			const head = label ? `<div class="glabel">${esc(label)}</div>` : "";
+		// With the pencil on, a project's group headings get arrows to move them.
+		const named = reports.filter((g) => g.grp);
+		const canMove = !!state.project && named.length > 1;
+		const moving = canMove && editingReports;
+		const moveBtn = (g, dir, off) => `<button type="button" class="icon-btn" data-move="${dir}" title="Move ${dir}" aria-label="Move ${esc(g.grp)} ${dir}"${off ? " disabled" : ""}>${svg16(dir === "up" ? '<path d="m4.5 10 3.5-3.5 3.5 3.5"/>' : '<path d="m4.5 6 3.5 3.5 3.5-3.5"/>')}</button>`;
+		const heading = (g) => {
+			if (!g.label) return "";
+			if (!moving || !g.grp) return `<div class="glabel">${esc(g.label)}</div>`;
+			const i = named.indexOf(g);
+			return `<div class="glabel moving" data-group="${esc(g.grp)}"><span>${esc(g.label)}</span>${moveBtn(g, "up", !i)}${moveBtn(g, "down", i === named.length - 1)}</div>`;
+		};
+		const reportList = reports.map((g) => {
+			const rs = g.reports, label = g.label;
+			const head = heading(g);
 			if (rs.length <= GROUP_SHOWN) return head + rs.map(ritem).join("");
 			const rest = rs.slice(GROUP_SHOWN);
 			const key = `more-${label}`;
@@ -1137,6 +1201,14 @@ function renderRail() {
 			return head + rs.slice(0, GROUP_SHOWN).map(ritem).join("") +
 				`<details class="lgroup fold more" data-key="${esc(key)}"${open}><summary><span>${what}</span></summary>${rest.map(ritem).join("")}</details>`;
 		}).join("");
+		const archived = archivedDays();
+		// Under "All", the archive says whose day each one is.
+		const archiveRows = state.project ? archived.map(ritem).join("") : [...new Set(archived.map((r) => r.project))]
+			.map((slug) => `<div class="glabel">${esc(projectName(slug))}</div>` + archived.filter((r) => r.project === slug).map(ritem).join("")).join("");
+		const archive = archived.length
+			? `<details class="lgroup fold more archive" data-key="reports-archive"${archived.some(isCurrent) ? " open" : isOpen("reports-archive", false)}><summary><span>Archived days (${archived.length})</span></summary>${archiveRows}</details>`
+			: "";
+		const reportTools = canMove ? `<span class="tools"><button class="icon-btn" id="report-edit" title="${moving ? "Done moving groups" : "Move groups"}" aria-pressed="${moving}" aria-label="Move report groups"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M10.5 2.5l3 3-8 8H2.5v-3z"/></svg></button></span>` : "";
 		const linkList = links.map((g) => {
 			const items = g.links.map((l) => `<a class="ritem link" href="${esc(l.url)}" target="_blank" rel="noreferrer" data-link="${l.id}" title="${esc(l.url)}">${fav(l)}<span>${esc(l.label)}</span></a>`).join("");
 			return g.label ? `<details class="lgroup fold" data-key="${esc(g.key)}"${isOpen(g.key, true)}><summary><span>${esc(g.label)}</span></summary>${items}</details>` : items;
@@ -1148,8 +1220,8 @@ function renderRail() {
 		const trkNew = `<button class="icon-btn" id="trk-new" title="Add a status tracker" aria-label="Add a status tracker">${TRK_ADD}</button>`;
 		html = `<div class="rail-head"><b>${esc(state.project ? projectName(state.project) : "All projects")}</b>${trkNew}${toggle}</div>
 			${railTrackers(false)}
-			<details class="rsec fold" data-key="rail-reports"${isOpen("rail-reports", true)}><summary>Reports <span class="count">${nReports || ""}</span></summary>
-				${reportList || `<div class="rail-empty">None yet. Publish one with <code>wb report page.html</code>.</div>`}</details>
+			<details class="rsec fold" data-key="rail-reports"${isOpen("rail-reports", true)}><summary>Reports <span class="count">${nReports || ""}</span>${reportTools}</summary>
+				${reportList + archive || `<div class="rail-empty">None yet. Publish one with <code>wb report page.html</code>.</div>`}</details>
 			<details class="rsec fold" data-key="rail-links"${isOpen("rail-links", true)}><summary>Links ${tools}</summary>
 				${linkList || `<div class="rail-empty">No links${state.project ? " for this project" : ""}.</div>`}</details>` +
 			railSources();
@@ -1223,6 +1295,9 @@ $("#rail").addEventListener("click", (e) => {
 	const tb = e.target.closest("[data-tracker]");
 	if (tb) { hideTrkPop(true); return openTracker(Number(tb.dataset.tracker)); }
 	// The tools sit inside a <summary>: don't fold the section.
+	if (e.target.closest("#report-edit")) { e.preventDefault(); editingReports = !editingReports; return renderRail(); }
+	const mv = e.target.closest("[data-move]");
+	if (mv) return moveReportGroup(mv.closest("[data-group]").dataset.group, mv.dataset.move);
 	if (e.target.closest("#link-new")) { e.preventDefault(); return openLink({ project: state.project }); }
 	if (e.target.closest("#link-edit")) { e.preventDefault(); editingLinks = !editingLinks; return renderRail(); }
 	if (e.target.closest("#link-refresh")) {
@@ -1811,10 +1886,9 @@ function openItem(item) {
 	form.options.value = options.join("\n");
 	showOptionsField();
 	showBodyEditor(isNew);
-	const images = item.images || [];
-	$("#images").hidden = !images.length;
-	$("#images").innerHTML = images.map((m) => `<figure><a href="/api/images/${m.id}" target="_blank" rel="noreferrer" title="Open full size"><img src="/api/images/${m.id}" alt="${esc(m.caption)}"${m.width && m.height ? ` width="${m.width}" height="${m.height}"` : ""}></a>
-		<figcaption><span>${esc(m.caption)}</span><button type="button" class="rm" data-image="${m.id}">Remove</button></figcaption></figure>`).join("");
+	pendingImages.forEach((p) => URL.revokeObjectURL(p.url));
+	pendingImages = [];
+	renderImages();
 	$("#answer-box").hidden = isNew || item.kind !== "decision";
 	$("#answer-opts").innerHTML = options.map((o) => `<button type="button" class="opt ${o === item.answer ? "picked" : ""}" data-choice="${esc(o)}">${esc(o)}</button>`).join("");
 	$("#answer-own").value = item.answer && !options.includes(item.answer) ? item.answer : "";
@@ -1836,10 +1910,80 @@ function openItem(item) {
 	$("#session-link").hidden = !href;
 	if (href) $("#session-link").href = href;
 	$("#history").hidden = isNew;
-	$("#history ol").innerHTML = (item.notes || []).map((n) => `<li><time title="${esc(n.at)} UTC">${ago(n.at)}</time>${n.author ? `<span class="who">${esc(n.author === "kostas" ? setting("name") || "Kostas" : n.author)}</span>` : ""}${n.text.includes("\n") ? `<div class="note-md">${md(n.text)}</div>` : esc(n.text)}</li>`).join("");
+	renderHistory();
 	$("#note").value = "";
 	if (!dlg.open) dlg.showModal();
 	if (isNew) form.title.focus();
+}
+
+function renderHistory() {
+	const item = state.current;
+	$("#history ol").innerHTML = (item.notes || []).map((n) => `<li><time title="${esc(n.at)} UTC">${ago(n.at)}</time>${n.author ? `<span class="who">${esc(n.author === "kostas" ? setting("name") || "Kostas" : n.author)}</span>` : ""}${n.text.includes("\n") ? `<div class="note-md">${md(n.text)}</div>` : esc(n.text)}</li>`).join("");
+}
+
+/* Pictures on an item: the ones agents attach, and yours, from the button, a paste or a drop. A new item holds
+   them until it's saved, since an image needs an item to sit on. Captions edit in place. */
+let pendingImages = [];
+function renderImages() {
+	const saved = (state.current.images || []).map((m) => `<figure><a href="/api/images/${m.id}" target="_blank" rel="noreferrer" title="Open full size"><img src="/api/images/${m.id}" alt="${esc(m.caption)}"${m.width && m.height ? ` width="${m.width}" height="${m.height}"` : ""}></a>
+		<figcaption><input class="cap" data-cap="${m.id}" value="${esc(m.caption)}" placeholder="Add a caption" aria-label="Caption"><button type="button" class="rm" data-image="${m.id}">Remove</button></figcaption></figure>`);
+	const pending = pendingImages.map((p, n) => `<figure class="${p.busy ? "pending" : ""}"><a href="${p.url}" target="_blank" rel="noreferrer"><img src="${p.url}" alt=""></a>
+		<figcaption><input class="cap" data-pending="${n}" value="${esc(p.caption)}" placeholder="Add a caption" aria-label="Caption">${p.busy ? "" : `<button type="button" class="rm" data-unpend="${n}">Remove</button>`}</figcaption></figure>`);
+	$("#images").hidden = !saved.length && !pending.length;
+	$("#images").innerHTML = [...saved, ...pending].join("");
+}
+/** Takes an item back from the server after an image change, keeping what you've typed in the form. */
+function imagesChanged(item) {
+	state.current = { ...state.current, images: item.images, notes: item.notes, image_count: item.image_count };
+	renderImages();
+	renderHistory();
+	loadItems();
+}
+const IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif"];
+const asDataUrl = (file) => new Promise((ok, no) => {
+	const r = new FileReader();
+	r.onload = () => ok(r.result);
+	r.onerror = () => no(r.error);
+	r.readAsDataURL(file);
+});
+async function uploadImage(itemId, file, caption = "") {
+	return api(`/api/items/${itemId}/images`, { method: "POST", body: JSON.stringify({ data: await asDataUrl(file), caption }) });
+}
+async function addImages(files) {
+	files = [...files].filter((f) => IMAGE_TYPES.includes(f.type));
+	if (!files.length) { $("#err").textContent = "Only PNG, JPEG, WebP or GIF pictures can go on an item."; return; }
+	$("#err").textContent = "";
+	if (!state.current.id) {
+		pendingImages.push(...files.map((file) => ({ file, url: URL.createObjectURL(file), caption: "" })));
+		renderImages();
+		return;
+	}
+	const id = state.current.id;
+	const batch = files.map((file) => ({ file, url: URL.createObjectURL(file), caption: "", busy: true }));
+	pendingImages.push(...batch);
+	renderImages();
+	toast(files.length > 1 ? `Adding ${files.length} images…` : "Adding the image…");
+	let last;
+	for (const p of batch) {
+		try {
+			last = await uploadImage(id, p.file);
+			// A caption typed while it uploaded goes on with it.
+			const m = last.images.at(-1);
+			if (p.caption.trim() && m) last = await api(`/api/images/${m.id}`, { method: "PATCH", body: JSON.stringify({ caption: p.caption }) });
+		} catch (e) { $("#err").textContent = e.message; }
+	}
+	batch.forEach((p) => URL.revokeObjectURL(p.url));
+	if (state.current.id !== id) return;
+	pendingImages = pendingImages.filter((p) => !batch.includes(p));
+	if (last) imagesChanged(last);
+	else renderImages();
+}
+/** After a new item is saved: its held images go on it, captions and all. */
+async function uploadPending(itemId) {
+	for (const p of pendingImages) {
+		try { await uploadImage(itemId, p.file, p.caption); }
+		catch (e) { toast(`An image didn't go on: ${e.message}`); }
+	}
 }
 
 function formPatch() {
@@ -1855,7 +1999,10 @@ async function save(extra = {}) {
 		const patch = { ...formPatch(), ...extra };
 		if (state.current.id) touched(state.current.id);
 		if (state.current.id) await api(`/api/items/${state.current.id}`, { method: "PATCH", body: JSON.stringify(patch) });
-		else await api("/api/items", { method: "POST", body: JSON.stringify(patch) });
+		else {
+			const { id } = await api("/api/items", { method: "POST", body: JSON.stringify(patch) });
+			await uploadPending(id);
+		}
 		dlg.close();
 		await Promise.all([loadItems(), loadProjects()]);
 		refreshReport();
@@ -1895,10 +2042,53 @@ dlg.addEventListener("pointerdown", (e) => { pressedOutside = outsideDlg(e); });
 dlg.addEventListener("click", (e) => { if (pressedOutside && outsideDlg(e)) dlg.close(); pressedOutside = false; });
 $("#edit-body").onclick = () => showBodyEditor(form.body.hidden);
 $("#images").addEventListener("click", async (e) => {
+	const un = e.target.closest("[data-unpend]");
+	if (un) {
+		const [p] = pendingImages.splice(Number(un.dataset.unpend), 1);
+		URL.revokeObjectURL(p.url);
+		return renderImages();
+	}
 	const b = e.target.closest("[data-image]");
 	if (!b || !confirm("Remove this image?")) return;
-	try { openItem(await api(`/api/images/${b.dataset.image}`, { method: "DELETE" })); }
+	try { imagesChanged(await api(`/api/images/${b.dataset.image}`, { method: "DELETE" })); }
 	catch (err) { $("#err").textContent = err.message; }
+});
+$("#images").addEventListener("input", (e) => {
+	if (e.target.dataset.pending !== undefined) pendingImages[Number(e.target.dataset.pending)].caption = e.target.value;
+});
+$("#images").addEventListener("change", async (e) => {
+	const id = e.target.dataset.cap;
+	if (!id) return;
+	try { imagesChanged(await api(`/api/images/${id}`, { method: "PATCH", body: JSON.stringify({ caption: e.target.value }) })); }
+	catch (err) { $("#err").textContent = err.message; }
+});
+// Enter in a caption keeps it, rather than saving and closing the whole item.
+$("#images").addEventListener("keydown", (e) => {
+	if (e.key === "Enter" && e.target.classList.contains("cap")) { e.preventDefault(); e.target.blur(); }
+});
+$("#add-image").onclick = () => $("#image-file").click();
+$("#image-file").addEventListener("change", (e) => {
+	if (e.target.files.length) addImages(e.target.files);
+	e.target.value = "";
+});
+form.addEventListener("paste", (e) => {
+	const files = [...(e.clipboardData?.files || [])].filter((f) => IMAGE_TYPES.includes(f.type));
+	if (!files.length) return;
+	e.preventDefault();
+	addImages(files);
+});
+const dragsFiles = (e) => [...(e.dataTransfer?.types || [])].includes("Files");
+form.addEventListener("dragover", (e) => {
+	if (!dragsFiles(e)) return;
+	e.preventDefault();
+	form.classList.add("dropping");
+});
+form.addEventListener("dragleave", (e) => { if (!form.contains(e.relatedTarget)) form.classList.remove("dropping"); });
+form.addEventListener("drop", (e) => {
+	form.classList.remove("dropping");
+	if (!dragsFiles(e)) return;
+	e.preventDefault();
+	addImages(e.dataTransfer.files);
 });
 $("#act-done").onclick = () => save({ status: "done" });
 $("#act-drop").onclick = () => save({ status: "dropped" });
@@ -1934,7 +2124,7 @@ async function runSearch() {
 		`<button class="res" data-item="${i.id}">${kindIcon(i.kind)}<span class="rt"><div>${hl(i.title, q)}</div>
 		<small>wb-${hl(i.ref, q)} · ${i.kind} · ${i.status} · ${i.owner === "kostas" ? "you" : "agent"}${where(i.project)}</small></span></button>`).join("");
 	if (data.reports.length) html += `<div class="rgroup">Reports</div>` + data.reports.map((r) =>
-		`<a class="res" href="${reportHref(r)}">${DOC}<span class="rt"><div>${hl(r.title, q)}</div><small>${r.snippet ? hl(r.snippet, q) : `v${r.version} · ${ago(r.updated_at)}`}${where(r.project)}</small></span></a>`).join("");
+		`<a class="res" href="${reportHref(r)}">${reportMark(r) || DOC}<span class="rt"><div>${hl(r.title, q)}</div><small>${r.snippet ? hl(r.snippet, q) : `v${r.version} · ${ago(r.updated_at)}`}${where(r.project)}</small></span></a>`).join("");
 	if (data.links.length) html += `<div class="rgroup">Links</div>` + data.links.map((l) =>
 		`<a class="res" href="${esc(l.url)}" target="_blank" rel="noreferrer">${fav(l)}<span class="rt"><div>${hl(l.label, q)}</div><small>${hl(l.url, q)}</small></span></a>`).join("");
 	results.innerHTML = (html || `<div class="res-none">Nothing matches “${esc(q)}”.</div>`) +
@@ -2598,6 +2788,12 @@ vaultView.addEventListener("click", async (e) => {
 	} catch (err) { toast(err.message); }
 });
 for (const ev of ["pointerdown", "keydown"]) vaultView.addEventListener(ev, touchVault);
+// Usage opens for the project you're looking at (all of them under "All projects").
+$("#usage-btn").onclick = (e) => {
+	if (e.button || e.metaKey || e.ctrlKey || e.shiftKey) return;
+	e.preventDefault();
+	location.href = state.project ? `/usage?project=${encodeURIComponent(state.project)}` : "/usage";
+};
 $("#vault-btn").onclick = () => (location.hash === "#vault" ? goBoard() : (location.hash = "#vault"));
 
 // .env export: pick secrets, enter the password once, then copy or download. The text leaves with the dialog.
@@ -2999,10 +3195,31 @@ function projectRow(p, i, list) {
 		<button type="button" class="icon-btn" data-act="up" title="Move up" aria-label="Move ${esc(p.name)} up"${i ? "" : " disabled"}>${svg16('<path d="m4.5 10 3.5-3.5 3.5 3.5"/>')}</button>
 		<button type="button" class="icon-btn" data-act="down" title="Move down" aria-label="Move ${esc(p.name)} down"${i < list.length - 1 ? "" : " disabled"}>${svg16('<path d="m4.5 6 3.5 3.5 3.5-3.5"/>')}</button></div>`;
 	return `<div class="set-row${p.archived_at ? " archived" : ""}" data-slug="${esc(p.slug)}">${order}${logo(p)}
-		<div class="main"><div class="nm"><b>${esc(p.name)}</b><code>${esc(p.slug)}</code></div><small title="${esc(p.path)}">${esc(p.path || "No folder")}${where ? `<span class="warn">${where}</span>` : ""}</small></div>
+		<div class="main"><div class="nm"><b>${esc(p.name)}</b><code>${esc(p.slug)}</code></div><small title="${esc(p.path)}">${esc(p.path || "No folder")}${where ? `<span class="warn">${where}</span>` : ""}</small>${agentLine(p)}</div>
 		<span class="meta">${esc(meta)}</span>
-		<div class="tools">${p.archived_at ? `<button type="button" class="ghost sm" data-act="unarchive">Unarchive</button>` : ""}
+		<div class="tools">${p.archived_at ? `<button type="button" class="ghost sm" data-act="unarchive">Unarchive</button>` : agentButton(p)}
 			<button type="button" class="icon-btn" data-act="edit" title="Edit" aria-label="Edit ${esc(p.name)}">${icon("edit")}</button></div></div>`;
+}
+
+/* Whether a project's agents have the workbench rules (wb integrate), and the prompt that sets them up. */
+const AGENT_STATE = {
+	current: ["ok", "Agent rules up to date"],
+	outdated: ["warn", "Agent rules out of date"],
+	manual: ["warn", "Agent rules written by hand"],
+	none: ["off", "No agent rules yet"],
+};
+function agentLine(p) {
+	const a = p.agents;
+	if (p.archived_at || !a || !p.folder?.exists) return "";
+	const [st, label] = AGENT_STATE[a.state];
+	const where = a.state === "none" ? "" : ` in ${a.file}${a.version ? ` (v${a.version})` : ""}`;
+	return `<small class="ag" title="${esc(label + where)}"><span class="sdot ${st}"></span><span>${esc(label + where)}</span></small>`;
+}
+function agentButton(p) {
+	const a = p.agents;
+	if (!a || a.state === "current" || !p.folder?.exists) return "";
+	const label = a.state === "none" ? "Set up agents" : "Update agents";
+	return `<button type="button" class="ghost sm" data-copy="${esc(a.prompt)}" title="Copy a prompt for an agent in this project: it runs wb integrate and follows it">${label}</button>`;
 }
 
 function checkRow(c) {
@@ -3024,6 +3241,13 @@ function healthCards(h) {
 		<span class="muted">Started by Claude Code, works without the board running:</span>${cmdRow(a.stdio)}
 		<span class="muted">Or through this board while it runs:</span>${cmdRow(a.http)}
 		${a.wb ? "" : `<p class="caution">wb isn't on your PATH, so the first one can't start. The README shows how to put it there.</p>`}`);
+	const ig = h.integrate;
+	const n = ig ? ig.counts.current + ig.counts.outdated + ig.counts.manual + ig.counts.none : 0;
+	const behind = ig ? ig.behind.length : 0;
+	const integrate = ig ? card(behind ? "warn" : "ok", "Help your agents use the Workbench",
+		`<p>Paste this into a session in a project. The agent runs <code>wb integrate</code>, which puts the project on the board, writes the board's rules into its AGENTS.md or CLAUDE.md, and sets up Claude Code, asking you first where it matters. Running it again brings the rules up to date.</p>
+		${cmdRow(ig.prompt)}
+		<p class="hint">${behind ? `${behind} of ${n} projects ${behind === 1 ? "needs" : "need"} it: ${esc(ig.behind.join(", "))}. In the Projects tab, each one has a button that copies the prompt with its folder.` : `All ${n} projects have the latest rules (v${ig.version}).`}</p>`) : "";
 	const restart = su.underSystemd
 		? `<span class="muted">Add <code>--lan</code> to the end of the <code>ExecStart</code> line in <code>${esc(su.unitPath)}</code>, then:</span>${cmdRow("systemctl --user daemon-reload && systemctl --user restart workbench")}`
 		: `<span class="muted">Stop this board, then start it with:</span>${cmdRow("wb serve --lan")}`;
@@ -3050,7 +3274,7 @@ function healthCards(h) {
 		<dt>Bun</dt><dd>${esc(b.bun)}</dd>
 		<dt>Database</dt><dd>${esc(b.db)} · ${fmtBytes(b.dbBytes)}</dd>
 		<dt>Backups</dt><dd>${esc(b.backups)}</dd></dl>`);
-	return `<div class="set-grid">${agents}${phone}${startup}${about}</div>`;
+	return `<div class="set-grid">${integrate}${agents}${phone}${startup}${about}</div>`;
 }
 
 function projectsTab() {

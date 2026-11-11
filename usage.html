@@ -1,0 +1,714 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Claude Usage · Workbench</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<!-- The board's theme (Settings → Appearance), before the first paint. -->
+<script>try { const t = JSON.parse(localStorage.getItem("wb.pref.look.theme")); if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; } catch {}</script>
+<style>
+:root {
+	color-scheme: light;
+	--bg: #f6f5f2; --card: #ffffff; --ink: #1d1c1a; --muted: #6f6b64; --faint: #9a968e; --line: #e3e0da; --hover: #efede8;
+	--accent: #3d5afe; --grid: #ecebe6;
+	/* Series colours, in a fixed order (validated categorical palette); "other" is neutral. */
+	--s1: #eb6834; --s2: #2a78d6; --s3: #1baf7a; --s4: #e87ba4; --s5: #6250d6; --s6: #eda100; --s7: #e34948; --s8: #008300; --so: #a8a49c;
+	/* Token types: one hue light→dark, so the bar reads as parts of one thing. */
+	--t1: #cde2fb; --t2: #86b6ef; --t3: #2a78d6; --t4: #104281;
+	--seq: #2a78d6;
+	--shadow: 0 10px 30px rgb(0 0 0 / .12);
+}
+@media (prefers-color-scheme: dark) {
+	:root:not([data-theme="light"]) {
+		color-scheme: dark;
+		--bg: #0f0f0e; --card: #191918; --ink: #ecebe8; --muted: #a29e96; --faint: #75716a; --line: #2c2b29; --hover: #242422;
+		--accent: #8c9eff; --grid: #252523;
+		--s1: #d95926; --s2: #3987e5; --s3: #199e70; --s4: #d55181; --s5: #9085e9; --s6: #c98500; --s7: #e66767; --s8: #008300; --so: #6b6862;
+		--t1: #184f95; --t2: #2a78d6; --t3: #6da7ec; --t4: #cde2fb;
+		--seq: #5598e7;
+		--shadow: 0 10px 30px rgb(0 0 0 / .5);
+	}
+}
+:root[data-theme="dark"] {
+	color-scheme: dark;
+	--bg: #0f0f0e; --card: #191918; --ink: #ecebe8; --muted: #a29e96; --faint: #75716a; --line: #2c2b29; --hover: #242422;
+	--accent: #8c9eff; --grid: #252523;
+	--s1: #d95926; --s2: #3987e5; --s3: #199e70; --s4: #d55181; --s5: #9085e9; --s6: #c98500; --s7: #e66767; --s8: #008300; --so: #6b6862;
+	--t1: #184f95; --t2: #2a78d6; --t3: #6da7ec; --t4: #cde2fb;
+	--seq: #5598e7;
+	--shadow: 0 10px 30px rgb(0 0 0 / .5);
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: var(--bg); color: var(--ink); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; -webkit-font-smoothing: antialiased; }
+button, select { font: inherit; color: inherit; }
+.num { font-variant-numeric: tabular-nums; }
+
+/* Top bar */
+.top { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 20px; background: color-mix(in oklab, var(--bg) 88%, transparent); backdrop-filter: blur(10px); border-bottom: 1px solid var(--line); }
+.crumbs { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 15px; }
+.crumbs a { color: var(--muted); text-decoration: none; }
+.crumbs a:hover { color: var(--ink); }
+.crumbs .sep { color: var(--faint); }
+.crumbs b { font-weight: 600; }
+.pick { position: relative; display: inline-flex; align-items: center; }
+.pick select { appearance: none; background: transparent; border: 1px solid transparent; border-radius: 8px; padding: 4px 24px 4px 8px; font-weight: 600; cursor: pointer; max-width: 260px; text-overflow: ellipsis; field-sizing: content; }
+.pick select:hover, .pick select:focus-visible { background: var(--hover); border-color: var(--line); outline: none; }
+.pick::after { content: ""; position: absolute; right: 9px; top: 50%; width: 6px; height: 6px; border: solid var(--muted); border-width: 0 1.5px 1.5px 0; transform: translateY(-70%) rotate(45deg); pointer-events: none; }
+.pick select option { background: var(--card); color: var(--ink); font-weight: 400; }
+.spacer { flex: 1; }
+.seg { display: inline-flex; background: var(--hover); border: 1px solid var(--line); border-radius: 10px; padding: 2px; }
+.seg button { border: 0; background: transparent; padding: 4px 11px; border-radius: 8px; cursor: pointer; color: var(--muted); white-space: nowrap; }
+.seg button:hover { color: var(--ink); }
+.seg button[aria-pressed="true"] { background: var(--card); color: var(--ink); box-shadow: 0 1px 2px rgb(0 0 0 / .12); font-weight: 500; }
+.icon-btn { display: inline-grid; place-items: center; width: 32px; height: 32px; border-radius: 8px; border: 1px solid var(--line); background: transparent; cursor: pointer; color: var(--muted); }
+.icon-btn:hover { color: var(--ink); background: var(--hover); }
+.icon-btn svg { width: 16px; height: 16px; }
+.icon-btn.spin svg { animation: spin .9s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+main { max-width: 1240px; margin: 0 auto; padding: 26px 20px 60px; transition: opacity .2s; }
+main.loading { opacity: .55; }
+h2 { font-size: 15px; font-weight: 600; margin: 0 0 12px; }
+h2 small { color: var(--muted); font-weight: 400; font-size: 13px; margin-left: 6px; }
+section { margin-top: 38px; }
+
+/* Hero: the headline number and what it's made of, beside the chart */
+.hero { display: grid; grid-template-columns: minmax(250px, 340px) 1fr; gap: 40px; align-items: start; }
+.big { font-size: 52px; font-weight: 700; letter-spacing: -.02em; line-height: 1.05; }
+.big-sub { color: var(--muted); margin-top: 4px; }
+.big-note { color: var(--faint); font-size: 12px; margin-top: 2px; }
+.legend-list { list-style: none; margin: 26px 0 0; padding: 0; display: grid; gap: 14px; }
+.legend-list li { display: grid; grid-template-columns: 10px 1fr auto; gap: 4px 10px; align-items: baseline; }
+.legend-list .dot { width: 10px; height: 10px; border-radius: 3px; align-self: center; }
+.legend-list .name { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.legend-list .name small { color: var(--muted); font-weight: 400; margin-left: 6px; }
+.legend-list .val { font-weight: 600; }
+.legend-list .meta { grid-column: 2 / 4; color: var(--muted); font-size: 12.5px; margin-top: -2px; }
+.legend-list button.name { all: unset; cursor: pointer; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.legend-list button.name:hover { text-decoration: underline; }
+.legend-list button.name:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
+
+.chart-head { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; flex-wrap: wrap; }
+.chart-head h2 { margin: 0; }
+.chart-wrap { position: relative; }
+.chart-wrap svg { display: block; width: 100%; overflow: visible; }
+.chart-wrap .ax { fill: var(--faint); font-size: 11px; letter-spacing: .02em; }
+.chart-wrap .gl { stroke: var(--grid); stroke-width: 1; }
+.chart-wrap .base { stroke: var(--line); stroke-width: 1; }
+.chart-wrap .xh { stroke: var(--muted); stroke-width: 1; }
+.chart-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 10px; font-size: 12.5px; color: var(--muted); }
+.chart-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.chart-legend i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+.tip { position: absolute; pointer-events: none; z-index: 3; min-width: 190px; background: var(--card); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow); padding: 9px 12px; font-size: 13px; display: none; }
+.tip .t-h { font-weight: 600; margin-bottom: 6px; }
+.tip .t-r { display: grid; grid-template-columns: 12px 1fr auto; gap: 8px; align-items: center; color: var(--muted); padding: 1px 0; }
+.tip .t-r i { width: 12px; height: 2.5px; border-radius: 2px; }
+.tip .t-r b { color: var(--ink); font-weight: 600; text-align: right; }
+.tip .t-tot { border-top: 1px solid var(--line); margin-top: 6px; padding-top: 6px; }
+.empty { color: var(--muted); padding: 40px 0; text-align: center; }
+
+/* Totals */
+.tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+.tile { background: var(--card); padding: 14px 16px; }
+.tile .k { color: var(--muted); font-size: 12.5px; }
+.tile .v { font-size: 22px; font-weight: 650; margin-top: 2px; letter-spacing: -.01em; }
+.tile .h { color: var(--faint); font-size: 12px; margin-top: 1px; }
+
+/* Token and cost composition */
+.mix { display: grid; gap: 18px; max-width: 760px; }
+.mix-row .lab { display: flex; justify-content: space-between; color: var(--muted); font-size: 12.5px; margin-bottom: 6px; }
+.stack { display: flex; gap: 2px; height: 12px; }
+.stack div { min-width: 3px; border-radius: 3px; }
+.mix-legend { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 13px; margin-top: 4px; }
+.mix-legend span { display: inline-flex; align-items: center; gap: 7px; color: var(--muted); }
+.mix-legend i { width: 10px; height: 10px; border-radius: 3px; }
+.mix-legend b { color: var(--ink); font-weight: 600; }
+
+/* When you work */
+.heat { display: grid; grid-template-columns: 34px repeat(24, minmax(0, 1fr)); gap: 3px; max-width: 900px; }
+.heat .hl { color: var(--faint); font-size: 11px; display: flex; align-items: center; }
+.heat .hx { color: var(--faint); font-size: 10.5px; text-align: center; }
+.heat .c { aspect-ratio: 1.25; border-radius: 4px; background: var(--hover); position: relative; }
+.heat .c:hover { outline: 2px solid var(--ink); outline-offset: -1px; }
+.heat-scale { display: flex; align-items: center; gap: 6px; color: var(--faint); font-size: 11.5px; margin-top: 10px; }
+.heat-scale i { width: 16px; height: 10px; border-radius: 3px; display: inline-block; }
+
+/* Breakdown table */
+.bd-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; flex-wrap: wrap; }
+.bd-head h2 { margin: 0; }
+table { width: 100%; border-collapse: collapse; }
+th { text-align: left; font-weight: 500; color: var(--muted); font-size: 12.5px; padding: 8px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+th.r, td.r { text-align: right; }
+td { padding: 10px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+td.rank { color: var(--faint); width: 34px; }
+td .nm { display: flex; align-items: center; gap: 8px; min-width: 0; }
+td .nm i { width: 9px; height: 9px; border-radius: 3px; flex: none; }
+td .nm span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+td .sub { color: var(--muted); font-size: 12.5px; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+td .share { display: flex; align-items: center; gap: 8px; justify-content: flex-end; }
+td .share .bar { width: 80px; height: 6px; border-radius: 3px; background: var(--hover); overflow: hidden; }
+td .share .bar i { display: block; height: 100%; background: var(--seq); border-radius: 3px; }
+tr.go { cursor: pointer; }
+tr.go:hover td { background: var(--hover); }
+.name-cell { max-width: 420px; }
+.more { margin-top: 10px; }
+.more button { border: 1px solid var(--line); background: transparent; border-radius: 8px; padding: 5px 12px; cursor: pointer; color: var(--muted); }
+.more button:hover { color: var(--ink); background: var(--hover); }
+.foot { margin-top: 40px; color: var(--faint); font-size: 12px; line-height: 1.6; }
+.err { margin: 40px auto; max-width: 560px; padding: 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); }
+
+@media (max-width: 860px) {
+	.hero { grid-template-columns: 1fr; gap: 24px; }
+	.big { font-size: 42px; }
+	.top { padding: 10px 16px; }
+	main { padding: 18px 16px 50px; }
+	.hide-narrow { display: none; }
+	.tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+	td .share .bar { display: none; }
+}
+</style>
+</head>
+<body>
+<header class="top">
+	<nav class="crumbs" aria-label="Where">
+		<a href="/" title="Back to the board">Workbench</a><span class="sep">/</span><b>Usage</b><span class="sep">/</span>
+		<label class="pick"><span hidden>Project</span><select id="f-project" aria-label="Project"></select></label>
+		<span class="sep">/</span>
+		<label class="pick"><span hidden>App</span><select id="f-app" aria-label="App"></select></label>
+	</nav>
+	<span class="spacer"></span>
+	<div class="seg" id="f-range" role="group" aria-label="Time range"></div>
+	<div class="seg" id="f-metric" role="group" aria-label="Measure"></div>
+	<button class="icon-btn" id="refresh" title="Read new usage now" aria-label="Refresh"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9M13.5 2.5v3h-3"/></svg></button>
+</header>
+<main id="main" class="loading">
+	<div class="empty">Reading Claude's transcripts…</div>
+</main>
+<script>
+"use strict";
+const $ = (s, el = document) => el.querySelector(s);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+
+// Row columns from /api/usage
+const H = 0, MODEL = 1, PROJ = 2, SESS = 3, APP = 4, SIDE = 5, REQ = 6, IN = 7, W5 = 8, W1 = 9, CR = 10, OUT = 11, COST = 12;
+const HOUR = 3600e3, DAY = 864e5;
+const RANGES = [["24h", "Past 24h"], ["7d", "7 days"], ["30d", "30 days"], ["90d", "90 days"], ["all", "All time"]];
+const METRICS = [["cost", "Cost"], ["tokens", "Tokens"]];
+const APP_NAMES = { "claude-desktop": "Desktop app", cli: "CLI", "sdk-cli": "Agent SDK", "sdk-ts": "Agent SDK", "sdk-py": "Agent SDK", unknown: "Unknown" };
+const SLOTS = 8;
+
+const params = new URLSearchParams(location.search);
+const ui = {
+	project: params.get("project") ?? "",
+	app: params.get("app") ?? "",
+	range: RANGES.some(([k]) => k === params.get("range")) ? params.get("range") : "30d",
+	metric: params.get("metric") === "tokens" ? "tokens" : "cost",
+	split: params.get("split") ?? "",
+	table: params.get("table") ?? "",
+	tableAll: false,
+};
+let data = null;
+
+// ---------- formatting ----------
+const fmtTok = (n) => {
+	const a = Math.abs(n);
+	if (a >= 1e9) return (n / 1e9).toFixed(a >= 1e11 ? 0 : a >= 1e10 ? 1 : 2).replace(/\.0+$/, "") + "B";
+	if (a >= 1e6) return (n / 1e6).toFixed(a >= 1e8 ? 0 : 1).replace(/\.0$/, "") + "M";
+	if (a >= 1e3) return (n / 1e3).toFixed(a >= 1e5 ? 0 : 1).replace(/\.0$/, "") + "K";
+	return String(Math.round(n));
+};
+const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
+const fmtCost = (n) => (n > 0 && n < 0.01 ? "<$0.01" : usd.format(n));
+const fmtCostShort = (n) => (n >= 1e4 ? "$" + (n / 1e3).toFixed(n >= 1e5 ? 0 : 1).replace(/\.0$/, "") + "K" : n >= 100 ? "$" + Math.round(n) : n >= 1 ? "$" + n.toFixed(n >= 10 ? 0 : 1).replace(/\.0$/, "") : n > 0 ? "$" + n.toFixed(2) : "$0");
+const fmtInt = (n) => Math.round(n).toLocaleString("en-US");
+const fmtPct = (x) => (x >= 0.995 ? "100" : x >= 0.1 ? (x * 100).toFixed(1) : x > 0 && x < 0.001 ? "<0.1" : (x * 100).toFixed(1)) + "%";
+const fmtVal = (n) => (ui.metric === "cost" ? fmtCost(n) : fmtTok(n));
+const fmtAxis = (n) => (ui.metric === "cost" ? fmtCostShort(n) : fmtTok(n));
+const tokens = (r) => r[IN] + r[W5] + r[W1] + r[CR] + r[OUT];
+const metricOf = (r) => (ui.metric === "cost" ? r[COST] : tokens(r));
+const dShort = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" });
+const dLong = new Intl.DateTimeFormat("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" });
+const dTime = new Intl.DateTimeFormat("en-US", { hour: "numeric", minute: "2-digit" });
+const dHour = new Intl.DateTimeFormat("en-US", { weekday: "short", hour: "numeric" });
+const ago = (t) => {
+	const s = (Date.now() - t) / 1000;
+	if (s < 90) return "just now";
+	if (s < 3600) return Math.round(s / 60) + " min ago";
+	if (s < 86400) return Math.round(s / 3600) + " h ago";
+	return Math.round(s / 86400) + " d ago";
+};
+const dur = (ms) => {
+	const m = Math.round(ms / 60000);
+	if (m < 1) return "<1 min";
+	if (m < 60) return m + " min";
+	const h = Math.floor(m / 60);
+	return h < 48 ? `${h} h ${m % 60} min` : `${Math.round(h / 24)} days`;
+};
+const plural = (n, w) => `${fmtInt(n)} ${w}${n === 1 ? "" : "s"}`;
+const appName = (a) => APP_NAMES[a] ?? a;
+const modelName = (m) => {
+	const x = /^claude-([a-z]+)-(\d+)(?:-(\d{1,2}))?(?:-\d{8})?$/.exec(m);
+	return x ? `${x[1][0].toUpperCase()}${x[1].slice(1)} ${x[2]}${x[3] ? "." + x[3] : ""}` : m.replace(/^claude-/, "");
+};
+
+// ---------- time buckets ----------
+function startOfDay(t) { const d = new Date(t); d.setHours(0, 0, 0, 0); return d.getTime(); }
+function rangeStart() {
+	const now = Date.now();
+	if (ui.range === "24h") return Math.floor(now / HOUR) * HOUR - 23 * HOUR;
+	if (ui.range === "7d") return startOfDay(now) - 6 * DAY;
+	if (ui.range === "30d") return startOfDay(now) - 29 * DAY;
+	if (ui.range === "90d") return startOfDay(now) - 89 * DAY;
+	let min = Infinity;
+	for (const r of data.rows) if (r[H] < min) min = r[H];
+	return min === Infinity ? startOfDay(now) - 29 * DAY : startOfDay(min);
+}
+/** The chart's buckets: hours for a day, 6 hours for a week, days up to ~4 months, weeks beyond. */
+function buckets(start) {
+	const now = Date.now();
+	const out = [];
+	if (ui.range === "24h") { for (let t = start; t <= now; t += HOUR) out.push(t); return { list: out, unit: "hour" }; }
+	if (ui.range === "7d") {
+		for (let d = start; d <= now; d = startOfDay(d + DAY + 2 * HOUR)) for (let h = 0; h < 24; h += 6) { const t = new Date(d); t.setHours(h); if (t.getTime() <= now) out.push(t.getTime()); }
+		return { list: out, unit: "6h" };
+	}
+	const days = Math.round((now - start) / DAY);
+	if (days <= 130) { for (let d = start; d <= now; d = startOfDay(d + DAY + 2 * HOUR)) out.push(d); return { list: out, unit: "day" }; }
+	let d = new Date(start); d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+	for (let t = d.getTime(); t <= now; t = startOfDay(t + 7 * DAY + 2 * HOUR)) out.push(t);
+	return { list: out, unit: "week" };
+}
+function bucketIndex(list, t) {
+	let lo = 0, hi = list.length - 1;
+	if (t < list[0]) return -1;
+	while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (list[mid] <= t) lo = mid; else hi = mid - 1; }
+	return lo;
+}
+const bucketLabel = (t, unit) =>
+	unit === "hour" ? dHour.format(t) : unit === "6h" ? `${dShort.format(t)}, ${dTime.format(t)}–${dTime.format(t + 6 * HOUR)}` : unit === "week" ? `Week of ${dShort.format(t)}` : dLong.format(t);
+
+// ---------- entities and colours ----------
+// Colour follows the entity, never its rank in the current view: slots go by all-time cost, once per load.
+let colorOf = {};
+function assignColors() {
+	colorOf = { project: new Map(), model: new Map(), app: new Map() };
+	for (const [dim, col] of [["project", PROJ], ["model", MODEL], ["app", APP]]) {
+		const tot = new Map();
+		for (const r of data.rows) tot.set(r[col], (tot.get(r[col]) ?? 0) + r[COST]);
+		[...tot].sort((a, b) => b[1] - a[1]).forEach(([id], i) => colorOf[dim].set(id, i < SLOTS - 1 ? `var(--s${i + 1})` : "var(--so)"));
+	}
+}
+const dims = {
+	project: { col: PROJ, label: "Project", name: (i) => data.projects[i].name, color: (i) => colorOf.project.get(i) },
+	model: { col: MODEL, label: "Model", name: (i) => modelName(data.models[i].id), color: (i) => colorOf.model.get(i) },
+	app: { col: APP, label: "App", name: (i) => appName(data.apps[i]), color: (i) => colorOf.app.get(i) },
+};
+
+// ---------- filters ----------
+function projectIndexSet() {
+	if (!ui.project) return null;
+	const s = new Set();
+	data.projects.forEach((p, i) => { if (p.key === ui.project || (ui.project === "~other" && !p.board)) s.add(i); });
+	return s;
+}
+function filtered() {
+	const start = rangeStart();
+	const ps = projectIndexSet();
+	const ai = ui.app ? data.apps.indexOf(ui.app) : -1;
+	return { start, rows: data.rows.filter((r) => r[H] + HOUR > start && (!ps || ps.has(r[PROJ])) && (ai < 0 || r[APP] === ai)) };
+}
+function sum(rows) {
+	const t = { req: 0, in: 0, w5: 0, w1: 0, cr: 0, out: 0, cost: 0, sessions: new Set(), savings: 0, sub: 0 };
+	for (const r of rows) {
+		t.req += r[REQ]; t.in += r[IN]; t.w5 += r[W5]; t.w1 += r[W1]; t.cr += r[CR]; t.out += r[OUT]; t.cost += r[COST];
+		t.sessions.add(r[SESS]);
+		if (r[SIDE]) t.sub += r[COST];
+		const p = data.models[r[MODEL]].price;
+		if (p) t.savings += (r[CR] * (p[0] - p[2])) / 1e6;
+	}
+	t.tokens = t.in + t.w5 + t.w1 + t.cr + t.out;
+	t.value = ui.metric === "cost" ? t.cost : t.tokens;
+	return t;
+}
+function group(rows, col) {
+	const m = new Map();
+	for (const r of rows) {
+		let g = m.get(r[col]);
+		if (!g) m.set(r[col], (g = { id: r[col], rows: [] }));
+		g.rows.push(r);
+	}
+	return [...m.values()].map((g) => ({ id: g.id, ...sum(g.rows) })).sort((a, b) => b.value - a.value);
+}
+
+// ---------- controls ----------
+function seg(el, list, key) {
+	el.innerHTML = list.map(([k, l]) => `<button type="button" data-k="${k}" aria-pressed="${ui[key] === k}">${esc(l)}</button>`).join("");
+	el.onclick = (e) => { const b = e.target.closest("button"); if (!b) return; ui[key] = b.dataset.k; ui.tableAll = false; render(); };
+}
+function fillSelects() {
+	const tot = new Map();
+	for (const r of data.rows) tot.set(r[PROJ], (tot.get(r[PROJ]) ?? 0) + r[COST]);
+	const board = [], other = [];
+	data.projects.forEach((p, i) => (p.board ? board : other).push([p, tot.get(i) ?? 0]));
+	board.sort((a, b) => b[1] - a[1]); other.sort((a, b) => b[1] - a[1]);
+	const opt = (v, l) => `<option value="${esc(v)}"${ui.project === v ? " selected" : ""}>${esc(l)}</option>`;
+	const known = new Set(["", "~other", ...data.projects.map((p) => p.key)]);
+	if (!known.has(ui.project)) ui.project = "";
+	$("#f-project").innerHTML = opt("", "All projects") +
+		(board.length ? `<optgroup label="Board projects">${board.map(([p]) => opt(p.key, p.name)).join("")}</optgroup>` : "") +
+		(other.length ? `<optgroup label="Other folders">${opt("~other", "All other folders")}${other.map(([p]) => opt(p.key, p.name)).join("")}</optgroup>` : "");
+	$("#f-project").value = ui.project;
+	const apps = [...new Set(data.apps)];
+	if (ui.app && !apps.includes(ui.app)) ui.app = "";
+	$("#f-app").innerHTML = `<option value="">All apps</option>` + apps.map((a) => `<option value="${esc(a)}"${ui.app === a ? " selected" : ""}>${esc(appName(a))}</option>`).join("");
+	$("#f-app").value = ui.app;
+}
+$("#f-project").onchange = (e) => { ui.project = e.target.value; ui.split = ""; ui.table = ""; ui.tableAll = false; render(); };
+$("#f-app").onchange = (e) => { ui.app = e.target.value; ui.tableAll = false; render(); };
+
+function syncUrl() {
+	const p = new URLSearchParams();
+	if (ui.project) p.set("project", ui.project);
+	if (ui.app) p.set("app", ui.app);
+	if (ui.range !== "30d") p.set("range", ui.range);
+	if (ui.metric !== "cost") p.set("metric", ui.metric);
+	if (ui.split) p.set("split", ui.split);
+	if (ui.table) p.set("table", ui.table);
+	const q = p.toString();
+	history.replaceState(null, "", q ? "?" + q : location.pathname);
+	const pj = ui.project ? $("#f-project").selectedOptions[0]?.textContent : "";
+	document.title = `${pj ? pj + " · " : ""}Claude Usage · Workbench`;
+}
+
+// ---------- render ----------
+function render() {
+	if (!data) return;
+	seg($("#f-range"), RANGES, "range");
+	seg($("#f-metric"), METRICS, "metric");
+	$("#f-project").value = ui.project;
+	syncUrl();
+	const { start, rows } = filtered();
+	const t = sum(rows);
+	const isGlobal = !ui.project || ui.project === "~other";
+	const split = ui.split || (isGlobal ? "project" : "model");
+	const main = $("#main");
+	main.classList.remove("loading");
+	const unitWord = ui.metric === "cost" ? "cost" : "processed tokens";
+	const scopeName = ui.project ? $("#f-project").selectedOptions[0]?.textContent : "All projects";
+	main.innerHTML = `
+		<div class="hero">
+			<div>
+				<div class="big num">${ui.metric === "cost" ? fmtCost(t.cost) : fmtTok(t.tokens)}</div>
+				<div class="big-sub num">${plural(t.sessions.size, "session")} · ${plural(t.req, "request")}${ui.metric === "cost" ? ` · ${fmtTok(t.tokens)} tokens` : ` · ${fmtCost(t.cost)}`}</div>
+				<div class="big-note">${esc(scopeName)}${ui.metric === "cost" ? " · at Claude API list prices" : ""}</div>
+				<ul class="legend-list" id="hero-list"></ul>
+			</div>
+			<div>
+				<div class="chart-head">
+					<h2 id="chart-title"></h2><span class="spacer"></span>
+					<div class="seg" id="f-split" role="group" aria-label="Split the chart by"></div>
+				</div>
+				<div class="chart-wrap" id="chart"></div>
+				<div class="chart-legend" id="chart-legend"></div>
+			</div>
+		</div>
+		<section>
+			<h2>Totals</h2>
+			<div class="tiles" id="tiles"></div>
+		</section>
+		<section>
+			<h2>Where it goes</h2>
+			<div class="mix" id="mix"></div>
+		</section>
+		<section>
+			<h2>When you work <small>${unitWord} by weekday and hour, your local time</small></h2>
+			<div id="heat"></div>
+		</section>
+		<section>
+			<div class="bd-head"><h2>Breakdown</h2><span class="spacer"></span><div class="seg" id="f-table" role="group" aria-label="Break down by"></div></div>
+			<div id="table"></div>
+		</section>
+		<div class="foot">
+			Read from Claude Code's transcripts in <code>${esc(data.source)}</code> (${fmtInt(data.files)} files; every app writes there: the desktop app, the CLI and the Agent SDK), each response counted once.
+			Cost is what these tokens would cost on the Claude API at list prices (cache writes at 1.25× input for 5 minutes and 2× for an hour); on a subscription plan you don't pay it, but it shows where the work goes.
+			${data.unpriced.length ? `No price known for ${esc(data.unpriced.join(", "))}, counted as $0.` : ""}
+			Updated ${esc(ago(data.generated))}.
+		</div>`;
+
+	// Hero list: in one project, its models; across projects, the projects (click one to open it).
+	const heroDim = isGlobal ? "project" : "model";
+	const heroGroups = group(rows, dims[heroDim].col);
+	const heroShown = heroGroups.slice(0, 6);
+	$("#hero-list").innerHTML = heroShown.map((g) => {
+		const d = dims[heroDim];
+		const share = t.value ? g.value / t.value : 0;
+		const name = heroDim === "project"
+			? `<button class="name" data-project="${esc(data.projects[g.id].key)}" title="Open this project's usage">${esc(d.name(g.id))}<small>${plural(g.sessions.size, "session")}</small></button>`
+			: `<span class="name">${esc(d.name(g.id))}<small>${plural(g.req, "request")}</small></span>`;
+		return `<li><span class="dot" style="background:${d.color(g.id)}"></span>${name}<span class="val num">${fmtVal(g.value)}</span>
+			<span class="meta num">${fmtPct(share)} of ${ui.metric === "cost" ? "cost" : "tokens"} · ${ui.metric === "cost" ? fmtTok(g.tokens) + " tokens" : fmtCost(g.cost)}</span></li>`;
+	}).join("") + (heroGroups.length > heroShown.length ? `<li><span></span><span class="meta" style="grid-column:2/4;margin:0">and ${heroGroups.length - heroShown.length} more in the breakdown below</span></li>` : "");
+	$("#hero-list").onclick = (e) => { const b = e.target.closest("[data-project]"); if (b) openProject(b.dataset.project); };
+
+	const splits = [["project", "Projects"], ["model", "Models"], ["app", "Apps"]].filter(([k]) => k !== "project" || isGlobal);
+	seg($("#f-split"), splits, "split");
+	$("#f-split").querySelector(`[data-k="${split}"]`)?.setAttribute("aria-pressed", "true");
+	drawChart(rows, start, split);
+	drawTiles(t);
+	drawMix(t);
+	drawHeat(rows);
+	drawTable(rows, t, isGlobal);
+}
+
+function openProject(key) {
+	ui.project = key; ui.split = ""; ui.table = ""; ui.tableAll = false;
+	render();
+	scrollTo({ top: 0, behavior: "smooth" });
+}
+
+// ---------- chart: stacked areas over time, crosshair + tooltip ----------
+function drawChart(rows, start, split) {
+	const d = dims[split];
+	const { list, unit } = buckets(start);
+	const unitTitle = { hour: "Hourly", "6h": "Every 6 hours,", day: "Daily", week: "Weekly" }[unit];
+	$("#chart-title").textContent = `${unitTitle} ${ui.metric === "cost" ? "cost" : "processed tokens"}`;
+	// Series: up to 7 named, the rest folded into "Other". Bottom of the stack = biggest.
+	const totals = group(rows, d.col);
+	const named = totals.filter((g) => d.color(g.id) !== "var(--so)").slice(0, SLOTS - 1);
+	const namedIds = new Set(named.map((g) => g.id));
+	const series = named.map((g) => ({ key: g.id, name: d.name(g.id), color: d.color(g.id), v: new Float64Array(list.length) }));
+	const other = { key: "other", name: "Other", color: "var(--so)", v: new Float64Array(list.length) };
+	const byKey = new Map(series.map((s) => [s.key, s]));
+	for (const r of rows) {
+		const i = bucketIndex(list, r[H]);
+		if (i < 0) continue;
+		(namedIds.has(r[d.col]) ? byKey.get(r[d.col]) : other).v[i] += metricOf(r);
+	}
+	if (other.v.some((x) => x > 0)) series.push(other);
+	const wrap = $("#chart");
+	if (!rows.length) { wrap.innerHTML = `<div class="empty">Nothing in this range.</div>`; $("#chart-legend").innerHTML = ""; return; }
+
+	const W = Math.max(320, wrap.clientWidth), Hh = 250, ml = 52, mr = 8, mt = 10, mb = 26;
+	const iw = W - ml - mr, ih = Hh - mt - mb;
+	const n = list.length;
+	const stackTop = new Float64Array(n);
+	for (const s of series) for (let i = 0; i < n; i++) stackTop[i] += s.v[i];
+	let max = 0;
+	for (let i = 0; i < n; i++) max = Math.max(max, stackTop[i]);
+	const ticks = niceTicks(max || 1);
+	const ymax = ticks[ticks.length - 1];
+	const x = (i) => ml + (n === 1 ? iw / 2 : (i / (n - 1)) * iw);
+	const y = (v) => mt + ih - (v / ymax) * ih;
+	let svg = `<svg viewBox="0 0 ${W} ${Hh}" height="${Hh}" role="img" aria-label="${esc($("#chart-title").textContent)}">`;
+	for (const tv of ticks) svg += `<line class="gl" x1="${ml}" x2="${W - mr}" y1="${y(tv)}" y2="${y(tv)}"/><text class="ax num" x="${ml - 8}" y="${y(tv) + 3.5}" text-anchor="end">${esc(fmtAxis(tv))}</text>`;
+	// x labels: about five, evenly spaced
+	const want = Math.min(n, W < 560 ? 3 : 5);
+	for (let k = 0; k < want; k++) {
+		const i = want === 1 ? 0 : Math.round((k / (want - 1)) * (n - 1));
+		const t = list[i];
+		const lab = unit === "hour" ? dTime.format(t) : dShort.format(t);
+		svg += `<text class="ax" x="${x(i)}" y="${Hh - 6}" text-anchor="${k === 0 ? "start" : k === want - 1 ? "end" : "middle"}">${esc(lab.toUpperCase())}</text>`;
+	}
+	const base = new Float64Array(n);
+	for (const s of series) {
+		let top = "", bot = "";
+		for (let i = 0; i < n; i++) top += `${i ? "L" : "M"}${x(i).toFixed(1)},${y(base[i] + s.v[i]).toFixed(1)}`;
+		for (let i = n - 1; i >= 0; i--) bot += `L${x(i).toFixed(1)},${y(base[i]).toFixed(1)}`;
+		svg += `<path d="${top}${bot}Z" fill="${s.color}" fill-opacity=".22"/>`;
+		svg += `<path d="${top}" fill="none" stroke="${s.color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
+		for (let i = 0; i < n; i++) base[i] += s.v[i];
+	}
+	svg += `<line class="base" x1="${ml}" x2="${W - mr}" y1="${y(0)}" y2="${y(0)}"/>`;
+	svg += `<line class="xh" id="xh" y1="${mt}" y2="${mt + ih}" visibility="hidden"/>`;
+	svg += `<rect id="hit" x="${ml - 6}" y="0" width="${iw + 12}" height="${Hh}" fill="transparent" tabindex="0" aria-label="Move along the chart for values"/></svg><div class="tip" id="tip"></div>`;
+	wrap.innerHTML = svg;
+	$("#chart-legend").innerHTML = series.length > 1 ? series.map((s) => `<span><i style="background:${s.color}"></i>${esc(s.name)}</span>`).join("") : "";
+
+	const tip = $("#tip"), xh = $("#xh"), hit = $("#hit");
+	let cur = -1;
+	const show = (i) => {
+		cur = i;
+		xh.setAttribute("x1", x(i)); xh.setAttribute("x2", x(i)); xh.setAttribute("visibility", "visible");
+		const lines = series.filter((s) => s.v[i] > 0 || series.length <= 4).map((s) => `<div class="t-r"><i style="background:${s.color}"></i><span>${esc(s.name)}</span><b class="num">${esc(fmtVal(s.v[i]))}</b></div>`).join("");
+		tip.innerHTML = `<div class="t-h">${esc(bucketLabel(list[i], unit))}</div>${lines}${series.length > 1 ? `<div class="t-r t-tot"><span></span><span>Total</span><b class="num">${esc(fmtVal(stackTop[i]))}</b></div>` : ""}`;
+		tip.style.display = "block";
+		const px = (x(i) / W) * wrap.clientWidth;
+		const tw = tip.offsetWidth;
+		tip.style.left = Math.max(0, Math.min(wrap.clientWidth - tw, px + 14 + tw > wrap.clientWidth ? px - tw - 14 : px + 14)) + "px";
+		tip.style.top = "8px";
+	};
+	const hide = () => { cur = -1; xh.setAttribute("visibility", "hidden"); tip.style.display = "none"; };
+	hit.addEventListener("pointermove", (e) => {
+		const box = wrap.getBoundingClientRect();
+		const sx = ((e.clientX - box.left) / box.width) * W;
+		show(Math.max(0, Math.min(n - 1, Math.round(n === 1 ? 0 : ((sx - ml) / iw) * (n - 1)))));
+	});
+	hit.addEventListener("pointerleave", hide);
+	hit.addEventListener("focus", () => show(n - 1));
+	hit.addEventListener("blur", hide);
+	hit.addEventListener("keydown", (e) => {
+		if (e.key === "ArrowLeft") { show(Math.max(0, (cur < 0 ? n : cur) - 1)); e.preventDefault(); }
+		if (e.key === "ArrowRight") { show(Math.min(n - 1, cur + 1)); e.preventDefault(); }
+	});
+}
+function niceTicks(max) {
+	const raw = max / 4;
+	const mag = 10 ** Math.floor(Math.log10(raw));
+	const step = [1, 2, 2.5, 5, 10].map((m) => m * mag).find((s) => s >= raw);
+	const out = [];
+	for (let v = 0; v <= max + step * 0.001; v += step) out.push(v);
+	if (out[out.length - 1] < max) out.push(out[out.length - 1] + step);
+	return out;
+}
+
+// ---------- totals ----------
+function drawTiles(t) {
+	const uncachedCost = t.cost && t.cost + t.savings;
+	const tile = (k, v, h = "") => `<div class="tile"><div class="k">${esc(k)}</div><div class="v num">${v}</div>${h ? `<div class="h num">${h}</div>` : ""}</div>`;
+	$("#tiles").innerHTML = [
+		tile("Cost", esc(fmtCost(t.cost)), t.sessions.size ? `${esc(fmtCost(t.cost / t.sessions.size))} per session` : ""),
+		tile("Processed tokens", esc(fmtTok(t.tokens)), `${esc(fmtInt(t.req))} requests`),
+		tile("Cached input", esc(fmtTok(t.cr)), t.tokens ? `${fmtPct(t.cr / t.tokens)} of tokens` : ""),
+		tile("Cache writes", esc(fmtTok(t.w5 + t.w1)), t.w1 ? `${fmtPct(t.w1 / (t.w5 + t.w1))} kept for 1 hour` : ""),
+		tile("Uncached input", esc(fmtTok(t.in))),
+		tile("Output", esc(fmtTok(t.out)), t.req ? `${esc(fmtTok(t.out / t.req))} per request` : ""),
+		tile("Cache savings", esc(fmtCost(t.savings)), uncachedCost ? `${fmtPct(t.savings / uncachedCost)} less than uncached` : ""),
+		tile("Subagents", esc(fmtCost(t.sub)), t.cost ? `${fmtPct(t.sub / t.cost)} of cost` : ""),
+	].join("");
+}
+
+// ---------- composition: tokens vs cost by type ----------
+function drawMix(t) {
+	// Cost by type needs per-model prices, so add it up per row.
+	const { rows } = filtered();
+	const c = { in: 0, w: 0, cr: 0, out: 0 };
+	for (const r of rows) {
+		const p = data.models[r[MODEL]].price;
+		if (!p) continue;
+		c.in += (r[IN] * p[0]) / 1e6; c.out += (r[OUT] * p[1]) / 1e6; c.cr += (r[CR] * p[2]) / 1e6; c.w += (r[W5] * p[3] + r[W1] * p[4]) / 1e6;
+	}
+	const types = [
+		["Input", "var(--t1)", t.in, c.in],
+		["Cache write", "var(--t2)", t.w5 + t.w1, c.w],
+		["Cache read", "var(--t3)", t.cr, c.cr],
+		["Output", "var(--t4)", t.out, c.out],
+	];
+	const bar = (idx, total, fmt, label) => `<div class="mix-row"><div class="lab"><span>${label}</span><span class="num">${esc(fmt(total))}</span></div>
+		<div class="stack" role="img" aria-label="${esc(label)}: ${types.map((ty) => `${ty[0]} ${fmt(ty[idx])}`).join(", ")}">${types.filter((ty) => ty[idx] > 0).map((ty) => `<div style="flex:${ty[idx] / (total || 1)};background:${ty[1]}" title="${esc(ty[0])}: ${esc(fmt(ty[idx]))} (${fmtPct(ty[idx] / (total || 1))})"></div>`).join("")}</div>
+		<div class="mix-legend">${types.map((ty) => `<span><i style="background:${ty[1]}"></i>${esc(ty[0])} <b class="num">${esc(fmt(ty[idx]))}</b> <span class="num">${fmtPct(total ? ty[idx] / total : 0)}</span></span>`).join("")}</div></div>`;
+	const ctot = c.in + c.w + c.cr + c.out;
+	$("#mix").innerHTML = bar(2, t.tokens, fmtTok, "Tokens by type") + bar(3, ctot, fmtCost, "Cost by type");
+}
+
+// ---------- heatmap: weekday × hour ----------
+function drawHeat(rows) {
+	const grid = Array.from({ length: 7 }, () => new Float64Array(24));
+	const reqs = Array.from({ length: 7 }, () => new Float64Array(24));
+	for (const r of rows) {
+		const d = new Date(r[H]);
+		const wd = (d.getDay() + 6) % 7;
+		grid[wd][d.getHours()] += metricOf(r);
+		reqs[wd][d.getHours()] += r[REQ];
+	}
+	let max = 0;
+	for (const row of grid) for (const v of row) max = Math.max(max, v);
+	const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+	const shade = (v) => (v <= 0 ? "var(--hover)" : `color-mix(in oklab, var(--seq) ${Math.round(18 + 82 * Math.sqrt(v / max))}%, var(--card))`);
+	let html = `<div class="heat" role="img" aria-label="Usage by weekday and hour"><span></span>`;
+	for (let h = 0; h < 24; h++) html += `<span class="hx">${h % 3 === 0 ? h : ""}</span>`;
+	days.forEach((name, wd) => {
+		html += `<span class="hl">${name}</span>`;
+		for (let h = 0; h < 24; h++) html += `<span class="c" style="background:${shade(grid[wd][h])}" title="${name} ${String(h).padStart(2, "0")}:00–${String(h + 1).padStart(2, "0")}:00 · ${esc(fmtVal(grid[wd][h]))} · ${fmtInt(reqs[wd][h])} requests"></span>`;
+	});
+	html += `</div><div class="heat-scale">Less ${[0.02, 0.15, 0.4, 0.7, 1].map((f) => `<i style="background:${shade(f * max)}"></i>`).join("")} More${max ? ` · busiest hour ${esc(fmtVal(max))}` : ""}</div>`;
+	$("#heat").innerHTML = html;
+}
+
+// ---------- breakdown table ----------
+function drawTable(rows, t, isGlobal) {
+	const tabs = [...(isGlobal ? [["project", "Project"]] : []), ["session", "Session"], ["model", "Model"], ["day", "Day"], ["app", "App"]];
+	if (!tabs.some(([k]) => k === ui.table)) ui.table = "";
+	const which = ui.table || (isGlobal ? "project" : "session");
+	seg($("#f-table"), tabs, "table");
+	$("#f-table").querySelector(`[data-k="${which}"]`)?.setAttribute("aria-pressed", "true");
+	const share = (v) => `<div class="share"><span class="num">${fmtPct(t.value ? v / t.value : 0)}</span><span class="bar"><i style="width:${Math.max(0.5, (t.value ? v / t.value : 0) * 100)}%"></i></span></div>`;
+	const numCols = (g) => `<td class="r num hide-narrow">${fmtInt(g.req)}</td><td class="r num">${esc(fmtCost(g.cost))}</td><td class="r">${share(g.value)}</td><td class="r num">${esc(fmtTok(g.tokens))}</td>`;
+	const head = (first) => `<thead><tr><th>#</th><th>${first}</th><th class="r hide-narrow">Requests</th><th class="r">Cost</th><th class="r">Share</th><th class="r">Tokens</th></tr></thead>`;
+	let body = "", list;
+	const LIMIT = 25;
+	if (which === "day") {
+		const m = new Map();
+		for (const r of rows) { const d = startOfDay(r[H]); let a = m.get(d); if (!a) m.set(d, (a = [])); a.push(r); }
+		list = [...m].sort((a, b) => b[0] - a[0]).map(([d, rs]) => ({ id: d, ...sum(rs) }));
+		body = (ui.tableAll ? list : list.slice(0, LIMIT)).map((g, i) => `<tr><td class="rank num">${i + 1}</td><td class="name-cell">${esc(dLong.format(g.id))}<div class="sub">${plural(g.sessions.size, "session")}</div></td>${numCols(g)}</tr>`).join("");
+	} else if (which === "session") {
+		list = group(rows, SESS);
+		body = (ui.tableAll ? list : list.slice(0, LIMIT)).map((g, i) => {
+			const s = data.sessions[g.id];
+			const pj = data.projects[s.project];
+			const bits = [isGlobal || ui.project === "~other" ? pj?.name : "", s.branch, `${dShort.format(s.first)} ${dTime.format(s.first)}`, dur(s.last - s.first), appName(data.apps[s.app])].filter(Boolean);
+			return `<tr><td class="rank num">${i + 1}</td><td class="name-cell"><div class="nm"><span>${esc(s.title || "Untitled session")}</span></div><div class="sub">${esc(bits.join(" · "))}${g.sub ? ` · subagents ${esc(fmtCost(g.sub))}` : ""}</div></td>${numCols(g)}</tr>`;
+		}).join("");
+	} else {
+		const d = dims[which];
+		list = group(rows, d.col);
+		body = (ui.tableAll ? list : list.slice(0, LIMIT)).map((g, i) => {
+			let sub = plural(g.sessions.size, "session");
+			if (which === "project") { const p = data.projects[g.id]; sub += p.board ? "" : " · not on the board"; }
+			if (which === "model") { const p = data.models[g.id].price; if (p) sub += ` · $${p[0]} in / $${p[1]} out per M`; }
+			const go = which === "project" ? ` class="go" data-project="${esc(data.projects[g.id].key)}" title="Open this project's usage"` : "";
+			return `<tr${go}><td class="rank num">${i + 1}</td><td class="name-cell"><div class="nm"><i style="background:${d.color(g.id)}"></i><span>${esc(d.name(g.id))}</span></div><div class="sub">${esc(sub)}</div></td>${numCols(g)}</tr>`;
+		}).join("");
+	}
+	const firstCol = { project: "Project", session: "Session", model: "Model", day: "Day", app: "App" }[which];
+	$("#table").innerHTML = list.length
+		? `<table>${head(firstCol)}<tbody>${body}</tbody></table>${list.length > LIMIT && !ui.tableAll ? `<div class="more"><button type="button" id="more">Show all ${fmtInt(list.length)}</button></div>` : ""}`
+		: `<div class="empty">Nothing in this range.</div>`;
+	$("#table").onclick = (e) => {
+		if (e.target.closest("#more")) { ui.tableAll = true; drawTable(rows, t, isGlobal); return; }
+		const tr = e.target.closest("tr[data-project]");
+		if (tr) openProject(tr.dataset.project);
+	};
+}
+
+// ---------- loading ----------
+let loading = false;
+async function load(fresh = false) {
+	if (loading) return;
+	loading = true;
+	$("#refresh").classList.add("spin");
+	if (data) $("#main").classList.add("loading");
+	try {
+		const res = await fetch("/api/usage" + (fresh ? "?fresh=1" : ""));
+		const body = await res.json();
+		if (!res.ok) throw new Error(body.error || res.statusText);
+		data = body;
+		assignColors();
+		fillSelects();
+		render();
+	} catch (e) {
+		$("#main").classList.remove("loading");
+		if (!data) $("#main").innerHTML = `<div class="err"><b>Couldn't read usage.</b><br>${esc(e.message)}</div>`;
+	} finally {
+		loading = false;
+		$("#refresh").classList.remove("spin");
+	}
+}
+$("#refresh").onclick = () => load(true);
+// New usage every minute while the page is in view, and on coming back to it.
+setInterval(() => { if (!document.hidden) load(); }, 60_000);
+document.addEventListener("visibilitychange", () => { if (!document.hidden && data && Date.now() - data.generated > 30_000) load(); });
+let resizeT;
+addEventListener("resize", () => { clearTimeout(resizeT); resizeT = setTimeout(render, 120); });
+// The board's theme can change in another tab.
+addEventListener("storage", (e) => {
+	if (e.key !== "wb.pref.look.theme") return;
+	let t = null; try { t = JSON.parse(e.newValue); } catch {}
+	if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; else delete document.documentElement.dataset.theme;
+});
+load();
+</script>
+</body>
+</html>

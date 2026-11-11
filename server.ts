@@ -35,6 +35,7 @@ import {
 	removeLink,
 	reportHtml,
 	reportState,
+	setReportOrder,
 	setReportState,
 	REPORT_STATE_MAX,
 	search,
@@ -47,10 +48,11 @@ import {
 import type { Server } from "bun";
 // Embedded when compiled (bun build --compile), plain file paths under `bun server.ts`. (bun's types call an .html import a bundle.)
 import pagePath from "./index.html" with { type: "file" };
+import usagePath from "./usage.html" with { type: "file" };
 import iconPath from "./icon.svg" with { type: "file" };
 import pkg from "./package.json";
 import { DB_PATH } from "./db";
-import { publishDays } from "./day";
+import { archivedDay, currentDay, publishDays } from "./day";
 import { codeLinks, repoState, type CodeLinks } from "./git";
 import { candidateFolders, checkFolder, folderState, health } from "./health";
 import { getSettings, settingDefs, updateSettings } from "./settings";
@@ -73,8 +75,10 @@ import {
 } from "./share";
 import { KEY_PATH, listSources, sourceFetch } from "./sources";
 import { existsSync } from "node:fs";
-import { imageData, removeImage } from "./images";
+import { addImage, imageData, prepareImage, removeImage, setImageCaption } from "./images";
 import { mcpHttp } from "./mcp";
+import { refreshUsage, usageData } from "./usage";
+import { agentFiles, integratePrompt, integrateSummary } from "./integrate";
 import { PRESETS } from "./presets";
 import {
 	addTracker,
@@ -110,7 +114,10 @@ function jsonOnly<R extends Request>(handler: (req: R, srv: Server<unknown>) => 
 export function serve({ lan = false } = {}) {
 	const db = open();
 	const page = Bun.file(pagePath as unknown as string);
+	const usagePage = Bun.file(usagePath as unknown as string);
 	const icon = Bun.file(iconPath);
+	// The first read of Claude's transcripts takes seconds, so it starts now rather than when the page is opened.
+	refreshUsage().catch(() => {});
 	const json = (data: unknown, status = 200) => Response.json(data, { status });
 	const fail = (e: unknown) => json({ error: (e as Error).message }, 400);
 	// The vault answers only this computer (not `--lan`, where the token would cross the network in the clear),
@@ -232,6 +239,21 @@ export function serve({ lan = false } = {}) {
 			// What the desktop app asks to tell a running board from anything else on the port: cheap, no auth, no database.
 			"/api/ping": () =>
 				Response.json({ app: "workbench", version: pkg.version, db: DB_PATH, pid: process.pid, lan }, { headers: { "cache-control": "no-store" } }),
+			// Claude usage, from Claude Code's transcripts on this computer (usage.ts). It shows which folders you work in,
+			// so like the vault it answers only this computer.
+			"/usage": (req, srv) =>
+				localRead(req, srv)
+					? new Response(usagePage, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-cache" } })
+					: json({ error: "usage opens only on this computer (localhost)" }, 403),
+			"/api/usage": async (req, srv) => {
+				if (!localRead(req, srv)) return json({ error: "usage opens only on this computer (localhost)" }, 403);
+				try {
+					if (new URL(req.url).searchParams.has("fresh")) await refreshUsage(true);
+					return json(await usageData(projects(db)));
+				} catch (e) {
+					return json({ error: (e as Error).message }, 500);
+				}
+			},
 			"/favicon.svg": () =>
 				new Response(icon, { headers: { "content-type": "image/svg+xml", "cache-control": "max-age=3600" } }),
 			"/api/projects": {
@@ -444,12 +466,12 @@ export function serve({ lan = false } = {}) {
 			// Settings: projects with their folder and what points at them, folders that could be projects, and health.
 			"/api/settings/projects": (req, srv) =>
 				localRead(req, srv)
-					? json(projectsWithCounts(db).map((p) => ({ ...p, folder: folderState(p.path), usage: projectUsage(db, p.slug) })))
+					? json(projectsWithCounts(db).map((p) => ({ ...p, folder: folderState(p.path), usage: projectUsage(db, p.slug), agents: p.path ? { ...agentFiles(p.path), prompt: integratePrompt(p.path) } : null })))
 					: json({ error: SETTINGS_LOCAL }, 403),
 			"/api/settings/folders": (req, srv) =>
 				localRead(req, srv) ? json(candidateFolders(db)) : json({ error: SETTINGS_LOCAL }, 403),
 			"/api/settings/health": async (req, srv) =>
-				localRead(req, srv) ? json(await health(db, { port: PORT, lan })) : json({ error: SETTINGS_LOCAL }, 403),
+				localRead(req, srv) ? json({ ...(await health(db, { port: PORT, lan })), integrate: integrateSummary(db) }) : json({ error: SETTINGS_LOCAL }, 403),
 			"/api/projects/:slug/logo": async (req) => {
 				const p = projects(db).find((p) => p.slug === req.params.slug);
 				const logo = p && (await projectLogo(p));
@@ -467,7 +489,21 @@ export function serve({ lan = false } = {}) {
 				const q = (u.get("q") ?? "").trim();
 				return json(q ? search(db, q, u.get("project") || undefined) : { items: [], reports: [], links: [] });
 			},
-			"/api/reports": (req) => json(listReports(db, new URL(req.url).searchParams.get("project") || undefined)),
+			"/api/reports": (req) => {
+				const today = currentDay(db);
+				return json(listReports(db, new URL(req.url).searchParams.get("project") || undefined).map((r) => ({ ...r, archived: archivedDay(r.name, today) })));
+			},
+			// The order of a project's report groups in the sidebar: a rail convenience, so the phone can change it too.
+			"/api/projects/:slug/report-order": {
+				PUT: jsonOnly(async (req) => {
+					try {
+						const { groups } = await req.json();
+						return json({ groups: setReportOrder(db, req.params.slug, groups) });
+					} catch (e) {
+						return fail(e);
+					}
+				}),
+			},
 			"/api/reports/:id": (req) => {
 				const r = getReport(db, Number(req.params.id));
 				return r ? json(r) : json({ error: "not found" }, 404);
@@ -794,7 +830,21 @@ export function serve({ lan = false } = {}) {
 					}
 				}),
 			},
-			// Pictures agents attached. The type was checked when it came in; the headers make sure a browser never treats one as a page.
+			// Pictures you add on the board: base64 in JSON, like every other write, checked and shrunk like an agent's.
+			"/api/items/:id/images": {
+				POST: jsonOnly(async (req) => {
+					try {
+						const id = itemId(req.params.id);
+						const { data, caption } = await req.json();
+						if (typeof data !== "string" || !data) throw new Error("no image");
+						addImage(db, id, await prepareImage(Buffer.from(data.replace(/^data:[^,]*,/, ""), "base64"), "that file"), String(caption ?? ""), "kostas");
+						return json(getItem(db, id), 201);
+					} catch (e) {
+						return fail(e);
+					}
+				}),
+			},
+			// Pictures on items. The type was checked when it came in; the headers make sure a browser never treats one as a page.
 			"/api/images/:id": {
 				GET: (req) => {
 					const row = imageData(db, Number(req.params.id));
@@ -811,6 +861,14 @@ export function serve({ lan = false } = {}) {
 				DELETE: jsonOnly((req) => {
 					try {
 						return json(getItem(db, removeImage(db, Number(req.params.id), "kostas")));
+					} catch (e) {
+						return fail(e);
+					}
+				}),
+				PATCH: jsonOnly(async (req) => {
+					try {
+						const { caption } = await req.json();
+						return json(getItem(db, setImageCaption(db, Number(req.params.id), String(caption ?? ""), "kostas")));
 					} catch (e) {
 						return fail(e);
 					}

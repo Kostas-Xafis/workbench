@@ -39,6 +39,8 @@ import {
 	reportHtml,
 	resolveItem,
 	search,
+	reportLeftWithoutIcon,
+	setReportIcon,
 	STATUSES,
 	updateItem,
 	type Db,
@@ -48,6 +50,7 @@ import {
 	type Status,
 } from "./db";
 import { BRIEF_RULES, checkBrief } from "./brief";
+import { integrationGuide } from "./integrate";
 import { repoState } from "./git";
 import { addImage, imageBytes, imageData, imageInfo, imageSummary, prepareImage, removeImage, type Prepared } from "./images";
 import { PRESETS } from "./presets";
@@ -102,6 +105,7 @@ const INSTRUCTIONS = `The workbench is {{name}}'s local board of open work acros
 - When you start work {{name}} gave you: find its item (list_items with q) and start_item it, or add_item one and start it. One item per piece of work {{name}} would recognise.
 - finish_item with a note on what changed and where (commit, branch). wait_item when blocked. Everything you leave for {{name}} is its own item.
 - {{name}} doesn't open files. An item has to make sense by itself, in plain words: put the content in the body instead of pointing at docs/x.md or PLAN §3, say where things are in the app rather than in the code, and attach a screenshot (attach_image) for anything on screen. add_item has the details, and warns you about what it can see is missing: fix those with update_item.
+- Every report you publish gets its own icon in colour (publish_report's icon), so the sidebar reads at a glance.
 - Status trackers are live readings shown on the board, such as build quotas or CI minutes left. Check list_trackers before something that uses up a quota, refresh_trackers after.
 - Tools default to the project of the folder this server runs in; pass project (a slug from list_projects) to work elsewhere.`;
 
@@ -432,6 +436,7 @@ type Tool = {
 	run(a: Record<string, any>, c: Conn): Out | Promise<Out>;
 };
 
+const REPORT_ICON = str("Its icon in the sidebar: one emoji, or SVG markup (at most 8 KB, with a viewBox, in your own colours that read on light and dark; currentColor doesn't work). Every report has one: in colour, showing what the page is about at a glance.");
 const RO = { readOnlyHint: true, openWorldHint: false };
 const WRITE = { readOnlyHint: false, destructiveHint: false, openWorldHint: false };
 const itemLink = (i: Pick<Item, "ref" | "title">) => ({ uri: `wb://item/wb-${i.ref}`, name: `wb-${i.ref}`, title: i.title, mimeType: "text/markdown" });
@@ -480,6 +485,16 @@ const METER: Schema = obj(
 	["label"],
 );
 
+/** The report a tool's `report` argument names: its id (#12) or its name in the project. */
+function reportId(a: Record<string, any>, c: Conn) {
+	const id = Number(String(a.report).replace(/^#/, ""));
+	if (Number.isInteger(id) && id >= 1) return id;
+	const project = projectOf(c, a.project)!;
+	const r = listReports(c.db, project).find((r) => r.name === String(a.report).trim().toLowerCase());
+	if (!r) throw new ToolError(`no report "${a.report}" in ${project} (list_reports)`);
+	return r.id;
+}
+
 const TOOLS: Tool[] = [
 	{
 		name: "list_projects",
@@ -516,6 +531,25 @@ const TOOLS: Tool[] = [
 		async run(a, c) {
 			const slug = projectOf(c, a.project)!;
 			return { text: await overview(c, slug), links: [{ uri: `wb://project/${slug}`, name: slug, mimeType: "text/markdown" }] };
+		},
+	},
+	{
+		name: "integration_guide",
+		title: "Wire a project into the workbench",
+		description:
+			"How to set a project up so every agent in it uses the workbench, and what's already done: the project on the board, the standard rules block in its AGENTS.md or CLAUDE.md (versioned, so running it again updates it), and Claude Code's MCP server and permissions. Follow the steps it gives; it says which ones to ask {{name}} about first. Same as `wb integrate`.",
+		input: obj({
+			folder: str("The project's folder (absolute). Default: the given project's folder, else the folder this server runs in."),
+			project: str("Project slug, to use its folder."),
+		}),
+		hints: RO,
+		run(a, c) {
+			let dir = a.folder?.trim() || "";
+			if (!dir && a.project) dir = projects(c.db).find((p) => p.slug === projectOf(c, a.project))?.path ?? "";
+			if (!dir && c.project) dir = projects(c.db).find((p) => p.slug === c.project)?.path ?? "";
+			if (!dir && c.transport === "stdio") dir = process.env.CLAUDE_PROJECT_DIR || process.cwd();
+			if (!dir) throw new ToolError("which folder? Pass folder (the project's absolute path) or project");
+			return { text: integrationGuide(c.db, dir) };
 		},
 	},
 	{
@@ -801,7 +835,7 @@ const TOOLS: Tool[] = [
 			const list = listReports(c.db, project).filter((r) => a.include_days || !r.name.startsWith("day-"));
 			return {
 				text: list.length
-					? list.map((r) => `#${r.id} ${r.project}/${r.name}: ${r.title}${r.grp ? ` [${r.grp}]` : ""} v${r.version}, updated ${r.updated_at} · ${BOARD}/#report/${r.id}`).join("\n")
+					? list.map((r) => `#${r.id} ${r.project}/${r.name}: ${r.title}${r.grp ? ` [${r.grp}]` : ""}${r.icon || r.name.startsWith("day-") ? "" : " (no icon: give it one)"} v${r.version}, updated ${r.updated_at} · ${BOARD}/#report/${r.id}`).join("\n")
 					: "no reports",
 				data: { reports: list.map((r) => ({ ...r, url: `${BOARD}/#report/${r.id}` })) },
 			};
@@ -822,13 +856,7 @@ const TOOLS: Tool[] = [
 		),
 		hints: RO,
 		run(a, c) {
-			let id = Number(String(a.report).replace(/^#/, ""));
-			if (!Number.isInteger(id) || id < 1) {
-				const project = projectOf(c, a.project)!;
-				const r = listReports(c.db, project).find((r) => r.name === String(a.report).trim().toLowerCase());
-				if (!r) throw new ToolError(`no report "${a.report}" in ${project} (list_reports)`);
-				id = r.id;
-			}
+			const id = reportId(a, c);
 			const r = getReport(c.db, id);
 			const page = r && reportHtml(c.db, id, a.version);
 			if (!r || !page) throw new ToolError(`no report #${id}${a.version ? ` v${a.version}` : ""}`);
@@ -848,13 +876,14 @@ const TOOLS: Tool[] = [
 		name: "publish_report",
 		title: "Publish a report",
 		description:
-			"Publishes a self-contained HTML page to a project's sidebar; the same name again adds a version. The page runs sandboxed and gets a `wb` object to read the board (wb.items(), wb.trackers(), wb.git(), wb.fetch(source, path), wb.state…). Use var(--wb-bg), --wb-ink, --wb-accent… to match the board.",
+			"Publishes a self-contained HTML page to a project's sidebar; the same name again adds a version. The page runs sandboxed and gets a `wb` object to read the board (wb.items(), wb.trackers(), wb.git(), wb.fetch(source, path), wb.state…). Use var(--wb-bg), --wb-ink, --wb-accent… to match the board. Every report needs its own icon: give one the first time.",
 		input: obj(
 			{
 				name: str("Short name, unique in the project (e.g. release-status).", { minLength: 1, maxLength: 80 }),
 				html: str("The whole page.", { minLength: 1 }),
 				title: str("Shown in the sidebar (default: the page's <title>)."),
 				group: str("A heading in the sidebar to file it under."),
+				icon: { ...REPORT_ICON, description: `${REPORT_ICON.description} Needed the first time; left out later, the icon stays as it is.` },
 				project: PROJECT,
 			},
 			["name", "html"],
@@ -862,12 +891,35 @@ const TOOLS: Tool[] = [
 		hints: { ...WRITE, idempotentHint: true },
 		run(a, c) {
 			const project = projectOf(c, a.project)!;
-			const r = publishReport(c.db, { project, name: a.name, html: a.html, title: a.title, grp: a.group }, "agent");
+			if (reportLeftWithoutIcon(c.db, project, String(a.name), a.icon))
+				throw new ToolError("every report needs its own icon in the sidebar: pass icon (one emoji, or a small SVG in its own colours). Nothing was published.");
+			const r = publishReport(c.db, { project, name: a.name, html: a.html, title: a.title, grp: a.group, icon: a.icon }, "agent");
 			return {
 				text: `report #${r.id} v${r.n}${r.changed ? "" : " (unchanged)"} in ${project}: ${BOARD}/#report/${r.id}`,
 				data: { id: r.id, version: r.n, changed: r.changed, url: `${BOARD}/#report/${r.id}` },
 				links: [{ uri: `wb://report/${r.id}`, name: a.name, mimeType: "text/html" }],
 			};
+		},
+	},
+	{
+		name: "set_report_icon",
+		title: "Set a report's icon",
+		description:
+			"Sets the icon a published report shows in the sidebar, in place of the usual page glyph: to give one to a report that has none, or a better one. No new version is added.",
+		input: obj(
+			{
+				report: { anyOf: [{ type: "integer", minimum: 1 }, { type: "string", minLength: 1 }], description: "The report's id (#12) or its name in the project." },
+				icon: { ...REPORT_ICON, minLength: 1 },
+				project: PROJECT,
+			},
+			["report", "icon"],
+		),
+		hints: { ...WRITE, idempotentHint: true },
+		run(a, c) {
+			if (!String(a.icon ?? "").trim()) throw new ToolError("every report keeps an icon: give another one instead of removing it");
+			const id = reportId(a, c);
+			const icon = setReportIcon(c.db, id, a.icon);
+			return { text: `report #${id}: ${icon ? "icon set" : "icon removed"} · ${BOARD}/#report/${id}`, data: { id, icon } };
 		},
 	},
 	{
@@ -1159,6 +1211,17 @@ const PROMPTS: Prompt[] = [
 			const items = listItems(c.db, { project: slug, owner: "agent", status: OPEN });
 			const list = items.length ? items.map((i) => `- ${itemLine(c, i, false)}`).join("\n") : "(nothing open for agents)";
 			return `Here is the open agent work in ${slug}, most urgent first (doing, then todo by priority, then waiting):\n\n${list}\n\nPick the item to do next: one already in progress in this session, else the most urgent todo. Read it with get_item, tell me which one you picked and why in a sentence, then do it.\n\n${personal(TRACKING, c)}`;
+		},
+	},
+	{
+		name: "integrate",
+		title: "Wire this project into the workbench",
+		description: "Set a project up so its agents use the board: the project on the board, the rules in its agent file, Claude Code's MCP server.",
+		arguments: [{ name: "project", description: "Project slug (default: the current one, or this folder)" }],
+		get(a, c) {
+			const p = a.project ? projects(c.db).find((x) => x.slug === projectOrRpc(c, a.project)) : undefined;
+			const dir = p?.path || projects(c.db).find((x) => x.slug === c.project)?.path || process.env.CLAUDE_PROJECT_DIR || process.cwd();
+			return `Set this project up to work with the workbench by following the guide below. Ask me before you add the project to the board, change my Claude Code settings or move any to-do lists.\n\n${integrationGuide(c.db, dir)}`;
 		},
 	},
 	{
