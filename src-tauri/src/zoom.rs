@@ -40,6 +40,12 @@ pub fn zoom<R: Runtime>(window: WebviewWindow<R>, step: i32) -> Result<f64, Stri
     Ok(level)
 }
 
+/// The current zoom level (1.0 = 100%), for Settings → Appearance.
+#[tauri::command]
+pub fn zoom_level<R: Runtime>(window: WebviewWindow<R>) -> f64 {
+    saved(window.app_handle())
+}
+
 /// Sets the zoom kept from the last run on a newly built window.
 pub fn restore<R: Runtime>(window: &WebviewWindow<R>) {
     let level = saved(window.app_handle());

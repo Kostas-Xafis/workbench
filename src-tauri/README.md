@@ -224,6 +224,7 @@ promise.
 | `app_info` | command | `app.core.invoke("app_info")` → `{ version: string, server: "owned" \| "attached", port: number }` |
 | `notify` | command | `app.core.invoke("notify", { title: string, body?: string, tag?: string, target?: any })` → `number` (notification id). Body is plain text (the app escapes markup). A notification with the same `tag` replaces the previous one. |
 | `notification-clicked` | event (app → page) | `app.event.listen("notification-clicked", (e) => …)`, `e.payload` = `{ tag: string \| null, target: any \| null }`, the `target` given to `notify`. The app has already shown and focused the window. Only the newest notification of a tag answers. |
+| `zoom_level` | command | `app.core.invoke("zoom_level")` → `number`, the level now (Settings → Appearance → Zoom shows it). |
 | `zoom` | command | `app.core.invoke("zoom", { step: 1 \| -1 \| 0 })` → `number` (the new level: one stop in or out of 50%…200%, or back to 100%). The app sets WebKit's zoom on the window and keeps it in app.json `zoom`, set again at the next launch. The page calls it for Ctrl + / − / 0 and Ctrl + scroll; a report's bridge (with `wbapp=1` on its address) passes the same keys up as `{ wb: 1, event: "zoom", step }`. |
 | `download-finished` | event (app → page) | `{ url: string, path: string \| null, name: string, success: boolean }` after a download the app saved (into the download folder); the page may toast "Saved to Downloads: name". |
 

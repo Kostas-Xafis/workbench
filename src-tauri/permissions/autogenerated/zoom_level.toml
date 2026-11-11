@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-zoom-level"
+description = "Enables the zoom_level command without any pre-configured scope."
+commands.allow = ["zoom_level"]
+
+[[permission]]
+identifier = "deny-zoom-level"
+description = "Denies the zoom_level command without any pre-configured scope."
+commands.deny = ["zoom_level"]

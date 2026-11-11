@@ -52,8 +52,9 @@ const BOARD_PERMISSIONS: &[&str] = &[
     "allow-update-skip",
     "allow-update-auto",
     "allow-update-seen",
-    // Page zoom (zoom.rs): takes only a step (+1, -1, 0), clamped to fixed levels, kept in app.json.
+    // Page zoom (zoom.rs): takes only a step (+1, -1, 0), clamped to fixed levels, kept in app.json; and reads it.
     "allow-zoom",
+    "allow-zoom-level",
 ];
 
 pub fn run() {
@@ -133,6 +134,7 @@ fn with_commands<R: Runtime>(builder: tauri::Builder<R>) -> tauri::Builder<R> {
             update::update_auto,
             update::update_seen,
             zoom::zoom,
+            zoom::zoom_level,
             probe::probe_result
         ])
     }
@@ -149,7 +151,8 @@ fn with_commands<R: Runtime>(builder: tauri::Builder<R>) -> tauri::Builder<R> {
             update::update_skip,
             update::update_auto,
             update::update_seen,
-            zoom::zoom
+            zoom::zoom,
+            zoom::zoom_level
         ])
     }
 }

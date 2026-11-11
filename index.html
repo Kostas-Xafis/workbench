@@ -468,6 +468,8 @@ code.cmd { white-space: normal; overflow-wrap: anywhere; }
 .so-ctl select, .so-ctl input[type=text], .so-ctl input[type=number], .so-ctl input[type=time] {
 	border: 1px solid var(--line); background: var(--bg); border-radius: 7px; padding: 5px 8px; font-size: 13px; color: var(--ink); min-width: 0; }
 .so-ctl input[type=number] { width: 78px; }
+.zoom-ctl { display: flex; align-items: center; gap: 4px; }
+.zoom-pct { min-width: 46px; text-align: center; font-variant-numeric: tabular-nums; font-weight: 600; }
 .so-ctl input[type=text] { width: 200px; }
 .so-ctl .so-unit { color: var(--muted); font-size: 12.5px; }
 .switch { position: relative; display: inline-block; width: 36px; height: 20px; flex: none; }
@@ -2909,9 +2911,15 @@ function zoomStep(e) {
 	if (e.key === "0" || e.code === "Numpad0" || e.code === "Digit0") return 0;
 	return null;
 }
+// The app's zoom level as last seen (null until asked, or outside the app), shown in Settings → Appearance.
+let zoomLevel = null;
 function appZoom(step) {
 	if (!app?.core || ![1, -1, 0].includes(step)) return;
-	app.core.invoke("zoom", { step }).then((z) => toast(`${Math.round(z * 100)}%`)).catch(() => {});
+	app.core.invoke("zoom", { step }).then((z) => {
+		zoomLevel = z;
+		toast(`${Math.round(z * 100)}%`);
+		if (currentTab()?.key === "look") renderSettings();
+	}).catch(() => {});
 }
 if (app?.core) {
 	addEventListener("keydown", (e) => {
@@ -4154,13 +4162,25 @@ function setLookRender() {
 		bind: { pref: "look.sections", def: null },
 		control: "",
 	});
+	// Zoom is the app's own (a browser has its own zoom), kept in the app's settings rather than this page's.
+	const pct = zoomLevel === null ? "…" : `${Math.round(zoomLevel * 100)}%`;
+	const zoom = app?.core ? optRow({
+		label: `Zoom<span class="scope browser" title="Kept by this app, for its window">This app</span>${zoomLevel !== null && Math.abs(zoomLevel - 1) > 1e-3 ? `<button type="button" class="reset-btn" data-zoom="0" title="Back to 100%">Default</button>` : ""}`,
+		hint: `How big everything is in the window. Also ${MOD} + and ${MOD} − (or ${MOD} and scroll), and ${MOD} 0 for 100%.`,
+		control: `<div class="zoom-ctl" role="group" aria-label="Zoom">
+			<button type="button" class="icon-btn" data-zoom="-1" title="Smaller" aria-label="Zoom out"${zoomLevel !== null && zoomLevel <= 0.5 ? " disabled" : ""}>${svg16('<path d="M4 8h8"/>')}</button>
+			<output class="zoom-pct" aria-live="polite">${pct}</output>
+			<button type="button" class="icon-btn" data-zoom="1" title="Bigger" aria-label="Zoom in"${zoomLevel !== null && zoomLevel >= 2 ? " disabled" : ""}>${svg16('<path d="M4 8h8M8 4v8"/>')}</button></div>`,
+	}) : "";
 	const keys = `<div class="so-wide"><dl class="lk-keys">${SHORTCUTS().map(([k, what]) => `<dt>${kbdKeys(k)}</dt><dd>${esc(what)}</dd>`).join("")}</dl></div>`;
 	return `<p class="set-intro">How the board looks in ${app ? "this app" : "this browser"}. Your phone and your computer can each have their own.</p>
-		${optGroup("Look", [theme, density])}
+		${optGroup("Look", [theme, density, zoom].filter(Boolean))}
 		${optGroup("Board", [start, order, lookSectionRows()])}
 		${optGroup("Keyboard shortcuts", [keys], narrow() ? "With a keyboard attached." : "")}`;
 }
-async function setLookLoad() {}
+async function setLookLoad() {
+	if (app?.core) zoomLevel = await app.core.invoke("zoom_level").catch(() => zoomLevel);
+}
 async function setLookPoll() {}
 function moveSection(kind, dir) {
 	const order = sectionOrder().map((s) => s[0]);
@@ -4176,6 +4196,8 @@ function moveSection(kind, dir) {
 $("#settings-view").addEventListener("click", (e) => {
 	const b = e.target.closest("[data-look]");
 	if (b) moveSection(b.closest("[data-kind]")?.dataset.kind, b.dataset.look);
+	const z = e.target.closest("[data-zoom]");
+	if (z) appZoom(Number(z.dataset.zoom));
 });
 onSettingsChange((key) => {
 	if (key === undefined || key.startsWith("look.")) applyLook();

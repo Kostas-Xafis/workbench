@@ -24,6 +24,7 @@ fn main() {
                 "update_auto",
                 "update_seen",
                 "zoom",
+                "zoom_level",
             ]),
         ),
     )
