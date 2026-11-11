@@ -161,7 +161,32 @@ const UPDATES: Defs = {
 };
 /* ---------- end: Updates ---------- */
 
-export const SETTINGS: Defs = { ...YOU, ...NOTIFY, ...DATA, ...PRIVACY, ...LOOK, ...UPDATES };
+/* ---------- Setup guide ---------- */
+// What the setup guide (index.html `#welcome`, setup.ts) remembers: when it was first shown, each step you finished
+// or skipped, and whether its "Finish setting up" checklist was dismissed or completed. Whether a step really is
+// done is checked live (setup.ts); this only keeps your choices.
+export const SETUP_STEPS = ["name", "projects", "agents", "rules", "notify", "board"] as const;
+const SETUP: Defs = {
+	setup: {
+		about: "Setup guide",
+		default: { seen: "", steps: {}, dismissed: false, finished: false },
+		check: (v) => {
+			if (!v || typeof v !== "object" || Array.isArray(v)) throw new Error("an object: { seen, steps, dismissed, finished }");
+			const o = v as Record<string, unknown>;
+			const steps: Record<string, string> = {};
+			for (const [k, s] of Object.entries((o.steps ?? {}) as Record<string, unknown>)) {
+				if (!(SETUP_STEPS as readonly string[]).includes(k)) throw new Error(`no step "${k}" (${SETUP_STEPS.join(", ")})`);
+				if (s !== "done" && s !== "skipped") throw new Error(`step ${k}: "done" or "skipped"`);
+				steps[k] = s;
+			}
+			const seen = o.seen === undefined ? "" : text(40)(o.seen);
+			return { seen, steps, dismissed: o.dismissed === true, finished: o.finished === true };
+		},
+	},
+};
+/* ---------- end: Setup guide ---------- */
+
+export const SETTINGS: Defs = { ...YOU, ...NOTIFY, ...DATA, ...PRIVACY, ...LOOK, ...UPDATES, ...SETUP };
 
 /* ---------- Storage ---------- */
 

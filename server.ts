@@ -80,6 +80,7 @@ import { addImage, imageData, prepareImage, removeImage, setImageCaption } from 
 import { mcpHttp } from "./mcp";
 import { refreshUsage, usageData } from "./usage";
 import { agentFiles, integratePrompt, integrateSummary } from "./integrate";
+import { setupStatus } from "./setup";
 import { PRESETS } from "./presets";
 import {
 	addTracker,
@@ -484,6 +485,10 @@ export function serve({ lan = false } = {}) {
 				localRead(req, srv) ? json(candidateFolders(db)) : json({ error: SETTINGS_LOCAL }, 403),
 			"/api/settings/health": async (req, srv) =>
 				localRead(req, srv) ? json({ ...(await health(db, { port: PORT, lan })), integrate: integrateSummary(db) }) : json({ error: SETTINGS_LOCAL }, 403),
+			// The setup guide (#welcome) and its checklist: what's set up, checked now (setup.ts). This computer only,
+			// like Health: it reads Claude Code's config and the projects' folders.
+			"/api/setup": async (req, srv) =>
+				localRead(req, srv) ? json(await setupStatus(db, { port: PORT })) : json({ error: SETTINGS_LOCAL }, 403),
 			"/api/projects/:slug/logo": async (req) => {
 				const p = projects(db).find((p) => p.slug === req.params.slug);
 				const logo = p && (await projectLogo(p));

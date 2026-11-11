@@ -55,6 +55,7 @@ import { repoState } from "./git";
 import { addImage, imageBytes, imageData, imageInfo, imageSummary, prepareImage, removeImage, type Prepared } from "./images";
 import { PRESETS } from "./presets";
 import { ownerDefaultsText, ownerFor, yourName } from "./settings";
+import { noteMcpContact } from "./setup";
 import { listSources } from "./sources";
 import {
 	addTracker,
@@ -1281,6 +1282,10 @@ async function dispatch(m: Rpc, c: Conn): Promise<Json | null> {
 	const method = m.method as string;
 	const params = (m.params ?? {}) as Json;
 	if (m.id === undefined || m.id === null) return null; // notifications: initialized, cancelled, roots changes
+	// The setup guide's live check that agents reach the board (setup.ts): who called, at most once a minute.
+	const meta = ((params as Record<string, Json>)._meta ?? {}) as Record<string, Json>;
+	const client = ((params as Record<string, Json>).clientInfo ?? meta[`${M}clientInfo`]) as Record<string, Json> | undefined;
+	noteMcpContact(c.db, c.transport, typeof client?.name === "string" ? client.name : "");
 	if (method === "initialize") {
 		// A legacy client: answer with its revision if we have it, else the newest legacy one (it may then hang up).
 		const asked = params.protocolVersion;
