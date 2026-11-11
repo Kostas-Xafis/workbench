@@ -2318,6 +2318,7 @@ const bridge = {
 const STATE_METHODS = ["stateGet", "stateSet", "stateClear", "fetch"];
 window.addEventListener("message", async (e) => {
 	const m = e.data;
+	if (e.source === frame.contentWindow && e.origin === "null" && m?.wb === 1 && m.event === "zoom") return appZoom(m.step);
 	if (e.source !== frame.contentWindow || e.origin !== "null" || !m || m.wb !== 1 || !Object.hasOwn(bridge, m.method)) return;
 	// State only for the report the frame was pointed at: the page names itself, and must be the one loaded.
 	if (STATE_METHODS.includes(m.method) && !(state.report && m.report === state.report.id
@@ -2899,6 +2900,40 @@ if (appNotify) {
 		toast(d.success ? `Saved to Downloads: ${d.name}` : `Couldn't save ${d.name || "the download"}`);
 	}).catch(() => {});
 }
+/* Zoom in the app (src-tauri/src/zoom.rs): WebKitGTK has no zoom keys there, so Ctrl + / Ctrl − / Ctrl 0 and Ctrl +
+   scroll ask the app, which zooms the whole window and keeps the level for the next run. A browser does this itself. */
+function zoomStep(e) {
+	if (!(e.ctrlKey || e.metaKey) || e.altKey) return null;
+	if (e.key === "+" || e.key === "=" || e.code === "NumpadAdd") return 1;
+	if (e.key === "-" || e.key === "_" || e.code === "NumpadSubtract") return -1;
+	if (e.key === "0" || e.code === "Numpad0" || e.code === "Digit0") return 0;
+	return null;
+}
+function appZoom(step) {
+	if (!app?.core || ![1, -1, 0].includes(step)) return;
+	app.core.invoke("zoom", { step }).then((z) => toast(`${Math.round(z * 100)}%`)).catch(() => {});
+}
+if (app?.core) {
+	addEventListener("keydown", (e) => {
+		const step = zoomStep(e);
+		if (step === null) return;
+		e.preventDefault();
+		appZoom(step);
+	}, true);
+	// One step per notch of a mouse wheel; a touchpad's many small deltas add up to a step every 100 px.
+	let wheel = 0, wheelAt = 0;
+	addEventListener("wheel", (e) => {
+		if (!e.ctrlKey) return;
+		e.preventDefault();
+		if (Date.now() - wheelAt > 400) wheel = 0;
+		wheelAt = Date.now();
+		wheel += e.deltaMode === 1 ? e.deltaY * 40 : e.deltaY;
+		if (Math.abs(wheel) < 50) return;
+		appZoom(wheel < 0 ? 1 : -1);
+		wheel = 0;
+	}, { passive: false, capture: true });
+}
+
 // Kinds of event, each a switch in Settings → Notifications, on by default: [key, label, hint].
 const NOTIFY_KINDS = [
 	["needs", "Something new needs you", "An item handed to you: a decision, a check, a review or a setup step"],
@@ -4060,6 +4095,8 @@ function sectionOrder() {
 function withFrameTheme(src) {
 	const u = new URL(src, location.href), t = lookTheme();
 	if (t === "system") u.searchParams.delete("wbtheme"); else u.searchParams.set("wbtheme", t);
+	// In the app, the report passes its zoom keys up to the board (a browser zooms frames by itself).
+	if (app) u.searchParams.set("wbapp", "1");
 	return u.pathname + u.search;
 }
 function applyLook() {
@@ -4081,6 +4118,7 @@ const SHORTCUTS = () => [
 	[[["Esc"]], "Close a dialog"],
 	[[["Enter"]], "In an item: send your own answer, or add the note"],
 	[[[MOD, "Enter"]], "In a tracker: record the reading"],
+	...(app ? [[[[MOD, "+"], [MOD, "−"]], "Zoom in or out (or hold " + MOD + " and scroll)"], [[[MOD, "0"]], "Back to 100%"]] : []),
 ];
 const kbdKeys = (alts) => alts.map((combo) => combo.map((k) => `<kbd>${esc(k)}</kbd>`).join(`<span class="lk-plus">+</span>`)).join(`<span class="lk-or">or</span>`);
 function lookSectionRows() {

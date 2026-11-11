@@ -157,6 +157,7 @@ tr.go:hover td { background: var(--hover); }
 .more button { border: 1px solid var(--line); background: transparent; border-radius: 8px; padding: 5px 12px; cursor: pointer; color: var(--muted); }
 .more button:hover { color: var(--ink); background: var(--hover); }
 .foot { margin-top: 40px; color: var(--faint); font-size: 12px; line-height: 1.6; }
+.zoom-toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: var(--ink); color: var(--bg); padding: 6px 14px; border-radius: 8px; font-size: 13px; font-weight: 600; z-index: 9; pointer-events: none; }
 .err { margin: 40px auto; max-width: 560px; padding: 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); }
 
 @media (max-width: 860px) {
@@ -709,6 +710,40 @@ addEventListener("storage", (e) => {
 	if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; else delete document.documentElement.dataset.theme;
 });
 load();
+
+// In the desktop app, zoom like a browser: the app zooms the window and keeps the level (src-tauri/src/zoom.rs).
+const app = window.isTauri === true && window.__TAURI__ ? window.__TAURI__ : null;
+if (app?.core) {
+	let tipTimer;
+	const zoom = (step) => app.core.invoke("zoom", { step }).then((z) => {
+		let t = $(".zoom-toast");
+		if (!t) document.body.append((t = Object.assign(document.createElement("div"), { className: "zoom-toast" })));
+		t.textContent = `${Math.round(z * 100)}%`;
+		t.hidden = false;
+		clearTimeout(tipTimer);
+		tipTimer = setTimeout(() => (t.hidden = true), 1200);
+	}).catch(() => {});
+	addEventListener("keydown", (e) => {
+		if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+		const step = e.key === "+" || e.key === "=" || e.code === "NumpadAdd" ? 1
+			: e.key === "-" || e.key === "_" || e.code === "NumpadSubtract" ? -1
+			: e.key === "0" || e.code === "Numpad0" || e.code === "Digit0" ? 0 : null;
+		if (step === null) return;
+		e.preventDefault();
+		zoom(step);
+	}, true);
+	let wheel = 0, wheelAt = 0;
+	addEventListener("wheel", (e) => {
+		if (!e.ctrlKey) return;
+		e.preventDefault();
+		if (Date.now() - wheelAt > 400) wheel = 0;
+		wheelAt = Date.now();
+		wheel += e.deltaMode === 1 ? e.deltaY * 40 : e.deltaY;
+		if (Math.abs(wheel) < 50) return;
+		zoom(wheel < 0 ? 1 : -1);
+		wheel = 0;
+	}, { passive: false, capture: true });
+}
 </script>
 </body>
 </html>

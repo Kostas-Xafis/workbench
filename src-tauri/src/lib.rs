@@ -21,6 +21,7 @@ mod server;
 mod tray;
 mod update;
 mod web;
+mod zoom;
 
 use tauri::ipc::CapabilityBuilder;
 use tauri::{AppHandle, Manager, Runtime, Url, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
@@ -47,6 +48,8 @@ const BOARD_PERMISSIONS: &[&str] = &[
     "allow-update-skip",
     "allow-update-auto",
     "allow-update-seen",
+    // Page zoom (zoom.rs): takes only a step (+1, -1, 0), clamped to fixed levels, kept in app.json.
+    "allow-zoom",
 ];
 
 pub fn run() {
@@ -113,6 +116,7 @@ fn with_commands<R: Runtime>(builder: tauri::Builder<R>) -> tauri::Builder<R> {
             update::update_skip,
             update::update_auto,
             update::update_seen,
+            zoom::zoom,
             probe::probe_result
         ])
     }
@@ -128,7 +132,8 @@ fn with_commands<R: Runtime>(builder: tauri::Builder<R>) -> tauri::Builder<R> {
             update::update_later,
             update::update_skip,
             update::update_auto,
-            update::update_seen
+            update::update_seen,
+            zoom::zoom
         ])
     }
 }
@@ -183,6 +188,8 @@ fn main_window<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<WebviewWindow<R>
     #[cfg(debug_assertions)]
     let builder = probe::attach(builder);
     let window = builder.build()?;
+    // The zoom from the last run; WebKit keeps it across the window's navigations (fallback page → board).
+    zoom::restore(&window);
     // Devtools are available in debug builds (right click → Inspect); WB_APP_DEVTOOLS=1 opens them at start.
     #[cfg(debug_assertions)]
     if std::env::var("WB_APP_DEVTOOLS").as_deref() == Ok("1") {

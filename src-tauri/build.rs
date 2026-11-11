@@ -1,6 +1,6 @@
 fn main() {
     // App commands. Each gets allow-/deny- permissions (e.g. "allow-app-info"), granted at runtime: app_info,
-    // notify and update_* to the board's origin (src/lib.rs), retry to the bundled fallback page only (src/server.rs).
+    // notify, update_* and zoom to the board's origin (src/lib.rs), retry to the bundled fallback page only (src/server.rs).
     // probe_result exists only in debug builds (src/probe.rs); in release its permission is defined but never
     // granted, and the command isn't registered.
     tauri_build::try_build(
@@ -17,6 +17,7 @@ fn main() {
                 "update_skip",
                 "update_auto",
                 "update_seen",
+                "zoom",
             ]),
         ),
     )

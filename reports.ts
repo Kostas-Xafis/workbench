@@ -36,6 +36,31 @@ const CLIENT = `(() => {
 	addEventListener("DOMContentLoaded", applyTheme);
 	addEventListener("load", applyTheme);
 	os.addEventListener("change", applyTheme);
+	// In the desktop app (the board adds wbapp=1), zoom keys and Ctrl + scroll go up to the board, which zooms the
+	// whole window; a browser zooms by itself, so nothing is caught there.
+	if (parent !== window && new URLSearchParams(location.search).get("wbapp") === "1") {
+		const zoom = (step) => parent.postMessage({ wb: 1, event: "zoom", step }, "*");
+		addEventListener("keydown", (e) => {
+			if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+			const step = e.key === "+" || e.key === "=" || e.code === "NumpadAdd" ? 1
+				: e.key === "-" || e.key === "_" || e.code === "NumpadSubtract" ? -1
+				: e.key === "0" || e.code === "Numpad0" || e.code === "Digit0" ? 0 : null;
+			if (step === null) return;
+			e.preventDefault();
+			zoom(step);
+		}, true);
+		let wheel = 0, wheelAt = 0;
+		addEventListener("wheel", (e) => {
+			if (!e.ctrlKey) return;
+			e.preventDefault();
+			if (Date.now() - wheelAt > 400) wheel = 0;
+			wheelAt = Date.now();
+			wheel += e.deltaMode === 1 ? e.deltaY * 40 : e.deltaY;
+			if (Math.abs(wheel) < 50) return;
+			zoom(wheel < 0 ? 1 : -1);
+			wheel = 0;
+		}, { passive: false, capture: true });
+	}
 	const pending = new Map();
 	const refresh = new Set();
 	let n = 0;
