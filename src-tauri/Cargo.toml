@@ -1,6 +1,6 @@
 [package]
 name = "workbench-app"
-version = "0.2.0"
+version = "0.2.1"
 description = "Workbench desktop app: a Tauri shell around the Bun board server"
 edition = "2021"
 publish = false
