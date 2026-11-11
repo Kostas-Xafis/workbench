@@ -197,6 +197,13 @@ export function open(path = DB_PATH) {
 	createTrackerTables(db);
 	// Board-wide settings (see settings.ts).
 	createSettingsTable(db);
+	// When an MCP client last called the board, per transport, for the setup guide (see setup.ts). Here rather
+	// than in setup.ts, which reads health.ts and would make an import cycle.
+	db.run(`CREATE TABLE IF NOT EXISTS mcp_contact (
+		transport TEXT PRIMARY KEY,
+		client TEXT NOT NULL DEFAULT '',
+		at TEXT NOT NULL DEFAULT (datetime('now'))
+	)`);
 	return db;
 }
 

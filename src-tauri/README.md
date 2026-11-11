@@ -226,6 +226,7 @@ promise.
 | `notification-clicked` | event (app → page) | `app.event.listen("notification-clicked", (e) => …)`, `e.payload` = `{ tag: string \| null, target: any \| null }`, the `target` given to `notify`. The app has already shown and focused the window. Only the newest notification of a tag answers. |
 | `zoom_level` | command | `app.core.invoke("zoom_level")` → `number`, the level now (Settings → Appearance → Zoom shows it). |
 | `zoom` | command | `app.core.invoke("zoom", { step: 1 \| -1 \| 0 })` → `number` (the new level: one stop in or out of 50%…200%, or back to 100%). The app sets WebKit's zoom on the window and keeps it in app.json `zoom`, set again at the next launch. The page calls it for Ctrl + / − / 0 and Ctrl + scroll; a report's bridge (with `wbapp=1` on its address) passes the same keys up as `{ wb: 1, event: "zoom", step }`. |
+| `autostart` | command | `app.core.invoke("autostart", { on?: boolean })` → `{ enabled: boolean }`. Without `on` it only reads; with it, it turns the app's own login entry on or off first (the tray's "Start on login" tick follows). For the setup guide. A nightly's entry is "Workbench Nightly", apart from the installed app's. |
 | `download-finished` | event (app → page) | `{ url: string, path: string \| null, name: string, success: boolean }` after a download the app saved (into the download folder); the page may toast "Saved to Downloads: name". |
 
 In the app the page should: send notifications with `notify` instead of `new Notification` (`ping()` in

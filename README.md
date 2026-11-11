@@ -8,6 +8,7 @@ wb ls --mine   # what waits on me, in the project of the current folder
 wb help        # everything else
 ```
 
+- **Setting up:** a new board opens the setup guide by itself (`#welcome`): your name, your first projects, Claude Code's MCP server with a check that an agent really reached the board, the prompt that sets each project up for agents, notifications and start on login, and how the board works. Every step can be skipped. Until each is done or skipped, "Finish setting up" sits at the top of the board; Settings → Getting started brings the guide back any time. A board already in use is never sent there. Empty boards and projects say what goes there and how to get it there.
 - **Items** are named `wb-xxxx` (e.g. `wb-k3f9`); click one on the board to copy it into a prompt ("Do wb-k3f9"). Commands also take the bare `k3f9` and the old numbers.
 - **Data:** `workbench.db` next to this file (gitignored). The board copies it to `backups/` once a day and keeps the newest 14 (Settings → Data → Backups kept); `wb backup` makes one now and `wb backups` lists them. `wb export > file.json` writes everything as JSON. To restore, Settings → Data → Restore gives the exact commands for this computer (in short: stop the board, copy a backup over `workbench.db`, remove `workbench.db-wal`/`-shm`, start it). Vault secrets stay encrypted in backups.
 - **Projects:** add one in Settings (at the bottom of the projects strip on the left), or `wb project <slug> <path> "Name"`. Items added from inside that path belong to it; the board shows each project's git state (uncommitted files, unpushed commits, unmerged branches, worktrees). A finished project can be archived (see Settings below).
@@ -108,6 +109,11 @@ Settings, at the bottom of the projects strip on the left (or `#settings`, and `
 - **This browser:** in this browser only, so your phone and your computer can differ.
 
 A changed setting shows **Default**, which puts it back. Under `wb serve --lan` the phone opens Notifications and Appearance, and gets a note for the tabs that change the board or look at this computer.
+
+**Getting started** (on this computer only): the setup guide's steps, each with what its check finds right now, a button into the guide at that step, and whether "Finish setting up" shows on the board.
+
+- **Checked, not assumed:** your name counts once it's saved; projects once there's one; agents once an MCP client has called the board (both `wb mcp` and the board's `/mcp` note the last call, per transport, at most once a minute), not merely when Claude Code has the server; each project's rules as Settings → Projects reads them; notifications and the app's start on login on the device you're on. "How the board works" counts once read.
+- **When it opens by itself:** once, on a board with no projects or fewer than 10 items. What it remembers (when it was first shown, skipped steps, the checklist hidden or finished) is the board setting `setup`.
 
 **Projects:** every project in the order they sit down the left edge.
 

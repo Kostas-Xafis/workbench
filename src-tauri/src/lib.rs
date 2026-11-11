@@ -55,6 +55,8 @@ const BOARD_PERMISSIONS: &[&str] = &[
     // Page zoom (zoom.rs): takes only a step (+1, -1, 0), clamped to fixed levels, kept in app.json; and reads it.
     "allow-zoom",
     "allow-zoom-level",
+    // Start on login (tray.rs), for the setup guide: reads it, or turns the app's own login entry on or off.
+    "allow-autostart",
 ];
 
 pub fn run() {
@@ -123,6 +125,7 @@ fn with_commands<R: Runtime>(builder: tauri::Builder<R>) -> tauri::Builder<R> {
             update::update_seen,
             zoom::zoom,
             zoom::zoom_level,
+            tray::autostart,
             probe::probe_result
         ])
     }
@@ -140,7 +143,8 @@ fn with_commands<R: Runtime>(builder: tauri::Builder<R>) -> tauri::Builder<R> {
             update::update_auto,
             update::update_seen,
             zoom::zoom,
-            zoom::zoom_level
+            zoom::zoom_level,
+            tray::autostart
         ])
     }
 }

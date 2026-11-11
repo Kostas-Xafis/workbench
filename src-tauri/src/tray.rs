@@ -9,6 +9,7 @@
 //! - The count is polled from `GET <board>/api/projects` every 30 s: the sum of `mine` over the projects
 //!   whose `archived_at` is null. The page's own poll pauses while the window is hidden; this one doesn't.
 //! - Close to tray: `CloseRequested` on the main window hides it. Quit is in the menu and exits for real.
+//! - The board's setup guide reads and sets Start on login with [`autostart`], the same switch as the menu's.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
@@ -40,7 +41,8 @@ static TRAY_UP: AtomicBool = AtomicBool::new(false);
 pub fn init<R: Runtime>(builder: Builder<R>) -> Builder<R> {
     builder.plugin(
         tauri_plugin_autostart::Builder::new()
-            .app_name("Workbench")
+            // A nightly has its own login entry, so trying it never replaces the installed app's.
+            .app_name(if crate::NIGHTLY { "Workbench Nightly" } else { "Workbench" })
             // Opens hidden in the tray (lib.rs `started_hidden`).
             .args([crate::HIDDEN_ARG])
             .build(),
@@ -76,6 +78,36 @@ pub fn set_update<R: Runtime>(app: &AppHandle<R>, version: Option<String>) {
             let _ = menu.insert(&item, 2);
         }
     });
+}
+
+/// The menu's "Start on login" item, so [`autostart`] can make it show what the page set.
+struct AutostartItem<R: Runtime>(CheckMenuItem<R>);
+
+#[derive(serde::Serialize)]
+pub struct Autostart {
+    enabled: bool,
+}
+
+/// `autostart` → `{ enabled }`; with `{ on: true | false }` it first turns the app's own login entry on or off,
+/// like the tray's "Start on login" (whose tick follows). Granted to the board page, for the setup guide: it only
+/// switches this one entry, which always starts this app hidden in the tray.
+#[tauri::command]
+pub fn autostart<R: Runtime>(app: AppHandle<R>, on: Option<bool>) -> Result<Autostart, String> {
+    let manager = app.autolaunch();
+    if let Some(want) = on {
+        let result = if want { manager.enable() } else { manager.disable() };
+        result.map_err(|e| e.to_string())?;
+    }
+    let enabled = manager.is_enabled().map_err(|e| e.to_string())?;
+    if on.is_some() {
+        if let Some(item) = app.try_state::<AutostartItem<R>>() {
+            let item = item.0.clone();
+            let _ = app.run_on_main_thread(move || {
+                let _ = item.set_checked(enabled);
+            });
+        }
+    }
+    Ok(Autostart { enabled })
 }
 
 /// The pieces the poller updates.
@@ -127,6 +159,7 @@ fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Parts<R>> {
     items.push(&sep);
     items.push(&quit);
     let menu = Menu::with_items(app, &items)?;
+    app.manage(AutostartItem(autostart.clone()));
     let update = MenuItem::with_id(app, UPDATE, "Update…", true, None::<&str>)?;
     app.manage(UpdateLine { menu: menu.clone(), item: update, shown: std::sync::Mutex::new(None) });
 
