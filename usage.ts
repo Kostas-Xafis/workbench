@@ -132,22 +132,51 @@ async function scan() {
 			st = { size: 0, offset: 0, msgs: new Map(), titles: new Map(), branches: new Map() };
 			files.set(p, st);
 		}
-		const bytes = new Uint8Array(await Bun.file(p).slice(st.offset, size).arrayBuffer());
-		// Stop at the last full line: the app may be halfway through writing the next one.
-		const lastNl = bytes.lastIndexOf(10);
-		if (lastNl < 0) continue;
-		readLines(st, new TextDecoder().decode(bytes.subarray(0, lastNl)), p.includes("/subagents/"));
-		st.offset += lastNl + 1;
+		st.offset += await readFrom(p, st, size);
 		st.size = size;
 	}
 	lastScan = Date.now();
+}
+
+/**
+ * Reads a file from where the last look stopped, in the stream's chunks: transcripts run to hundreds of MB, and
+ * reading one whole kept gigabytes in the board's memory. Only full lines are read (the app may be halfway
+ * through writing the next one); returns how many bytes that was.
+ */
+async function readFrom(path: string, st: FileState, size: number) {
+	const side = path.includes("/subagents/");
+	const decoder = new TextDecoder();
+	let pending: Uint8Array[] = [];
+	let done = 0;
+	let pendingBytes = 0;
+	for await (const chunk of Bun.file(path).slice(st.offset, size).stream()) {
+		const nl = chunk.lastIndexOf(10);
+		if (nl < 0) {
+			pending.push(chunk);
+			pendingBytes += chunk.length;
+			continue;
+		}
+		const head = chunk.subarray(0, nl);
+		const block = pending.length ? Buffer.concat([...pending, head]) : head;
+		readLines(st, decoder.decode(block), side);
+		done += pendingBytes + nl + 1;
+		const rest = chunk.subarray(nl + 1);
+		pending = rest.length ? [rest.slice()] : [];
+		pendingBytes = rest.length;
+	}
+	return done;
 }
 
 /** Read new transcript lines, at most every few seconds; callers share a scan that is already running. */
 export async function refreshUsage(force = false) {
 	if (scanning) return scanning;
 	if (!force && Date.now() - lastScan < 5000) return;
-	scanning = scan().finally(() => (scanning = null));
+	const first = lastScan === 0;
+	scanning = scan()
+		.then(() => {
+			if (first) Bun.gc(true); // the first read goes through gigabytes; give the memory back
+		})
+		.finally(() => (scanning = null));
 	return scanning;
 }
 
