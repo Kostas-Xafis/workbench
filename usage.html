@@ -475,7 +475,7 @@ function drawChart(rows, start, split) {
 	const { list, unit } = buckets(start);
 	const unitTitle = { hour: "Hourly", "6h": "Every 6 hours,", day: "Daily", week: "Weekly" }[unit];
 	$("#chart-title").textContent = `${unitTitle} ${ui.metric === "cost" ? "cost" : "processed tokens"}`;
-	// Series: up to 7 named, the rest folded into "Other". Bottom of the stack = biggest.
+	// Series: up to 7 named, the rest folded into "Other", biggest first.
 	const totals = group(rows, d.col);
 	const named = totals.filter((g) => d.color(g.id) !== "var(--so)").slice(0, SLOTS - 1);
 	const namedIds = new Set(named.map((g) => g.id));
@@ -497,7 +497,9 @@ function drawChart(rows, start, split) {
 	const stackTop = new Float64Array(n);
 	for (const s of series) for (let i = 0; i < n; i++) stackTop[i] += s.v[i];
 	let max = 0;
-	for (let i = 0; i < n; i++) max = Math.max(max, stackTop[i]);
+	// Each series is drawn at its own value (not stacked), so a small one stays a low line instead of riding on the
+	// others' total; the tooltip still adds them up.
+	for (const s of series) for (let i = 0; i < n; i++) max = Math.max(max, s.v[i]);
 	const ticks = niceTicks(max || 1);
 	const ymax = ticks[ticks.length - 1];
 	const x = (i) => ml + (n === 1 ? iw / 2 : (i / (n - 1)) * iw);
@@ -512,14 +514,13 @@ function drawChart(rows, start, split) {
 		const lab = unit === "hour" ? dTime.format(t) : dShort.format(t);
 		svg += `<text class="ax" x="${x(i)}" y="${Hh - 6}" text-anchor="${k === 0 ? "start" : k === want - 1 ? "end" : "middle"}">${esc(lab.toUpperCase())}</text>`;
 	}
-	const base = new Float64Array(n);
+	// Biggest first, so the smaller lines are drawn over it and stay visible; a light fill under each.
+	const fillOpacity = series.length > 1 ? ".12" : ".22";
 	for (const s of series) {
-		let top = "", bot = "";
-		for (let i = 0; i < n; i++) top += `${i ? "L" : "M"}${x(i).toFixed(1)},${y(base[i] + s.v[i]).toFixed(1)}`;
-		for (let i = n - 1; i >= 0; i--) bot += `L${x(i).toFixed(1)},${y(base[i]).toFixed(1)}`;
-		svg += `<path d="${top}${bot}Z" fill="${s.color}" fill-opacity=".22"/>`;
+		let top = "";
+		for (let i = 0; i < n; i++) top += `${i ? "L" : "M"}${x(i).toFixed(1)},${y(s.v[i]).toFixed(1)}`;
+		svg += `<path d="${top}L${x(n - 1).toFixed(1)},${y(0).toFixed(1)}L${x(0).toFixed(1)},${y(0).toFixed(1)}Z" fill="${s.color}" fill-opacity="${fillOpacity}"/>`;
 		svg += `<path d="${top}" fill="none" stroke="${s.color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
-		for (let i = 0; i < n; i++) base[i] += s.v[i];
 	}
 	svg += `<line class="base" x1="${ml}" x2="${W - mr}" y1="${y(0)}" y2="${y(0)}"/>`;
 	svg += `<line class="xh" id="xh" y1="${mt}" y2="${mt + ih}" visibility="hidden"/>`;
