@@ -3,7 +3,7 @@
 //
 //   bun scripts/release-notes.ts v0.2.0 > notes.md
 //
-// Merge commits are left out, and so are the board's item references at the end of a subject ("(wb-xxxx)"):
+// Merges and the version bumps (`Release 0.2.0`) are left out, and so are the board's item references at the end of a subject ("(wb-xxxx)"):
 // they mean nothing outside the board.
 import { $ } from "bun";
 import { join } from "node:path";
@@ -21,7 +21,7 @@ const range = prev ? `${prev}..${tag}` : tag;
 const subjects = (await $`git log --no-merges --format=%s ${range}`.text())
 	.split("\n")
 	.map((s) => s.replace(/\s*\((wb-[a-z0-9]{4}(,\s*)?)+\)\s*$/i, "").trim())
-	.filter(Boolean);
+	.filter((s) => s && !/^Release \d+\.\d+\.\d+\S*$/.test(s) && !/^Merge (branch|pull request|remote-tracking branch) /.test(s));
 
 const version = tag.replace(/^v/, "");
 const lines = [
