@@ -69,8 +69,9 @@ import {
 } from "./share";
 import { KEY_PATH, listSources, sourceFetch } from "./sources";
 import { existsSync } from "node:fs";
-import { imageData, removeImage } from "./images";
+import { addImage, imageData, prepareImage, removeImage, setImageCaption } from "./images";
 import { mcpHttp } from "./mcp";
+import { refreshUsage, usageData } from "./usage";
 import { PRESETS } from "./presets";
 import {
 	addTracker,
@@ -105,6 +106,9 @@ export function serve({ lan = false } = {}) {
 	const db = open();
 	const page = Bun.file(new URL("./index.html", import.meta.url));
 	const icon = Bun.file(new URL("./icon.svg", import.meta.url));
+	const usagePage = Bun.file(new URL("./usage.html", import.meta.url));
+	// The first read of Claude's transcripts takes seconds, so it starts now rather than when the page is opened.
+	refreshUsage().catch(() => {});
 	const json = (data: unknown, status = 200) => Response.json(data, { status });
 	const fail = (e: unknown) => json({ error: (e as Error).message }, 400);
 	// The vault answers only this computer (not `--lan`, where the token would cross the network in the clear),
@@ -223,6 +227,21 @@ export function serve({ lan = false } = {}) {
 		routes: {
 			// no-cache: the browser asks again each time (cheap, it gets 304), so an updated board shows at once.
 			"/": () => new Response(page, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-cache" } }),
+			// Claude usage, from Claude Code's transcripts on this computer (usage.ts). It shows which folders you work in,
+			// so like the vault it answers only this computer.
+			"/usage": (req, srv) =>
+				localRead(req, srv)
+					? new Response(usagePage, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-cache" } })
+					: json({ error: "usage opens only on this computer (localhost)" }, 403),
+			"/api/usage": async (req, srv) => {
+				if (!localRead(req, srv)) return json({ error: "usage opens only on this computer (localhost)" }, 403);
+				try {
+					if (new URL(req.url).searchParams.has("fresh")) await refreshUsage(true);
+					return json(await usageData(projects(db)));
+				} catch (e) {
+					return json({ error: (e as Error).message }, 500);
+				}
+			},
 			"/favicon.svg": () =>
 				new Response(icon, { headers: { "content-type": "image/svg+xml", "cache-control": "max-age=3600" } }),
 			"/api/projects": {
@@ -799,7 +818,21 @@ export function serve({ lan = false } = {}) {
 					}
 				}),
 			},
-			// Pictures agents attached. The type was checked when it came in; the headers make sure a browser never treats one as a page.
+			// Pictures you add on the board: base64 in JSON, like every other write, checked and shrunk like an agent's.
+			"/api/items/:id/images": {
+				POST: jsonOnly(async (req) => {
+					try {
+						const id = itemId(req.params.id);
+						const { data, caption } = await req.json();
+						if (typeof data !== "string" || !data) throw new Error("no image");
+						addImage(db, id, await prepareImage(Buffer.from(data.replace(/^data:[^,]*,/, ""), "base64"), "that file"), String(caption ?? ""), "kostas");
+						return json(getItem(db, id), 201);
+					} catch (e) {
+						return fail(e);
+					}
+				}),
+			},
+			// Pictures on items. The type was checked when it came in; the headers make sure a browser never treats one as a page.
 			"/api/images/:id": {
 				GET: (req) => {
 					const row = imageData(db, Number(req.params.id));
@@ -816,6 +849,14 @@ export function serve({ lan = false } = {}) {
 				DELETE: jsonOnly((req) => {
 					try {
 						return json(getItem(db, removeImage(db, Number(req.params.id), "kostas")));
+					} catch (e) {
+						return fail(e);
+					}
+				}),
+				PATCH: jsonOnly(async (req) => {
+					try {
+						const { caption } = await req.json();
+						return json(getItem(db, setImageCaption(db, Number(req.params.id), String(caption ?? ""), "kostas")));
 					} catch (e) {
 						return fail(e);
 					}

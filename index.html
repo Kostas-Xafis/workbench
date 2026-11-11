@@ -287,6 +287,7 @@ mark { background: color-mix(in srgb, var(--review) 30%, transparent); color: in
 
 /* Vault */
 .vault-btn { display: inline-flex; align-items: center; gap: 6px; }
+a.vault-btn { color: inherit; text-decoration: none; }
 .vault-btn svg, .sm svg { width: 14px; height: 14px; }
 .sm { display: inline-flex; align-items: center; gap: 5px; }
 .vault-btn[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
@@ -631,7 +632,11 @@ dialog::backdrop { background: rgb(0 0 0 / .35); }
 .images a { display: block; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--bg); line-height: 0; }
 .images img { display: block; width: 100%; height: auto; max-height: 60vh; object-fit: contain; }
 .images figcaption { display: flex; gap: 8px; align-items: flex-start; margin-top: 5px; font-size: 13px; overflow-wrap: anywhere; }
-.images figcaption span { flex: 1; min-width: 0; }
+.images figcaption .cap { flex: 1; min-width: 0; border: 1px solid transparent; background: transparent; border-radius: 6px; padding: 2px 5px; margin: -2px 0 0 -5px; font: inherit; color: var(--ink); }
+.images figcaption .cap:hover { border-color: var(--line); }
+.images figcaption .cap:focus { outline: none; border-color: var(--accent, var(--line)); background: var(--bg); }
+.images figure.pending img { opacity: .55; }
+#form.dropping { outline: 2px dashed var(--accent, var(--muted)); outline-offset: -6px; }
 .images .rm { flex: none; border: 0; background: none; padding: 0 2px; color: var(--muted); font-size: 12px; cursor: pointer; }
 .images .rm:hover { color: var(--ink); text-decoration: underline; }
 .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
@@ -677,6 +682,8 @@ dialog::backdrop { background: rgb(0 0 0 / .35); }
 			<div id="results" role="listbox" hidden></div>
 		</div>
 		<div class="top-right">
+			<a class="ghost vault-btn" id="usage-btn" href="/usage" title="Claude usage: tokens and cost, for this project or all of them">
+				<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2.5 13.5h11M4.5 11V8M8 11V4.5M11.5 11V6.5"/></svg><span>Usage</span></a>
 			<button class="ghost vault-btn" id="vault-btn" title="Secrets vault" aria-pressed="false">
 				<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="7" width="10" height="7" rx="1.5"/><path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2"/></svg><span>Vault</span></button>
 			<button class="primary" id="new">New</button>
@@ -725,11 +732,12 @@ dialog::backdrop { background: rgb(0 0 0 / .35); }
 	</div>
 	<label class="field-col" id="options-field">Choices, one per line (you answer with a click)<textarea name="options" rows="3" placeholder="CRDT sync&#10;Last write wins"></textarea></label>
 	<div>
-		<div class="row" style="margin-bottom:6px"><b style="font-size:12px;color:var(--muted)">DETAILS</b><span class="spacer"></span><button type="button" class="ghost" id="edit-body">Edit</button></div>
+		<div class="row" style="margin-bottom:6px"><b style="font-size:12px;color:var(--muted)">DETAILS</b><span class="spacer"></span><button type="button" class="ghost" id="add-image" title="Add a picture. You can also paste one or drop it anywhere on this box">Add image</button><button type="button" class="ghost" id="edit-body">Edit</button></div>
 		<div class="body-view" id="body-view"></div>
 		<textarea name="body" hidden placeholder="Steps, context, links (markdown)"></textarea>
 	</div>
 	<div class="images" id="images" hidden></div>
+	<input type="file" id="image-file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden>
 	<div class="answer-box" id="answer-box" hidden>
 		<h3>Answer</h3>
 		<div class="opts" id="answer-opts"></div>
@@ -1873,10 +1881,9 @@ function openItem(item) {
 	form.options.value = options.join("\n");
 	showOptionsField();
 	showBodyEditor(isNew);
-	const images = item.images || [];
-	$("#images").hidden = !images.length;
-	$("#images").innerHTML = images.map((m) => `<figure><a href="/api/images/${m.id}" target="_blank" rel="noreferrer" title="Open full size"><img src="/api/images/${m.id}" alt="${esc(m.caption)}"${m.width && m.height ? ` width="${m.width}" height="${m.height}"` : ""}></a>
-		<figcaption><span>${esc(m.caption)}</span><button type="button" class="rm" data-image="${m.id}">Remove</button></figcaption></figure>`).join("");
+	pendingImages.forEach((p) => URL.revokeObjectURL(p.url));
+	pendingImages = [];
+	renderImages();
 	$("#answer-box").hidden = isNew || item.kind !== "decision";
 	$("#answer-opts").innerHTML = options.map((o) => `<button type="button" class="opt ${o === item.answer ? "picked" : ""}" data-choice="${esc(o)}">${esc(o)}</button>`).join("");
 	$("#answer-own").value = item.answer && !options.includes(item.answer) ? item.answer : "";
@@ -1898,10 +1905,80 @@ function openItem(item) {
 	$("#session-link").hidden = !href;
 	if (href) $("#session-link").href = href;
 	$("#history").hidden = isNew;
-	$("#history ol").innerHTML = (item.notes || []).map((n) => `<li><time title="${esc(n.at)} UTC">${ago(n.at)}</time>${n.author ? `<span class="who">${esc(n.author === "kostas" ? setting("name") || "Kostas" : n.author)}</span>` : ""}${n.text.includes("\n") ? `<div class="note-md">${md(n.text)}</div>` : esc(n.text)}</li>`).join("");
+	renderHistory();
 	$("#note").value = "";
 	if (!dlg.open) dlg.showModal();
 	if (isNew) form.title.focus();
+}
+
+function renderHistory() {
+	const item = state.current;
+	$("#history ol").innerHTML = (item.notes || []).map((n) => `<li><time title="${esc(n.at)} UTC">${ago(n.at)}</time>${n.author ? `<span class="who">${esc(n.author === "kostas" ? setting("name") || "Kostas" : n.author)}</span>` : ""}${n.text.includes("\n") ? `<div class="note-md">${md(n.text)}</div>` : esc(n.text)}</li>`).join("");
+}
+
+/* Pictures on an item: the ones agents attach, and yours, from the button, a paste or a drop. A new item holds
+   them until it's saved, since an image needs an item to sit on. Captions edit in place. */
+let pendingImages = [];
+function renderImages() {
+	const saved = (state.current.images || []).map((m) => `<figure><a href="/api/images/${m.id}" target="_blank" rel="noreferrer" title="Open full size"><img src="/api/images/${m.id}" alt="${esc(m.caption)}"${m.width && m.height ? ` width="${m.width}" height="${m.height}"` : ""}></a>
+		<figcaption><input class="cap" data-cap="${m.id}" value="${esc(m.caption)}" placeholder="Add a caption" aria-label="Caption"><button type="button" class="rm" data-image="${m.id}">Remove</button></figcaption></figure>`);
+	const pending = pendingImages.map((p, n) => `<figure class="${p.busy ? "pending" : ""}"><a href="${p.url}" target="_blank" rel="noreferrer"><img src="${p.url}" alt=""></a>
+		<figcaption><input class="cap" data-pending="${n}" value="${esc(p.caption)}" placeholder="Add a caption" aria-label="Caption">${p.busy ? "" : `<button type="button" class="rm" data-unpend="${n}">Remove</button>`}</figcaption></figure>`);
+	$("#images").hidden = !saved.length && !pending.length;
+	$("#images").innerHTML = [...saved, ...pending].join("");
+}
+/** Takes an item back from the server after an image change, keeping what you've typed in the form. */
+function imagesChanged(item) {
+	state.current = { ...state.current, images: item.images, notes: item.notes, image_count: item.image_count };
+	renderImages();
+	renderHistory();
+	loadItems();
+}
+const IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif"];
+const asDataUrl = (file) => new Promise((ok, no) => {
+	const r = new FileReader();
+	r.onload = () => ok(r.result);
+	r.onerror = () => no(r.error);
+	r.readAsDataURL(file);
+});
+async function uploadImage(itemId, file, caption = "") {
+	return api(`/api/items/${itemId}/images`, { method: "POST", body: JSON.stringify({ data: await asDataUrl(file), caption }) });
+}
+async function addImages(files) {
+	files = [...files].filter((f) => IMAGE_TYPES.includes(f.type));
+	if (!files.length) { $("#err").textContent = "Only PNG, JPEG, WebP or GIF pictures can go on an item."; return; }
+	$("#err").textContent = "";
+	if (!state.current.id) {
+		pendingImages.push(...files.map((file) => ({ file, url: URL.createObjectURL(file), caption: "" })));
+		renderImages();
+		return;
+	}
+	const id = state.current.id;
+	const batch = files.map((file) => ({ file, url: URL.createObjectURL(file), caption: "", busy: true }));
+	pendingImages.push(...batch);
+	renderImages();
+	toast(files.length > 1 ? `Adding ${files.length} images…` : "Adding the image…");
+	let last;
+	for (const p of batch) {
+		try {
+			last = await uploadImage(id, p.file);
+			// A caption typed while it uploaded goes on with it.
+			const m = last.images.at(-1);
+			if (p.caption.trim() && m) last = await api(`/api/images/${m.id}`, { method: "PATCH", body: JSON.stringify({ caption: p.caption }) });
+		} catch (e) { $("#err").textContent = e.message; }
+	}
+	batch.forEach((p) => URL.revokeObjectURL(p.url));
+	if (state.current.id !== id) return;
+	pendingImages = pendingImages.filter((p) => !batch.includes(p));
+	if (last) imagesChanged(last);
+	else renderImages();
+}
+/** After a new item is saved: its held images go on it, captions and all. */
+async function uploadPending(itemId) {
+	for (const p of pendingImages) {
+		try { await uploadImage(itemId, p.file, p.caption); }
+		catch (e) { toast(`An image didn't go on: ${e.message}`); }
+	}
 }
 
 function formPatch() {
@@ -1917,7 +1994,10 @@ async function save(extra = {}) {
 		const patch = { ...formPatch(), ...extra };
 		if (state.current.id) touched(state.current.id);
 		if (state.current.id) await api(`/api/items/${state.current.id}`, { method: "PATCH", body: JSON.stringify(patch) });
-		else await api("/api/items", { method: "POST", body: JSON.stringify(patch) });
+		else {
+			const { id } = await api("/api/items", { method: "POST", body: JSON.stringify(patch) });
+			await uploadPending(id);
+		}
 		dlg.close();
 		await Promise.all([loadItems(), loadProjects()]);
 		refreshReport();
@@ -1957,10 +2037,53 @@ dlg.addEventListener("pointerdown", (e) => { pressedOutside = outsideDlg(e); });
 dlg.addEventListener("click", (e) => { if (pressedOutside && outsideDlg(e)) dlg.close(); pressedOutside = false; });
 $("#edit-body").onclick = () => showBodyEditor(form.body.hidden);
 $("#images").addEventListener("click", async (e) => {
+	const un = e.target.closest("[data-unpend]");
+	if (un) {
+		const [p] = pendingImages.splice(Number(un.dataset.unpend), 1);
+		URL.revokeObjectURL(p.url);
+		return renderImages();
+	}
 	const b = e.target.closest("[data-image]");
 	if (!b || !confirm("Remove this image?")) return;
-	try { openItem(await api(`/api/images/${b.dataset.image}`, { method: "DELETE" })); }
+	try { imagesChanged(await api(`/api/images/${b.dataset.image}`, { method: "DELETE" })); }
 	catch (err) { $("#err").textContent = err.message; }
+});
+$("#images").addEventListener("input", (e) => {
+	if (e.target.dataset.pending !== undefined) pendingImages[Number(e.target.dataset.pending)].caption = e.target.value;
+});
+$("#images").addEventListener("change", async (e) => {
+	const id = e.target.dataset.cap;
+	if (!id) return;
+	try { imagesChanged(await api(`/api/images/${id}`, { method: "PATCH", body: JSON.stringify({ caption: e.target.value }) })); }
+	catch (err) { $("#err").textContent = err.message; }
+});
+// Enter in a caption keeps it, rather than saving and closing the whole item.
+$("#images").addEventListener("keydown", (e) => {
+	if (e.key === "Enter" && e.target.classList.contains("cap")) { e.preventDefault(); e.target.blur(); }
+});
+$("#add-image").onclick = () => $("#image-file").click();
+$("#image-file").addEventListener("change", (e) => {
+	if (e.target.files.length) addImages(e.target.files);
+	e.target.value = "";
+});
+form.addEventListener("paste", (e) => {
+	const files = [...(e.clipboardData?.files || [])].filter((f) => IMAGE_TYPES.includes(f.type));
+	if (!files.length) return;
+	e.preventDefault();
+	addImages(files);
+});
+const dragsFiles = (e) => [...(e.dataTransfer?.types || [])].includes("Files");
+form.addEventListener("dragover", (e) => {
+	if (!dragsFiles(e)) return;
+	e.preventDefault();
+	form.classList.add("dropping");
+});
+form.addEventListener("dragleave", (e) => { if (!form.contains(e.relatedTarget)) form.classList.remove("dropping"); });
+form.addEventListener("drop", (e) => {
+	form.classList.remove("dropping");
+	if (!dragsFiles(e)) return;
+	e.preventDefault();
+	addImages(e.dataTransfer.files);
 });
 $("#act-done").onclick = () => save({ status: "done" });
 $("#act-drop").onclick = () => save({ status: "dropped" });
@@ -2660,6 +2783,12 @@ vaultView.addEventListener("click", async (e) => {
 	} catch (err) { toast(err.message); }
 });
 for (const ev of ["pointerdown", "keydown"]) vaultView.addEventListener(ev, touchVault);
+// Usage opens for the project you're looking at (all of them under "All projects").
+$("#usage-btn").onclick = (e) => {
+	if (e.button || e.metaKey || e.ctrlKey || e.shiftKey) return;
+	e.preventDefault();
+	location.href = state.project ? `/usage?project=${encodeURIComponent(state.project)}` : "/usage";
+};
 $("#vault-btn").onclick = () => (location.hash === "#vault" ? goBoard() : (location.hash = "#vault"));
 
 // .env export: pick secrets, enter the password once, then copy or download. The text leaves with the dialog.

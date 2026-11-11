@@ -104,6 +104,16 @@ export const imageInfo = (db: Db, id: number) => db.query(`SELECT ${INFO} FROM i
 export const imageData = (db: Db, id: number) =>
 	db.query("SELECT type, data FROM images WHERE id = ?").get(id) as { type: string; data: Uint8Array } | null;
 
+/** Rewords an image's caption and returns the item it's on. */
+export function setImageCaption(db: Db, id: number, caption: string, author = ""): number {
+	const info = imageInfo(db, id);
+	if (!info) throw new Error(`no image ${id}`);
+	if (info.caption === caption.trim()) return info.item_id;
+	db.query("UPDATE images SET caption = ? WHERE id = ?").run(caption.trim(), id);
+	addNote(db, info.item_id, `image caption: ${caption.trim() || "no caption"}`, author);
+	return info.item_id;
+}
+
 /** Removes an image and returns the item it was on; its history keeps the line saying so. */
 export function removeImage(db: Db, id: number, author = ""): number {
 	const info = imageInfo(db, id);
