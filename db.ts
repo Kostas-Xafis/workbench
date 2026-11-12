@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import { createTables as createImageTables, itemImages, type ImageInfo } from "./images";
 import { staleOf, type Stale } from "./stale";
 import { blockersOf, clearLinks, createLinkTable, LINK_COUNTS, resumeWaiting, waitersOf, type LinkRef } from "./links";
+import { checkItemGoal, createGoalTables, goalTitle, searchGoals } from "./goals";
 import { createSettingsTable, getSetting, getSettings, ownerFor } from "./settings";
 import { createTables as createTrackerTables } from "./trackers";
 import { backfillRulings, createTables as createRulingTables, draftRuling, listRulings } from "./rulings";
@@ -36,6 +37,8 @@ export type Item = {
 	options: string;
 	/** What Kostas picked or wrote. */
 	answer: string;
+	/** The goal it serves (see goals.ts); null = none. */
+	goal_id: number | null;
 	/** How many images it has (listItems and getItem). */
 	image_count?: number;
 	/** Quiet for too long (see stale.ts), or null (listItems and getItem). */
@@ -210,6 +213,8 @@ export function open(path = DB_PATH) {
 	// A project's standing answers (see rulings.ts); answers given without them get their drafts now.
 	createRulingTables(db);
 	backfillRulings(db);
+	// Goals above items, and items.goal_id (see goals.ts).
+	createGoalTables(db);
 	// When an MCP client last called the board, per transport, for the setup guide (see setup.ts). Here rather
 	// than in setup.ts, which reads health.ts and would make an import cycle.
 	db.run(`CREATE TABLE IF NOT EXISTS mcp_contact (
@@ -260,6 +265,7 @@ const EDITABLE = [
 	"sources",
 	"options",
 	"answer",
+	"goal_id",
 ] as const;
 /** `options` may also be given as a list. */
 export type ItemPatch = Partial<Omit<Pick<Item, (typeof EDITABLE)[number]>, "options">> & {
@@ -290,6 +296,7 @@ export function validate(patch: ItemPatch) {
 	if (patch.priority !== undefined && ![1, 2, 3].includes(Number(patch.priority)))
 		throw new Error("priority must be 1, 2 or 3");
 	if (patch.title !== undefined && !patch.title.trim()) throw new Error("title can't be empty");
+	if (patch.goal_id != null && !Number.isInteger(patch.goal_id)) throw new Error("goal_id is a goal's number, or null for none");
 }
 
 const PROJECT_ORDER = "ORDER BY sort, name COLLATE NOCASE";
@@ -388,6 +395,7 @@ export function removeProject(db: Db, slug: string) {
 	if (used.length)
 		throw new Error(`${slug} still has ${used.map(([k, n]) => `${n} ${n === 1 ? k.replace(/s$/, "") : k}`).join(", ")}; archive it instead`);
 	db.query("DELETE FROM report_state WHERE project = ?").run(slug);
+	db.query("DELETE FROM goals WHERE project = ?").run(slug);
 	db.query("DELETE FROM projects WHERE slug = ?").run(slug);
 }
 
@@ -402,11 +410,12 @@ export function projectForPath(db: Db, dir: string): Project | undefined {
 		.sort((a, b) => b.path.length - a.path.length)[0];
 }
 
-export type ItemFilter = { project?: string; owner?: Owner; status?: Status[]; kind?: Kind; q?: string };
+/** `goal`: a goal's id, or "none" for items that serve no goal. */
+export type ItemFilter = { project?: string; owner?: Owner; status?: Status[]; kind?: Kind; q?: string; goal?: number | "none" };
 
 export function listItems(db: Db, f: ItemFilter = {}): Item[] {
 	const where: string[] = [];
-	const args: Record<string, string> = {};
+	const args: Record<string, string | number> = {};
 	if (f.project) {
 		where.push("project = $project");
 		args.project = f.project;
@@ -422,6 +431,11 @@ export function listItems(db: Db, f: ItemFilter = {}): Item[] {
 	if (f.status?.length) {
 		where.push(`status IN (${f.status.map((_, i) => `$s${i}`).join(", ")})`);
 		f.status.forEach((s, i) => (args[`s${i}`] = s));
+	}
+	if (f.goal === "none") where.push("goal_id IS NULL");
+	else if (f.goal !== undefined) {
+		where.push("goal_id = $goal");
+		args.goal = f.goal;
 	}
 	if (f.q) {
 		where.push(
@@ -461,6 +475,7 @@ export function addItem(db: Db, item: ItemPatch & { title: string; project: stri
 	validate(item);
 	// Nobody said who acts: the board's setting for the kind (Settings → You and your day).
 	item.owner ||= ownerFor(db, item.kind || "task");
+	if (item.goal_id != null) checkItemGoal(db, item.project, item.goal_id);
 	const fields = EDITABLE.filter((k) => item[k] !== undefined);
 	const row = Object.fromEntries([...fields.map((k) => [k, item[k]]), ["ref", newRef(db)]]);
 	const { id } = db
@@ -486,6 +501,10 @@ export function updateItem(db: Db, id: number, patch: ItemPatch, author = "", no
 	validate(patch);
 	const before = getItem(db, id);
 	if (!before) throw new Error(`no item #${id}`);
+	// Moved to another project, an item leaves its goal behind unless it is given one there.
+	if (patch.project !== undefined && patch.project !== before.project && patch.goal_id === undefined && before.goal_id != null)
+		patch = { ...patch, goal_id: null };
+	if (patch.goal_id != null && patch.goal_id !== before.goal_id) checkItemGoal(db, patch.project ?? before.project, patch.goal_id);
 	const fields = EDITABLE.filter((k) => patch[k] !== undefined && patch[k] !== before[k]);
 	if (!fields.length) {
 		if (note.trim()) addNote(db, id, note.trim(), author);
@@ -500,7 +519,11 @@ export function updateItem(db: Db, id: number, patch: ItemPatch, author = "", no
 	).run({ ...row, id });
 	const changes = fields
 		.filter((k) => k !== "body" && k !== "options")
-		.map((k) => `${k}: ${before[k] || "—"} → ${patch[k] || "—"}`);
+		.map((k) =>
+			k === "goal_id"
+				? `goal: ${goalTitle(db, before.goal_id) || "—"} → ${goalTitle(db, patch.goal_id) || "—"}`
+				: `${k}: ${before[k] || "—"} → ${patch[k] || "—"}`,
+		);
 	if (fields.includes("body")) changes.push("body edited");
 	if (fields.includes("options")) changes.push(`options: ${itemOptions(patch as Item).join(" | ") || "—"}`);
 	addNote(db, id, changes.join(" · "), author);
@@ -829,7 +852,7 @@ export function search(db: Db, q: string, project?: string) {
 		)
 		.all({ project: project ?? "", q: like });
 	const rulings = listRulings(db, { project, q }).slice(0, 10);
-	return { items, reports, links, rulings };
+	return { items, reports, links, rulings, goals: searchGoals(db, q, project) };
 }
 
 export type VaultInfo = { salt: string; iterations: number; changed_at: string };
@@ -1147,6 +1170,7 @@ export function exportAll(db: Db) {
 		projects: all("SELECT * FROM projects ORDER BY sort, name"),
 		items: all("SELECT * FROM items ORDER BY id").map((i) => ({ ...i, notes: notes.get(i.id) ?? [], images: images.get(i.id) ?? [], waits_on: waits.get(i.id) ?? [] })),
 		links: all("SELECT id, project, grp, label, url, icon_url, sort FROM links ORDER BY project, grp, sort, id"),
+		goals: all("SELECT * FROM goals ORDER BY project, sort, id"),
 		reports: all("SELECT * FROM reports ORDER BY project, name").map((r) => ({ ...r, versions: versions.get(r.id) ?? [] })),
 		report_state: all("SELECT project, name, json, updated_at FROM report_state ORDER BY project, name").map(({ json, ...r }) => ({
 			...r,

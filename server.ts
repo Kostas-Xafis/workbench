@@ -57,6 +57,7 @@ import { archivedDay, currentDay, publishDays } from "./day";
 import { todayData } from "./today";
 import { codeLinks, repoState, type CodeLinks } from "./git";
 import { candidateFolders, checkFolder, folderState, health } from "./health";
+import { addGoal, goalsWithStats, itemGoals, moveGoal, updateGoal, type GoalPatch } from "./goals";
 import { getSettings, settingDefs, updateSettings } from "./settings";
 import { addRuling, getRuling, listRulings, updateRuling } from "./rulings";
 import { checkNow, startUpdateChecks, updateInfo } from "./updates";
@@ -510,7 +511,7 @@ export function serve({ lan = false } = {}) {
 			"/api/search": (req) => {
 				const u = new URL(req.url).searchParams;
 				const q = (u.get("q") ?? "").trim();
-				return json(q ? search(db, q, u.get("project") || undefined) : { items: [], reports: [], links: [], rulings: [] });
+				return json(q ? search(db, q, u.get("project") || undefined) : { items: [], reports: [], links: [], rulings: [], goals: [] });
 			},
 			// Rulings, live and retired (rulings.ts): the board's sidebar part and its view.
 			"/api/rulings": {
@@ -541,6 +542,38 @@ export function serve({ lan = false } = {}) {
 				const u = new URL(req.url).searchParams;
 				return json(todayData(db, u.get("project") || "", u.get("since")));
 			},
+			// Goals: routes (goals.ts). Every goal with its progress and what blocks it; changing them is open like items.
+			"/api/goals": {
+				GET: (req) => {
+					const u = new URL(req.url).searchParams;
+					return json(goalsWithStats(db, { project: u.get("project") || undefined }));
+				},
+				POST: jsonOnly(async (req) => {
+					try {
+						addGoal(db, await req.json());
+						return json(goalsWithStats(db), 201);
+					} catch (e) {
+						return fail(e);
+					}
+				}),
+			},
+			// Each item's goal and where it stands among its project's open goals (rank 1 = the active one): for
+			// ordering a queue of work by goal. Keyed by the item's ref; items with no open goal aren't listed.
+			"/api/goals/items": (req) => json(Object.fromEntries(itemGoals(db, new URL(req.url).searchParams.get("project") || undefined))),
+			"/api/goals/:id": {
+				PATCH: jsonOnly(async (req) => {
+					try {
+						const id = Number(req.params.id);
+						const { move, ...patch } = (await req.json()) as GoalPatch & { move?: number };
+						updateGoal(db, id, patch);
+						if (move) moveGoal(db, id, move);
+						return json(goalsWithStats(db));
+					} catch (e) {
+						return fail(e);
+					}
+				}),
+			},
+			// end: Goals routes
 			"/api/reports": (req) => {
 				const today = currentDay(db);
 				return json(listReports(db, new URL(req.url).searchParams.get("project") || undefined).map((r) => ({ ...r, archived: archivedDay(r.name, today) })));
@@ -845,6 +878,7 @@ export function serve({ lan = false } = {}) {
 						kind: (u.get("kind") || undefined) as ItemFilter["kind"],
 						q: u.get("q") || undefined,
 						status: u.get("status")?.split(",") as ItemFilter["status"],
+						goal: u.get("goal") === "none" ? "none" : u.get("goal") ? Number(u.get("goal")) : undefined,
 					};
 					return json(listItems(db, f));
 				},

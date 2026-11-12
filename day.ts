@@ -1,4 +1,5 @@
 import { projects, publishReport, reportHtml, type Db, type Item, type Project } from "./db";
+import { goalTitle } from "./goals";
 import { githubWeb } from "./git";
 import { dayStartHour, yourName } from "./settings";
 
@@ -10,6 +11,8 @@ type DayItem = Pick<Item, "ref" | "title" | "kind" | "owner" | "priority" | "bra
 	/** Status when the day ended. */
 	status: Item["status"];
 	statusNow: Item["status"];
+	/** The title of the goal it serves, '' = none. */
+	goal?: string;
 	created: boolean;
 	notes: DayNote[];
 };
@@ -111,6 +114,7 @@ export async function dayData(db: Db, day: string, only?: string, startHour = da
 			branch: i.branch,
 			status,
 			statusNow: i.status,
+			goal: goalTitle(db, i.goal_id),
 			created: today.some((n) => n.text === "created"),
 			notes: today,
 		});
@@ -367,7 +371,7 @@ const NAME = D.name || "Kostas";
 const who = (a) => a ? \`<span class="who \${a === "kostas" ? "kostas" : ""}">\${esc(a === "kostas" ? NAME : a)}</span>\` : "";
 
 function itemRow(it) {
-	const ev = events(it).map(([t, cls]) => \`<span class="chip \${cls}">\${esc(t)}</span>\`).join("");
+	const ev = (it.goal ? \`<span class="chip" title="Goal">\${esc(it.goal)}</span>\` : "") + events(it).map(([t, cls]) => \`<span class="chip \${cls}">\${esc(t)}</span>\`).join("");
 	const owner = it.owner === "kostas" && it.status !== "done" && it.status !== "dropped" ? \`<span class="chip kostas">needs \${esc(NAME)}</span>\` : "";
 	const notes = it.notes.map((n) => \`<li><span class="time">\${hm(n.at)}</span><span class="text \${isPlain(n.text) ? "" : "meta"}">\${who(n.author)}\${esc(pretty(n.text))}</span></li>\`).join("");
 	const span = it.notes.length > 1 ? \`\${hm(it.notes[0].at)}–\${hm(it.notes.at(-1).at)}\` : hm(it.notes[0].at);

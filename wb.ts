@@ -39,6 +39,7 @@ import {
 } from "./db";
 import { backupsKeep, exportAll } from "./db";
 import { currentDay, dayData, dayPage, publishDay } from "./day";
+import { addGoal, goalLine, goalsWithStats, goalTitle, needGoal, updateGoal, type GoalInfo, type GoalStatus } from "./goals";
 import { PORT } from "./server";
 import { addSource, KEY_PATH, listSources, removeSource } from "./sources";
 import { PRESETS } from "./presets";
@@ -88,6 +89,10 @@ Items are named wb-xxxx (e.g. wb-k3f9); commands take that, the bare k3f9, or an
                                    open items (--all includes done); --mine = ${name}'s;
                                    ⚠ marks stale ones (doing 2+ days quiet, waiting 7+, on ${name} 14+)
   wb show <ref>                     an item with its history
+  wb goals [--project P] [--all]    a project's goals: target date, progress, what waits on ${name}, what blocks them
+  wb goal add "Title" [--due YYYY-MM-DD] [--body "markdown"] [--active]   a goal items can serve
+  wb goal <id> [--done | --drop | --reopen] [--title T] [--due YYYY-MM-DD | --due none] [--body "…"]
+               [--active] [--position N]   change one: close it, retitle it, mark it the active goal, move it
   wb add "title" [options]         new item, prints its id
   wb start <ref> [--session S] [--branch B]   an agent picks it up (session defaults to the
                                    desktop app session it runs in, so the board links to it)
@@ -167,6 +172,7 @@ Options for add/edit:
                              ${ownerDefaultsText(db)}
   --project P                default: the project whose path contains the current folder
   --area A  --p 1|2|3  --body "markdown"  --branch B  --session S  --source "file:line"
+  --goal G                   the goal it serves: its number (wb goals) or exact title; --goal none takes it off
   --option "choice"          repeat for each choice of a decision; ${name} answers with one click
                              (--option alone makes the item a decision)
   --status todo|doing|waiting|done|dropped
@@ -205,6 +211,13 @@ const { values: o, positionals: args } = parseArgs({
 		archive: { type: "boolean" },
 		unarchive: { type: "boolean" },
 		write: { type: "boolean" },
+		goal: { type: "string" },
+		due: { type: "string" },
+		done: { type: "boolean" },
+		drop: { type: "boolean" },
+		reopen: { type: "boolean" },
+		active: { type: "boolean" },
+		position: { type: "string" },
 		header: { type: "string", multiple: true },
 		command: { type: "string" },
 		preset: { type: "string" },
@@ -293,6 +306,13 @@ function patchFromOptions(): ItemPatch {
 	return patch;
 }
 
+/** --goal as an item's goal_id: its number or exact title in `project`; none (or empty) = no goal. */
+function goalOption(project: string): number | null | undefined {
+	if (o.goal === undefined) return undefined;
+	if (["", "none", "no"].includes(o.goal.trim().toLowerCase())) return null;
+	return needGoal(db, o.goal, project);
+}
+
 const KIND_MARK: Record<string, string> = {
 	task: "task",
 	check: "CHECK",
@@ -339,6 +359,7 @@ function show(id: number) {
 	if (i.stale) console.log(`stale: ${staleLabel(i.stale)} (since ${i.stale.since})`);
 	if (i.branch || i.session)
 		console.log([i.branch && `branch ${i.branch}`, i.session && `session ${i.session}`].filter(Boolean).join(" · "));
+	if (i.goal_id != null) console.log(`goal: #${i.goal_id} ${goalTitle(db, i.goal_id)}`);
 	if (i.sources) console.log(`sources: ${i.sources}`);
 	if (i.body) console.log(`\n${i.body}`);
 	if (i.images.length) console.log(`\nimages (wb image save <id> <file> to see one):\n${i.images.map((m) => `  ${imageSummary(m)}`).join("\n")}`);
@@ -497,12 +518,14 @@ try {
 		case "ls": {
 			const project = o.project ?? currentProject(false);
 			const status: Status[] = o.all ? [] : ["doing", "todo", "waiting"];
+			const goal = o.goal === undefined ? undefined : ["none", "no"].includes(o.goal.trim().toLowerCase()) ? ("none" as const) : needGoal(db, o.goal, project);
 			const items = listItems(db, {
 				project,
 				owner: o.mine ? "kostas" : o.agents ? "agent" : undefined,
 				kind: o.kind as Item["kind"],
 				status,
 				q: o.q,
+				goal,
 			});
 			if (!items.length) console.log("nothing open");
 			for (const i of items) console.log(row(i, !project));
@@ -535,6 +558,7 @@ try {
 					title,
 					kind,
 					project: currentProject()!,
+					goal_id: goalOption(currentProject()!),
 				},
 				author,
 			);
@@ -549,6 +573,44 @@ try {
 				const said = repeatWarning(similarRulings(db, added.project, added.title, added.body, { except: id }), yourName(db), `wb drop wb-${added.ref}`);
 				if (said) console.error(`wb: ${said}`);
 			}
+			break;
+		}
+		case "goals": {
+			const project = o.project ?? currentProject(false);
+			const list = goalsWithStats(db, { project, status: o.all ? undefined : ["open"] });
+			if (!list.length) console.log(project ? `no goals in ${project} (wb goal add "Title")` : 'no goals (wb goal add "Title")');
+			for (const g of list) {
+				console.log(`${project ? "" : `${g.project.padEnd(14)} `}${goalLine(g, yourName(db))}`);
+				for (const b of g.stats.blockers.slice(0, 6))
+					console.log(`    blocked by wb-${b.ref} ${b.kind} ${b.why === "kostas" ? `for ${yourName(db)}` : "(agent, waiting)"}: ${b.title}`);
+				if (g.stats.blockers.length > 6) console.log(`    …and ${g.stats.blockers.length - 6} more`);
+			}
+			break;
+		}
+		case "goal": {
+			const status = [o.done && "done", o.drop && "dropped", o.reopen && "open"].filter(Boolean) as GoalStatus[];
+			if (status.length > 1) die("give one of --done, --drop and --reopen");
+			const showGoal = (id: number) => {
+				const g = goalsWithStats(db).find((x) => x.id === id) as GoalInfo;
+				console.log(goalLine(g, yourName(db)));
+			};
+			const body = o.body?.replaceAll("\\n", "\n");
+			if (args[1] === "add") {
+				const title = args.slice(2).join(" ") || o.title;
+				if (!title) die('usage: wb goal add "Title" [--due YYYY-MM-DD] [--body "…"] [--active]');
+				showGoal(addGoal(db, { project: currentProject()!, title, body, due: o.due === "none" ? "" : o.due, active: o.active }).id);
+				break;
+			}
+			const id = needGoal(db, args[1] ?? die('usage: wb goal <id> [--done | --drop | --reopen] [--title T] [--due D] [--active] | wb goal add "Title"'), o.project ?? currentProject(false));
+			updateGoal(db, id, {
+				title: o.title,
+				body,
+				due: o.due === undefined ? undefined : o.due === "none" ? "" : o.due,
+				status: status[0],
+				active: o.active ? true : undefined,
+				position: o.position === undefined ? undefined : Number(o.position),
+			});
+			showGoal(id);
 			break;
 		}
 		case "guide":
@@ -655,6 +717,8 @@ try {
 			const on = refIds(o.on);
 			if (on.length) waitOn(db, id, on, author);
 			removeLinks(db, id, refIds(o["not-on"]));
+			const goal = goalOption(o.project ?? getItem(db, id)!.project);
+			if (goal !== undefined) patch.goal_id = goal;
 			updateItem(db, id, patch, author);
 			show(id);
 			if (patch.title !== undefined || patch.body !== undefined) {
