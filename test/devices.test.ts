@@ -131,7 +131,7 @@ function call(from: string, path: string, { method = "GET", headers = {}, body =
 	return new Promise((resolve, reject) => {
 		const sock = net.connect({ host: "127.0.0.1", port: PORT, localAddress: from });
 		const chunks: Buffer[] = [];
-		sock.on("data", (d) => chunks.push(d));
+		sock.on("data", (d: Buffer) => chunks.push(d));
 		sock.on("error", reject);
 		sock.on("end", () => {
 			const raw = Buffer.concat(chunks);

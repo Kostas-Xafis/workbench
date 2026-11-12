@@ -244,7 +244,7 @@ function healthCards(h) {
 	const paired = h.devices ?? 0;
 	const phone = card(ph.lan ? "ok" : "off", "Phone", ph.lan
 		? `<p>On: phones you pair open and change the board; anything else on your network gets only the pairing page. ${paired ? `${paired} phone${paired === 1 ? "" : "s"} paired.` : "No phone paired yet."}</p>
-			<div style="display:flex;flex-direction:column;gap:4px;min-width:0">${ph.urls.map((u) => `<code>${esc(u.url)}</code>`).join("") || `<span class="muted">No network address found.</span>`}</div>
+			<div style="display:flex;flex-direction:column;align-items:flex-start;gap:4px;min-width:0">${ph.urls.map((u) => `<code>${esc(u.url)}</code>`).join("") || `<span class="muted">No network address found.</span>`}</div>
 			<div class="row"><button type="button" class="primary sm" data-phones="pair">Pair a phone</button></div>
 			<p class="hint">Over plain http, without encryption: only on a network you trust. The vault, data sources and Settings stay on this computer.</p>`
 		: `<p>Off: the board answers this computer only. To open it from your phone, it has to listen on the network; phones then pair once with a code from Privacy and security. It's plain http, so do that only on a network you trust.</p>${h.app ? `<p>In the Workbench app, switch it on in the tray menu: <b>Phone access (on my network)</b>.</p>` : restart}`);
