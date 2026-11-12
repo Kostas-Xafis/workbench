@@ -64,6 +64,7 @@ export const OWNER_DEFAULTS = {
 	setup: "kostas",
 	check: "kostas",
 	review: "kostas",
+	notice: "kostas",
 	bug: "agent",
 	task: "agent",
 	idea: "agent",
@@ -77,7 +78,16 @@ const YOU: Defs = {
 			{ about: `Who gets a new ${kind}`, default: owner, check: oneOf("kostas", "agent") },
 		]),
 	),
+	// Asks that don't block (asks.ts). 0 = an ask with a default waits until the agent gives it a deadline.
+	"asks.days": { about: "A default goes ahead after this many days", default: 3, check: int(0, 60) },
+	// Per project, open decisions, reviews, checks and setup steps agents filed for you. 0 = no cap.
+	"asks.cap": { about: "Open asks from agents per project, at most", default: 20, check: int(0, 500) },
 };
+
+/** Days until an ask's default goes ahead when the agent gives no deadline; 0 = no deadline then. */
+export const askDays = (db: Db) => getSetting<number>(db, "asks.days");
+/** At most this many open asks from agents per project; 0 = no cap. */
+export const askCap = (db: Db) => getSetting<number>(db, "asks.cap");
 
 /** The name people and agents read for the owner "kostas". */
 export const yourName = (db: Db) => getSetting<string>(db, "name");

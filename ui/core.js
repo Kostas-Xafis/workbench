@@ -1,9 +1,12 @@
-const KINDS = ["task", "check", "review", "decision", "setup", "bug", "idea"];
+const KINDS = ["task", "check", "review", "decision", "setup", "bug", "idea", "notice"];
 const STATUSES = ["todo", "doing", "waiting", "done", "dropped"];
 const OPEN = ["todo", "doing", "waiting"];
+// Waits on you: yours, open, and not a notice (notices are just so you know; asks.ts has the same rule). Every
+// "needs you" count goes by this.
+const needsYou = (i) => i.owner === "kostas" && OPEN.includes(i.status) && i.kind !== "notice";
 // Board sections, in order; the third value is whether a section starts open.
 const SECTIONS = [["decision", "Decisions", true], ["setup", "Setup", true], ["check", "Checks", true], ["review", "Reviews", true],
-	["bug", "Bugs", true], ["task", "Tasks", true], ["idea", "Ideas", false]];
+	["notice", "Notices", true], ["bug", "Bugs", true], ["task", "Tasks", true], ["idea", "Ideas", false]];
 // Same line glyphs as the day reports (day.ts).
 const RING = '<circle cx="8" cy="8" r="6.25"/>';
 const GLYPH = {
@@ -19,6 +22,7 @@ const GLYPH = {
 	"k-review": '<path d="M1.75 8S4.25 3.75 8 3.75 14.25 8 14.25 8 11.75 12.25 8 12.25 1.75 8 1.75 8z"/><circle cx="8" cy="8" r="1.9"/>',
 	"k-bug": '<path d="M6.2 5.9a1.8 1.8 0 0 1 3.6 0M6.6 4.3 5.7 2.7M9.4 4.3l.9-1.6"/><rect x="4.75" y="5.75" width="6.5" height="8" rx="3.25"/><path d="M8 8.25v5.5M4.75 9.5H2.4M11.25 9.5h2.35M5 7.2 3.4 5.9M11 7.2l1.6-1.3M5.1 12.2l-1.7 1.3M10.9 12.2l1.7 1.3"/>',
 	"k-task": '<path d="M5.25 4.5 1.75 8l3.5 3.5M10.75 4.5 14.25 8l-3.5 3.5M9.1 3 6.9 13"/>',
+	"k-notice": '<circle cx="8" cy="8" r="6.25"/><path d="M8 7.4v3.85M8 4.9v.05"/>',
 	"k-idea": '<path d="M6.25 11.25c0-1.1-.5-1.8-1.2-2.5a4 4 0 1 1 5.9 0c-.7.7-1.2 1.4-1.2 2.5zM6.5 13.75h3"/>',
 };
 const kindIcon = (kind) => `<span class="kic k-${kind}" aria-hidden="true">${glyph(`k-${kind}`)}</span>`;

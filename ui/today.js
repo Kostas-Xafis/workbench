@@ -59,7 +59,7 @@ function todayLine(i, tags = "") {
 const todaySec = (title, n, body, more = "", sub = "") => `<section class="td-sec"><h3>${title}${n ? `<span class="td-n">${n}</span>` : ""}${sub}</h3>${body}${more}</section>`;
 
 function todayNeeds() {
-	const mine = today.items.filter((i) => i.owner === "kostas").sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id - b.id);
+	const mine = today.items.filter(needsYou).sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id - b.id);
 	if (!mine.length) return "";
 	const fresh = mine.filter((i) => parseTime(i.created_at) >= today.since);
 	const shown = new Set(), rows = [];

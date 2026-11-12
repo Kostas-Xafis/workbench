@@ -13,7 +13,7 @@ export type Stale = {
 	since: string;
 };
 
-type Fields = { status: string; owner: string; created_at: string; updated_at: string };
+type Fields = { status: string; owner: string; created_at: string; updated_at: string; kind?: string };
 
 const ms = (t: string) => Date.parse(t.replace(" ", "T") + "Z");
 
@@ -24,7 +24,7 @@ export function staleOf(i: Fields, lastNote?: string | null, now = Date.now()): 
 	const days = (t: string) => (now - ms(t)) / 86400e3;
 	if (i.status === "doing" && days(quiet) >= STALLED_DAYS) return { why: "stalled", since: quiet };
 	if (i.status === "waiting" && days(quiet) >= WAITING_DAYS) return { why: "waiting", since: quiet };
-	if (i.owner === "kostas" && days(i.created_at) >= SITTING_DAYS) return { why: "sitting", since: i.created_at };
+	if (i.owner === "kostas" && i.kind !== "notice" && days(i.created_at) >= SITTING_DAYS) return { why: "sitting", since: i.created_at };
 	return null;
 }
 

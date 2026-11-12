@@ -372,7 +372,7 @@ const who = (a) => a ? \`<span class="who \${a === "kostas" ? "kostas" : ""}">\$
 
 function itemRow(it) {
 	const ev = (it.goal ? \`<span class="chip" title="Goal">\${esc(it.goal)}</span>\` : "") + events(it).map(([t, cls]) => \`<span class="chip \${cls}">\${esc(t)}</span>\`).join("");
-	const owner = it.owner === "kostas" && it.status !== "done" && it.status !== "dropped" ? \`<span class="chip kostas">needs \${esc(NAME)}</span>\` : "";
+	const owner = it.owner === "kostas" && it.status !== "done" && it.status !== "dropped" ? \`<span class="chip kostas">\${it.kind === "notice" ? "for" : "needs"} \${esc(NAME)}</span>\` : "";
 	const notes = it.notes.map((n) => \`<li><span class="time">\${hm(n.at)}</span><span class="text \${isPlain(n.text) ? "" : "meta"}">\${who(n.author)}\${esc(pretty(n.text))}</span></li>\`).join("");
 	const span = it.notes.length > 1 ? \`\${hm(it.notes[0].at)}–\${hm(it.notes.at(-1).at)}\` : hm(it.notes[0].at);
 	return \`<details class="item"><summary>\${refBtn(it.ref)}<span class="title"><span class="kind">\${esc(it.kind)}</span>\${esc(it.title)}</span>

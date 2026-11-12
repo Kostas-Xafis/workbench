@@ -57,11 +57,12 @@ import {
 	updateRuling,
 	type Ruling,
 } from "./rulings";
+import { applyDue, capRefusal, deadlineText, defaultText, itemRecommended, resolveAsk } from "./asks";
 import { integrationGuide } from "./integrate";
 import { staleLabel } from "./stale";
 import { removeLinks, waitOn } from "./links";
 import { addImage, imageBytes, imageData, imageInfo, imageSummary, prepareImage, removeImage } from "./images";
-import { dayStartHour, ownerDefaultsText, ownerFor, yourName } from "./settings";
+import { askCap, askDays, dayStartHour, ownerDefaultsText, ownerFor, yourName } from "./settings";
 import {
 	addTracker,
 	cleanReading,
@@ -81,12 +82,16 @@ import {
 	type TrackerPatch,
 } from "./trackers";
 
+/** How long a new default waits, as Settings → You and your day says now. */
+const askDaysText = () => (askDays(db) ? `${askDays(db)} day${askDays(db) > 1 ? "s" : ""} for one with a default` : "none");
+
 /** Says the board's name for the owner "kostas", day start and owner defaults as they are set now. */
 const help = (name = yourName(db), start = `${String(dayStartHour(db)).padStart(2, "0")}:00`) => `wb — the workbench. Tasks for agents, checks and decisions for ${name}, across projects.
 Items are named wb-xxxx (e.g. wb-k3f9); commands take that, the bare k3f9, or an old number.
 
   wb ls [--mine | --agents] [--all] [--project P] [--kind K] [-q text]
-                                   open items (--all includes done); --mine = ${name}'s;
+                                   open items (--all includes done); --mine = what waits on ${name}
+                                   (notices, which don't wait, are counted after it: --kind notice lists them)
                                    ⚠ marks stale ones (doing 2+ days quiet, waiting 7+, on ${name} 14+)
   wb show <ref>                     an item with its history
   wb goals [--project P] [--all]    a project's goals: target date, progress, what waits on ${name}, what blocks them
@@ -103,7 +108,10 @@ Items are named wb-xxxx (e.g. wb-k3f9); commands take that, the bare k3f9, or an
   wb done <ref> ["note"]            finished (the note says what changed / where)
   wb drop <ref> ["why"]             won't do
   wb note <ref> "text"              add to the history
-  wb answer <ref> "choice"          answer a decision (or the option's number); it goes back to the agent
+  wb answer <ref> "choice"          answer a decision (or the option's number); it goes back to the agent.
+                                   A pick-many decision takes several: wb answer <ref> 1 3, or "A" "B", or none
+  wb seen <ref>                     a notice: got it (a review: no objections); closes it
+  wb object <ref> "why"             object to a notice or review: it goes back to the agent with your words
   wb edit <ref> [options]           change fields
   wb guide                          how to write an item ${name} can follow: read it before filing one
   wb integrate [folder] [--project P]   for an agent: wire this project into the workbench (the board, the rules
@@ -170,7 +178,7 @@ Items are named wb-xxxx (e.g. wb-k3f9); commands take that, the bare k3f9, or an
   wb open                          open the desktop app; without it, start the board and open the browser
 
 Options for add/edit:
-  --kind task|check|review|decision|setup|bug|idea   (default task)
+  --kind task|check|review|decision|setup|bug|idea|notice   (default task)
   --owner kostas|agent       who has to act (kostas = ${name}). Without it, by kind:
                              ${ownerDefaultsText(db)}
   --project P                default: the project whose path contains the current folder
@@ -178,13 +186,21 @@ Options for add/edit:
   --goal G                   the goal it serves: its number (wb goals) or exact title; --goal none takes it off
   --option "choice"          repeat for each choice of a decision; ${name} answers with one click
                              (--option alone makes the item a decision)
+  --pick one|many            a decision: one option, or several ticked at once (bundle related choices)
+  --recommend "choice"       your pick among the options (repeat for pick many); marked on the button
+  --default "answer"         what happens if ${name} says nothing (decisions, reviews, notices): an option,
+                             repeat for pick many (--default none: none of them). It goes ahead by itself
+  --decide-by DATE           when: 2026-11-14, "in 3 days" or none (default: ${askDaysText()})
   --status todo|doing|waiting|done|dropped
   --on wb-xxxx               the item waits on this one (repeat for more; it becomes waiting). On edit too
   --blocks wb-xxxx           add only: that item waits on the new one (it becomes waiting)
   --not-on wb-xxxx           edit only: it no longer waits on this one
 
 Kinds: task = code work · check = try it on a device · review = read wording/design ·
-decision = a question only ${name} can answer · setup = accounts, consoles, stores · bug · idea = later/maybe.`;
+decision = a question only ${name} can answer · setup = accounts, consoles, stores · bug · idea = later/maybe ·
+notice = what changed, for ${name} to see (doesn't wait on them; they say got it or object).
+Agents: don't stop work on ${name}. Nothing to decide → a notice; a safe default → --default; related
+choices → one --pick many decision. A project takes at most ${askCap(db) || "any number of"} open asks from agents.`;
 
 const { values: o, positionals: args } = parseArgs({
 	args: Bun.argv.slice(2),
@@ -239,6 +255,10 @@ const { values: o, positionals: args } = parseArgs({
 		on: { type: "string", multiple: true },
 		"not-on": { type: "string", multiple: true },
 		blocks: { type: "string" },
+		pick: { type: "string" },
+		recommend: { type: "string", multiple: true },
+		default: { type: "string", multiple: true },
+		"decide-by": { type: "string" },
 		image: { type: "string", multiple: true },
 		caption: { type: "string", multiple: true },
 		item: { type: "string" },
@@ -248,6 +268,8 @@ const { values: o, positionals: args } = parseArgs({
 });
 
 const db = open();
+// Defaults whose deadline passed go ahead before anything is read or changed, board running or not (asks.ts).
+applyDue(db);
 /** A report icon as given on the command line: an .svg file's contents, or the emoji itself. */
 async function iconArg(icon: string) {
 	if (!/\.svg$/i.test(icon)) return icon;
@@ -306,6 +328,11 @@ function patchFromOptions(): ItemPatch {
 	if (o.source !== undefined) patch.sources = o.source;
 	if (o.status) patch.status = o.status as Status;
 	if (o.option) patch.options = o.option;
+	if (o.pick !== undefined) patch.pick = o.pick as Item["pick"];
+	if (o.recommend) patch.recommended = o.recommend;
+	// One --default is an answer as given ("1, 3" works for pick many); several are the picks.
+	if (o.default) patch.default_answer = o.default.length > 1 ? o.default : o.default[0];
+	if (o["decide-by"] !== undefined) patch.decide_by = o["decide-by"];
 	return patch;
 }
 
@@ -324,6 +351,7 @@ const KIND_MARK: Record<string, string> = {
 	setup: "SETUP",
 	bug: "BUG",
 	idea: "idea",
+	notice: "NOTICE",
 };
 
 function row(i: Item, showProject: boolean) {
@@ -339,7 +367,7 @@ function row(i: Item, showProject: boolean) {
 		who,
 		KIND_MARK[i.kind].padEnd(6),
 		showProject ? i.project.padEnd(12) : "",
-		`${status}${i.title}${i.answer ? `  → ${i.answer}` : ""}${i.unblocks ? `  (unblocks ${i.unblocks})` : ""}`,
+		`${status}${i.title}${i.answer ? `  → ${i.answer}` : ""}${i.owner === "kostas" && deadlineText(i) && ["todo", "doing", "waiting"].includes(i.status) ? `  (${deadlineText(i)})` : ""}${i.unblocks ? `  (unblocks ${i.unblocks})` : ""}`,
 		where ? ` ${where}` : "",
 		i.stale ? ` ⚠ ${staleLabel(i.stale)}` : "",
 	]
@@ -367,7 +395,11 @@ function show(id: number) {
 	if (i.body) console.log(`\n${i.body}`);
 	if (i.images.length) console.log(`\nimages (wb image save <id> <file> to see one):\n${i.images.map((m) => `  ${imageSummary(m)}`).join("\n")}`);
 	const options = itemOptions(i);
-	if (options.length) console.log(`\noptions:\n${options.map((x, n) => `  ${n + 1}. ${x}`).join("\n")}`);
+	const rec = itemRecommended(i);
+	if (options.length)
+		console.log(`\n${i.pick === "many" ? "options (several can be picked: wb answer <ref> 1 3)" : "options"}:\n${options.map((x, n) => `  ${n + 1}. ${x}${rec.includes(x) ? "  (recommended)" : ""}`).join("\n")}`);
+	if (i.default_answer) console.log(`\nif ${yourName(db)} says nothing: ${defaultText(i)}`);
+	if (deadlineText(i) && ["todo", "doing", "waiting"].includes(i.status)) console.log(`deadline: ${deadlineText(i)}`);
 	if (i.answer) console.log(`\nanswer: ${i.answer}`);
 	const linkLine = (l: { ref: string; title: string; status: string; answer: string }) => `  wb-${l.ref} ${l.answer ? "answered" : l.status}: ${l.title}`;
 	if (i.waits_on.length) console.log(`\nwaits on:\n${i.waits_on.map(linkLine).join("\n")}`);
@@ -522,7 +554,7 @@ try {
 			const project = o.project ?? currentProject(false);
 			const status: Status[] = o.all ? [] : ["doing", "todo", "waiting"];
 			const goal = o.goal === undefined ? undefined : ["none", "no"].includes(o.goal.trim().toLowerCase()) ? ("none" as const) : needGoal(db, o.goal, project);
-			const items = listItems(db, {
+			let items = listItems(db, {
 				project,
 				owner: o.mine ? "kostas" : o.agents ? "agent" : undefined,
 				kind: o.kind as Item["kind"],
@@ -530,8 +562,12 @@ try {
 				q: o.q,
 				goal,
 			});
+			// What waits on Kostas leaves out notices: they don't wait. They're counted after it.
+			const notices = o.mine && !o.kind ? items.filter((i) => i.kind === "notice") : [];
+			if (notices.length) items = items.filter((i) => i.kind !== "notice");
 			if (!items.length) console.log("nothing open");
 			for (const i of items) console.log(row(i, !project));
+			if (notices.length) console.log(`and ${notices.length} notice${notices.length > 1 ? "s" : ""} to see (wb ls --mine --kind notice)`);
 			break;
 		}
 		case "show":
@@ -548,6 +584,9 @@ try {
 			const waitsOn = refIds(o.on);
 			const blocked = o.blocks ? refIds([o.blocks])[0] : undefined;
 			if (blocked !== undefined && waitsOn.includes(blocked)) die("the new item can't both wait on that item and block it");
+			// Only agents are capped: what Kostas files for themselves always goes on.
+			const capped = author === "agent" ? capRefusal(db, { project: currentProject()!, kind, owner: patch.owner ?? ownerFor(db, kind), priority: patch.priority }) : undefined;
+			if (capped) die(capped);
 			const images = await Promise.all(
 				(o.image ?? []).map(async (path, n) => {
 					const { bytes, label } = imageBytes({ path });
@@ -682,9 +721,20 @@ try {
 		}
 		case "answer": {
 			const id = idArg();
-			const answer = args.slice(2).join(" ");
-			if (!answer) die('usage: wb answer <ref> "choice" (or the option\'s number)');
-			answerItem(db, id, answer, author);
+			const words = args.slice(2);
+			if (!words.length) die('usage: wb answer <ref> "choice" (or the option\'s number)');
+			// A pick-many decision takes each word as a pick ("1 3", "A" "B"); one quoted answer may say "1, 3".
+			const many = getItem(db, id)!.pick === "many" && itemOptions(getItem(db, id)!).length;
+			answerItem(db, id, many && words.length > 1 ? words : words.join(" "), author);
+			console.log(row(getItem(db, id)!, true));
+			break;
+		}
+		case "seen":
+		case "object": {
+			const id = idArg();
+			const why = args.slice(2).join(" ");
+			if (cmd === "object" && !why) die('usage: wb object <ref> "what you object to"');
+			resolveAsk(db, id, cmd === "seen" ? { ack: true } : { object: why }, author);
 			console.log(row(getItem(db, id)!, true));
 			break;
 		}
@@ -742,7 +792,9 @@ try {
 			let n = 0;
 			db.transaction(() => {
 				for (const it of items) {
-					const { since, sources, ...rest } = it;
+					// `default` is the ask's default answer, as add_item and wb add --default call it.
+					const { since, sources, default: def, ...rest } = it as typeof it & { default?: string | string[] };
+					if (def !== undefined && rest.default_answer === undefined) rest.default_answer = def;
 					const id = addItem(
 						db,
 						{ project, ...rest, sources: Array.isArray(sources) ? sources.join(", ") : (sources ?? "") },

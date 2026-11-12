@@ -5,6 +5,7 @@
  * items the page already has. `briefText` is the same brief as plain text, for the MCP prompt `today`.
  */
 import { type Db, type Item, listItems } from "./db";
+import { needsKostas } from "./asks";
 
 const OPEN = ["todo", "doing", "waiting"] as const;
 const DAY = 86400e3;
@@ -70,7 +71,7 @@ export function briefText(db: Db, project = "", since?: string | null, now = new
 	const live = new Set((db.query("SELECT slug FROM projects WHERE archived_at IS NULL").all() as { slug: string }[]).map((p) => p.slug));
 	const items = (listItems(db, project ? { project } : {}) as Loose[]).filter((i) => project || live.has(i.project));
 	const open = items.filter((i) => (OPEN as readonly string[]).includes(i.status));
-	const mine = open.filter((i) => i.owner === "kostas").sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id - b.id);
+	const mine = open.filter(needsKostas).sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id - b.id);
 	const where = (i: Item) => (project ? "" : ` [${i.project}]`);
 	const line = (i: Loose, extra = "") =>
 		`- wb-${i.ref} ${i.kind}: ${i.title}${where(i)}${i.priority === 1 ? " (P1)" : ""}${i.unblocks ? ` (unblocks ${i.unblocks})` : ""}${i.stale ? " (stale)" : ""}${extra}`;

@@ -17,6 +17,9 @@ const hooks = {
 	cardMeta: [],
 	// (kind, items) → HTML: more in a kind section's header, after its counts; `items` are the open ones it lists.
 	sectionMeta: [],
+	// (item) → HTML: buttons under an open card's title, in place of a decision's answer buttons when any returns
+	// some. Wrap them in an element with class card-act: the board then leaves their clicks to you.
+	cardActions: [],
 	// (item, isNew) → nothing: the item dialog is filled and about to open; show or fill your own part of it.
 	itemOpen: [],
 	// (patch) → nothing: Save is about to send `patch` (an item's fields); add your own part of the form to it.

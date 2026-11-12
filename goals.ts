@@ -57,9 +57,10 @@ export type GoalInfo = Goal & { is_active: boolean; stats: GoalStats };
 const OPEN_STATUSES = ["todo", "doing", "waiting"];
 
 /** Does an item hold its goal back? An open item that waits on Kostas, or an agent's item in `waiting`. */
-export function blocksGoal(i: { owner: string; status: string }): "kostas" | "waiting" | null {
+export function blocksGoal(i: { owner: string; status: string; kind?: string }): "kostas" | "waiting" | null {
 	if (!OPEN_STATUSES.includes(i.status)) return null;
-	if (i.owner === "kostas") return "kostas";
+	// A notice is for Kostas to see, and never holds anything up (asks.ts).
+	if (i.owner === "kostas") return i.kind === "notice" ? null : "kostas";
 	return i.status === "waiting" ? "waiting" : null;
 }
 
@@ -254,7 +255,7 @@ export function goalStats(db: Db, ids?: number[]): Map<number, GoalStats> {
 		if (r.status === "done") s.done++;
 		if (OPEN_STATUSES.includes(r.status)) {
 			s.open++;
-			if (r.owner === "kostas") s.mine++;
+			if (r.owner === "kostas" && r.kind !== "notice") s.mine++;
 		}
 		const why = blocksGoal(r);
 		if (why) s.blockers.push({ ref: r.ref, title: r.title, kind: r.kind, owner: r.owner, status: r.status, priority: r.priority, why });

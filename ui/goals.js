@@ -11,7 +11,7 @@ let goals = [];
 let goalsLoaded = false;
 const goalById = (id) => goals.find((g) => g.id === Number(id));
 // Items that hold their goal back: open and waiting on you, or an agent's item in "waiting" (goals.ts blocksGoal).
-const goalBlocks = (i) => OPEN.includes(i.status) && (i.owner === "kostas" || i.status === "waiting");
+const goalBlocks = (i) => OPEN.includes(i.status) && ((i.owner === "kostas" && i.kind !== "notice") || i.status === "waiting");
 
 // The goal the board is filtered to: the one named in the hash. Until the goals have loaded, any id counts (a reload
 // shows the filtered board at once); after that, only an open goal of the project on screen.
@@ -28,7 +28,7 @@ function goalNumbers(g) {
 	const mine = state.items.filter((i) => i.goal_id === g.id && i.status !== "dropped");
 	const open = mine.filter((i) => OPEN.includes(i.status));
 	const blockers = open.filter(goalBlocks).sort((a, b) => a.priority - b.priority || (a.owner === "kostas" ? 0 : 1) - (b.owner === "kostas" ? 0 : 1) || a.id - b.id);
-	return { total: mine.length, done: mine.length - open.length, open: open.length, mine: open.filter((i) => i.owner === "kostas").length, blockers };
+	return { total: mine.length, done: mine.length - open.length, open: open.length, mine: open.filter(needsYou).length, blockers };
 }
 
 const GOAL_IC = {
