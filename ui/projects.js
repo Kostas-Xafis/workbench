@@ -24,8 +24,8 @@ function setProject(slug) {
 	localSet("project", slug);
 	renderProjects();
 	renderRail();
-	// The vault and Today stay open (showing the new project's); a report goes back to the board.
-	if (location.hash && location.hash !== "#vault" && location.hash !== "#today") history.pushState(null, "", location.pathname + location.search);
+	// The vault, Today and the queue stay open (showing the new project's); a report goes back to the board.
+	if (location.hash && !["#vault", "#today", "#queue"].includes(location.hash)) history.pushState(null, "", location.pathname + location.search);
 	route();
 	loadItems();
 	loadCode();

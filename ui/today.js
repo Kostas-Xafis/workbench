@@ -68,7 +68,9 @@ function todayNeeds() {
 	add([...fresh].reverse(), 4, (i) => todayTag("new", "new") + todayTag("", todayAge(i.created_at)));
 	add(mine, 3, (i) => todayTag("", `waiting ${todayAge(i.created_at)}`));
 	const rest = mine.length - shown.size;
-	return todaySec("Needs you", mine.length, rows.join(""), rest > 0 ? `<button type="button" class="td-more" data-board="kostas">and ${rest} more on the board</button>` : "",
+	// Queue mode (ui/queue.js): all of them, one at a time.
+	const queue = `<button type="button" class="td-more td-queue" data-queue>Go through them one by one</button>`;
+	return todaySec("Needs you", mine.length, rows.join(""), (rest > 0 ? `<button type="button" class="td-more" data-board="kostas">and ${rest} more on the board</button>` : "") + queue,
 		fresh.length ? `<span class="td-n new">${fresh.length} new</span>` : "");
 }
 
@@ -125,6 +127,7 @@ todayEl.addEventListener("click", (e) => {
 	const it = e.target.closest("[data-item]");
 	if (it) return api(`/api/items/${encodeURIComponent(it.dataset.item)}`).then(openItem).catch((err) => toast(err.message));
 	if (e.target.closest("#td-fresh")) return todayLoad(true);
+	if (e.target.closest("[data-queue]")) return (location.hash = "#queue");
 	const b = e.target.closest("[data-board]");
 	if (b) {
 		state.who = b.dataset.board;

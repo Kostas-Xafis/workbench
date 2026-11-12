@@ -51,6 +51,8 @@ export type Item = {
 	recommended: string;
 	/** JSON list of the options Kostas ticked on a pick-many decision; '' = not answered that way. */
 	picks: string;
+	/** Out of queue mode until then, UTC 'YYYY-MM-DD HH:MM:SS' (queue.ts); NULL = not deferred. Still waits on Kostas. */
+	deferred_until?: string | null;
 	/** How many images it has (listItems and getItem). */
 	image_count?: number;
 	/** Quiet for too long (see stale.ts), or null (listItems and getItem). */
@@ -142,6 +144,8 @@ export function open(path = DB_PATH) {
 	if (!itemCols.includes("pick")) db.run("ALTER TABLE items ADD COLUMN pick TEXT NOT NULL DEFAULT 'one'");
 	if (!itemCols.includes("recommended")) db.run("ALTER TABLE items ADD COLUMN recommended TEXT NOT NULL DEFAULT ''");
 	if (!itemCols.includes("picks")) db.run("ALTER TABLE items ADD COLUMN picks TEXT NOT NULL DEFAULT ''");
+	// Queue mode (queue.ts): out of the one-at-a-time pass until this time, UTC; NULL = not deferred.
+	if (!itemCols.includes("deferred_until")) db.run("ALTER TABLE items ADD COLUMN deferred_until TEXT");
 	const linkCols = (db.query("PRAGMA table_info(links)").all() as { name: string }[]).map((c) => c.name);
 	if (!linkCols.includes("icon_url")) {
 		db.run("ALTER TABLE links ADD COLUMN icon_url TEXT NOT NULL DEFAULT ''");

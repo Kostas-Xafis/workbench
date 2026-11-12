@@ -1,0 +1,133 @@
+/* Queue mode (ui/queue.js): one item at a time, the buttons at the bottom. */
+#queue-view { flex: 1; display: flex; flex-direction: column; min-height: 0; background: var(--bg); }
+.q-wrap { max-width: 720px; margin: 0 auto; position: relative; }
+
+/* Where you are and how far along. */
+.q-head { display: flex; align-items: center; gap: 10px; padding: 10px 18px; min-height: 48px; }
+.q-where { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.q-where b { font-size: 15px; }
+.q-where small { color: var(--muted); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.q-count { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.q-count b { color: var(--ink); font-weight: 600; }
+.q-bar { height: 3px; background: var(--line); flex: none; }
+.q-bar i { display: block; height: 100%; background: var(--check); border-radius: 0 2px 2px 0; transition: width .35s ease; }
+
+.q-scroll { flex: 1; overflow: auto; display: flex; flex-direction: column; overscroll-behavior: contain; }
+.q-body { flex: none; width: 100%; padding: 18px 18px 0; }
+.q-body.q-wrap { max-width: 756px; }
+.q-said { display: flex; align-items: center; gap: 8px; margin: 0 0 12px; padding: 7px 12px; border-radius: 10px; font-size: 13px;
+	background: color-mix(in srgb, var(--check) 12%, var(--card)); border: 1px solid color-mix(in srgb, var(--check) 30%, var(--line)); animation: q-in .2s ease; }
+.q-said .gl { width: 15px; height: 15px; color: var(--check); flex: none; }
+.q-said span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.q-said .link { border: 0; background: none; color: var(--accent); font-weight: 600; padding: 2px 4px; display: inline-flex; align-items: center; gap: 6px; }
+@keyframes q-in { from { opacity: 0; translate: 0 -4px; } }
+
+/* The item. */
+.q-section { color: var(--muted); font-size: 12.5px; margin: 0 2px 10px; }
+.q-card { position: relative; z-index: 1; background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px 20px 12px;
+	touch-action: pan-y; transition: translate .2s ease, rotate .2s ease; animation: q-in .18s ease; }
+.q-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; font-size: 12px; color: var(--muted); }
+.q-kind { display: inline-flex; align-items: center; gap: 5px; font-weight: 600; color: var(--k); }
+.q-kind .gl { width: 14px; height: 14px; }
+.q-tag { display: inline-flex; align-items: center; gap: 4px; border-radius: 6px; padding: 0 6px; background: var(--hover); color: var(--ink); font-weight: 500; }
+.q-tag.go { background: color-mix(in srgb, var(--check) 16%, transparent); color: var(--check); }
+.q-tag.goal .gl { width: 12px; height: 12px; }
+.q-tag.soon { background: var(--warn-bg); color: var(--warn-ink); }
+.q-title { font-size: 20px; line-height: 1.3; margin: 8px 0 4px; overflow-wrap: anywhere; }
+.q-group { margin: 0 0 6px; font-size: 12.5px; color: var(--accent); }
+.q-md { font-size: 14.5px; line-height: 1.55; overflow-wrap: anywhere; }
+.q-md p { margin: 8px 0; }
+.q-md ul, .q-md ol { padding-left: 22px; margin: 8px 0; }
+.q-md pre { overflow: auto; background: var(--hover); padding: 8px 10px; border-radius: 8px; font-size: 12.5px; }
+.q-md blockquote { margin: 8px 0; padding-left: 10px; border-left: 3px solid var(--line); color: var(--muted); }
+.q-md h4 { margin: 14px 0 4px; font-size: 14px; }
+.q-h { margin: 14px 0 6px; font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); }
+.q-steps { margin: 0; padding-left: 22px; line-height: 1.5; overflow-wrap: anywhere; }
+.q-steps li { margin: 3px 0; }
+.q-muted { color: var(--muted); font-size: 12.5px; }
+.q-more { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; }
+.q-more [data-q="item"] { color: var(--muted); font: 11.5px ui-monospace, monospace; border-color: transparent; }
+.q-run { font-weight: 600; }
+.q-imgs { display: grid; gap: 10px; margin: 10px 0; }
+.q-imgs figure { margin: 0; }
+.q-imgs img { max-width: 100%; height: auto; border-radius: 8px; border: 1px solid var(--line); display: block; }
+.q-imgs figcaption { font-size: 12px; color: var(--muted); margin-top: 3px; }
+.q-notes { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; font-size: 13px; }
+.q-notes li > div { overflow-wrap: anywhere; }
+
+/* Swiping: the card follows the finger; what letting go would do shows above it. */
+.q-swipe { position: absolute; z-index: 2; top: -2px; left: 0; right: 0; display: flex; justify-content: space-between; pointer-events: none; }
+.q-swipe span { opacity: 0; transition: opacity .12s; font-size: 12px; font-weight: 600; border-radius: 999px; padding: 2px 10px; }
+.q-swipe .yes { background: var(--check); color: var(--card); }
+.q-swipe .no { background: var(--muted); color: var(--card); }
+.q-yes .q-swipe .yes, .q-no .q-swipe .no { opacity: 1; }
+.q-yes .q-card { border-color: var(--check); }
+
+/* The buttons, at the bottom. */
+.q-foot { flex: none; position: sticky; bottom: 0; z-index: 3; margin-top: 4px; padding: 14px 18px 18px; background: linear-gradient(transparent, var(--bg) 14px); }
+.q-opts { display: grid; gap: 6px; margin-bottom: 8px; }
+.q-opt { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; min-height: 42px; padding: 8px 12px; font-size: 14px; border-radius: 10px; }
+.q-opt > span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.q-opt small { display: inline-block; }
+.q-opt.ask-pick input { width: 18px; height: 18px; }
+.q-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.q-main { margin-bottom: 8px; }
+.q-primary { min-height: 42px; padding: 8px 16px; font-size: 14.5px; border-radius: 10px; flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
+.q-send { min-height: 42px; border-radius: 10px; display: inline-flex; align-items: center; gap: 8px; }
+.q-acts { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; }
+.q-act { display: flex; align-items: center; justify-content: center; gap: 6px; min-height: 38px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 10px; background: transparent; color: var(--ink); font-size: 13px; }
+.q-act:hover { background: var(--hover); }
+.q-act svg { width: 16px; height: 16px; flex: none; color: var(--muted); }
+.q-act span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.q-act[data-q="drop"]:hover svg { color: var(--bug); }
+.q-k { font: 600 10.5px system-ui, sans-serif; color: var(--muted); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; line-height: 16px; flex: none; background: var(--bg); }
+.primary .q-k { color: inherit; border-color: color-mix(in srgb, currentColor 40%, transparent); background: transparent; }
+.q-sheet { display: grid; gap: 8px; }
+.q-sheet-t { font-size: 12.5px; font-weight: 600; color: var(--muted); }
+.q-sheet .opt { min-height: 40px; padding: 6px 12px; font-size: 14px; border-radius: 10px; display: inline-flex; align-items: center; gap: 8px; }
+.q-say input { flex: 1; min-width: 0; border: 1px solid var(--line); border-radius: 10px; padding: 9px 12px; background: var(--bg); font-size: 15px; }
+.q-say .primary { min-height: 40px; border-radius: 10px; }
+.q-date input { border: 0; background: transparent; color: var(--ink); padding: 0; min-width: 0; flex: 1; }
+
+/* The end of a pass. */
+.q-end { text-align: center; padding: 40px 8px 24px; animation: q-in .3s ease; }
+.q-calm { display: inline-grid; place-items: center; width: 56px; height: 56px; border-radius: 50%; background: color-mix(in srgb, var(--check) 14%, var(--card)); color: var(--check); }
+.q-calm .gl { width: 30px; height: 30px; }
+.q-end h2 { font-size: 20px; margin: 14px 0 4px; }
+.q-center { justify-content: center; margin-top: 16px; }
+.q-done { list-style: none; margin: 0 auto; padding: 0; max-width: 560px; text-align: left; display: grid; gap: 2px; }
+.q-done li { display: flex; gap: 10px; align-items: baseline; padding: 6px 10px; border-radius: 8px; background: var(--card); border: 1px solid var(--line); }
+.q-done-t { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.q-done small { color: var(--muted); flex: none; max-width: 45%; text-align: right; overflow-wrap: anywhere; }
+.q-empty { color: var(--muted); padding: 24px 2px; }
+
+/* The way in, on the board's Needs you; deferred, on a card. */
+.q-entry { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 2px 0 12px; padding: 10px 12px; border-radius: 12px; background: var(--card); border: 1px solid var(--line); }
+.q-entry span { color: var(--muted); font-size: 13px; flex: 1; min-width: 180px; }
+.q-entry kbd { font: 600 11px system-ui, sans-serif; color: var(--muted); border: 1px solid var(--line); border-radius: 5px; padding: 1px 6px; }
+.q-deferred { color: var(--muted); font-style: italic; }
+
+/* On a phone: the whole screen, big buttons in thumb reach, no key hints. */
+@media (max-width: 760px) {
+	#queue-view { position: fixed; inset: 0; z-index: 20; }
+	.q-head { padding: calc(6px + env(safe-area-inset-top)) 8px 6px; gap: 6px; }
+	.q-where { display: none; }
+	.q-count { font-size: 13.5px; }
+	.q-body { padding: 12px 12px 14px; }
+	.q-card { padding: 14px 14px 10px; border-radius: 12px; }
+	.q-title { font-size: 19px; }
+	.q-foot { margin-top: auto; padding: 8px 10px calc(8px + env(safe-area-inset-bottom)); background: var(--card); border-top: 1px solid var(--line); max-height: 60dvh; overflow: auto; }
+	.q-opt { min-height: 48px; font-size: 15px; }
+	.q-primary, .q-send { min-height: 50px; font-size: 15.5px; }
+	.q-acts { gap: 4px; }
+	.q-act { flex-direction: column; gap: 2px; min-height: 52px; padding: 6px 2px; font-size: 11.5px; border-radius: 10px; }
+	.q-act svg { width: 19px; height: 19px; }
+	.q-k, .q-entry kbd { display: none; }
+	.q-sheet .opt { min-height: 46px; flex: 1 1 40%; justify-content: center; }
+	.q-sheet .q-date { flex-basis: 100%; justify-content: space-between; }
+	.q-prev svg { width: 18px; height: 18px; }
+	.q-head .icon-btn { width: 40px; height: 40px; }
+	.q-say input { font-size: 16px; padding: 11px 12px; }
+}
+@media (pointer: coarse) { .q-k, .q-entry kbd { display: none; } }
+.td-queue { color: var(--accent); font-weight: 600; }

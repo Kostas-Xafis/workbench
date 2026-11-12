@@ -83,6 +83,24 @@ describe("server", () => {
 		expect((await fetch(`${BASE}/api/settings/folders`, { headers: { "sec-fetch-site": "cross-site" } })).status).toBe(403);
 	});
 
+	test("queue mode: the queue, deferring and giving back, as JSON only", async () => {
+		const add = async (title: string) =>
+			((await (await post("/api/items", JSON.stringify({ title, project: "demo", kind: "review", owner: "kostas" }), "application/json")).json()) as { id: number }).id;
+		const a = await add("Queue: first"), b = await add("Queue: second");
+		const queue = async () => (await (await fetch(`${BASE}/api/queue?project=demo`)).json()) as { items: { id: number }[]; deferred: { id: number }[] };
+		expect((await queue()).items.map((i) => i.id)).toEqual(expect.arrayContaining([a, b]));
+		expect((await post(`/api/items/${a}/defer`, JSON.stringify({ until: "tomorrow" }), "text/plain")).status).toBe(415);
+		const d = await post(`/api/items/${a}/defer`, JSON.stringify({ until: "tomorrow" }), "application/json");
+		expect(((await d.json()) as { deferred_until: string }).deferred_until).toBeTruthy();
+		const g = await post(`/api/items/${b}/give-back`, JSON.stringify({ text: "" }), "application/json");
+		expect(((await g.json()) as { owner: string }).owner).toBe("agent");
+		const q = await queue();
+		expect(q.items.map((i) => i.id)).not.toContain(a);
+		expect(q.items.map((i) => i.id)).not.toContain(b);
+		expect(q.deferred.map((i) => i.id)).toEqual([a]);
+		expect((await post(`/api/items/${a}/defer`, JSON.stringify({ until: "someday" }), "application/json")).status).toBe(400);
+	});
+
 	test("/mcp answers a JSON-RPC call on localhost and refuses another Host", async () => {
 		const body = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping" });
 		const ok = await fetch(`${BASE}/mcp`, { method: "POST", headers: { "content-type": "application/json", host: `localhost:${PORT}` }, body });
