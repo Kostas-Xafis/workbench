@@ -14,6 +14,8 @@ import bootJs from "./ui/boot.js" with { type: "file" };
 import copyJs from "./ui/copy.js" with { type: "file" };
 import coreJs from "./ui/core.js" with { type: "file" };
 import dialogsCss from "./ui/dialogs.css" with { type: "file" };
+import dispatchCss from "./ui/dispatch.css" with { type: "file" };
+import dispatchJs from "./ui/dispatch.js" with { type: "file" };
 import goalsCss from "./ui/goals.css" with { type: "file" };
 import goalsJs from "./ui/goals.js" with { type: "file" };
 import hooksJs from "./ui/hooks.js" with { type: "file" };
@@ -67,6 +69,8 @@ export const UI: Record<string, string> = {
 	"copy.js": copyJs,
 	"core.js": coreJs,
 	"dialogs.css": dialogsCss,
+	"dispatch.css": dispatchCss,
+	"dispatch.js": dispatchJs,
 	"goals.css": goalsCss,
 	"goals.js": goalsJs,
 	"hooks.js": hooksJs,

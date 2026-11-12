@@ -175,6 +175,16 @@ export function itemRefusal(db: Db, i: Item, answering = false): string | undefi
 export type Refusal = { why: string; limit?: boolean };
 /** Why `from` may not start agents now at all (off, a phone, a limit), or undefined. */
 export async function startRefusal(db: Db, from: From, now = new Date()): Promise<Refusal | undefined> {
+	const no = countRefusal(db, from, now);
+	if (no) return no;
+	const l = limits(db);
+	if (l.cap) {
+		const spent = await spentToday(db, now);
+		if (spent >= l.cap) return { why: `Today's agents cost $${spent.toFixed(2)}, the cap is $${l.cap} (Settings → Agents).`, limit: true };
+	}
+}
+/** startRefusal without the cost, which takes a look at the transcripts: what can be checked at once. */
+function countRefusal(db: Db, from: From, now = new Date()): Refusal | undefined {
 	const l = limits(db);
 	if (!l.on) return { why: "The board doesn't start agents: turn it on in Settings → Agents." };
 	if (from.where === "phone" && !l.phone) return { why: "Agents start only from this computer. Settings → Agents can allow a paired phone." };
@@ -182,10 +192,6 @@ export async function startRefusal(db: Db, from: From, now = new Date()): Promis
 	if (n >= l.atOnce) return { why: `${n} agent${n === 1 ? " runs" : "s run"} already, the most at once (Settings → Agents).`, limit: true };
 	const today = startedToday(db, now).length;
 	if (today >= l.perDay) return { why: `${today} agent${today === 1 ? "" : "s"} started today, the most per day (Settings → Agents).`, limit: true };
-	if (l.cap) {
-		const spent = await spentToday(db, now);
-		if (spent >= l.cap) return { why: `Today's agents cost $${spent.toFixed(2)}, the cap is $${l.cap} (Settings → Agents).`, limit: true };
-	}
 }
 
 /* ---------- Starting one ---------- */
@@ -241,11 +247,12 @@ export async function startRun(
 	let i = getItem(db, itemId);
 	if (!i) throw new Error(`no item #${itemId}`);
 	const answering = how.answer !== undefined || how.object !== undefined;
-	const no = (await startRefusal(db, from)) ?? (() => {
-		const why = itemRefusal(db, i!, answering);
-		return why ? { why } : undefined;
-	})();
+	const no = await startRefusal(db, from);
 	if (no) throw new Error(no.why);
+	// Checked again with nothing awaited from here to the insert, so two clicks at once can't both get through.
+	i = getItem(db, itemId)!;
+	const now = countRefusal(db, from)?.why ?? itemRefusal(db, i, answering);
+	if (now) throw new Error(now);
 	if (how.answer !== undefined) i = resolveAsk(db, itemId, { answer: how.answer }, from.by ?? "kostas")!;
 	else if (how.object !== undefined) {
 		if (i.kind === "decision") throw new Error("answer a decision instead");
@@ -569,7 +576,7 @@ export async function runsInfo(db: Db, from: From | null) {
 	const active = running(db);
 	const today = startedToday(db).length;
 	const spent = await spentToday(db);
-	const no = from ? await startRefusal(db, from) : { why: "Agents start only from the board on this computer." };
+	const no = from || !l.on ? await startRefusal(db, from ?? { where: "local", label: "" }) : { why: "Agents start only from the board on this computer." };
 	const folders = (db.query("SELECT slug, path FROM projects").all() as { slug: string; path: string }[])
 		.filter((p) => p.path && existsSync(p.path))
 		.map((p) => p.slug);
@@ -584,6 +591,8 @@ export async function runsInfo(db: Db, from: From | null) {
 		today,
 		spent: Math.round(spent * 100) / 100,
 		folders,
+		// What an agent is told, for an item wb-xxxx titled "…" (Settings → Agents shows it).
+		prompt: runPrompt(db, { ref: "xxxx", title: "the item's title" }),
 		active: active.map(strip),
 		runs: listRuns(db, { limit: 30 }).map(strip),
 	};

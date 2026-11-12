@@ -155,6 +155,17 @@ describe("dispatch", () => {
 		const b = await startRun(db, task(), here);
 		expect(pollRuns(db).map((r) => r.id)).toEqual([a.id, b.id]);
 		await clear();
+		// Two at the same moment (a double click, Run while unblocked work is sent): only one gets through.
+		set({ "agents.at-once": 1 });
+		const same = task();
+		const both = await Promise.allSettled([startRun(db, same, here), startRun(db, same, here)]);
+		expect(both.map((x) => x.status).sort()).toEqual(["fulfilled", "rejected"]);
+		const two = await Promise.allSettled([startRun(db, task(), here), startRun(db, task(), here)]);
+		expect(two.filter((x) => x.status === "fulfilled")).toHaveLength(0); // one runs already
+		await clear();
+		const pair = await Promise.allSettled([startRun(db, task(), here), startRun(db, task(), here)]);
+		expect(pair.map((x) => x.status).sort()).toEqual(["fulfilled", "rejected"]);
+		await clear();
 		set({ "agents.at-once": null });
 	});
 
