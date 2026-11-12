@@ -1,0 +1,106 @@
+/* Running a check on a device (checkrun.js): one step at a time, big Pass and Fail at the bottom */
+:root { --ck-on: #ffffff; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --ck-on: #0b1f13; } }
+:root[data-theme="dark"] { --ck-on: #0b1f13; }
+
+#check-view:not([hidden]) { flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--bg); }
+.ck-wrap { flex: 1; min-height: 0; display: flex; flex-direction: column; width: 100%; max-width: 680px; margin: 0 auto; }
+.ck-top { display: flex; align-items: center; gap: 8px; padding: 12px 14px 6px; }
+.ck-back { flex: none; width: 44px; height: 44px; border-radius: 12px; border: 1px solid var(--line); background: var(--card); display: grid; place-items: center; padding: 0; }
+.ck-back svg { width: 20px; height: 20px; }
+.ck-ttl { min-width: 0; display: flex; flex-direction: column; line-height: 1.25; }
+.ck-ttl small { color: var(--muted); font-size: 12px; }
+.ck-ttl b { font-size: 15px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+.ck-dots { display: flex; gap: 4px; padding: 6px 14px 8px; }
+.ck-dot { flex: 1; min-width: 0; height: 10px; border: 0; border-radius: 5px; background: var(--line); padding: 0; position: relative; }
+.ck-dot::after { content: ""; position: absolute; inset: -10px -2px; } /* a bigger thing to tap */
+.ck-dot.pass { background: var(--check); }
+.ck-dot.fail { background: var(--bug); }
+.ck-dot.here { outline: 2px solid var(--accent); outline-offset: 2px; }
+.ck-main { flex: 1; min-height: 0; overflow-y: auto; padding: 8px 16px 20px; font-size: 16px; line-height: 1.5; -webkit-overflow-scrolling: touch; }
+.ck-eyebrow { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); margin: 6px 0 2px; display: flex; gap: 8px; flex-wrap: wrap; }
+.ck-eyebrow .grp { color: var(--check); }
+.ck-step { font-size: 21px; line-height: 1.35; font-weight: 600; margin: 0 0 10px; overflow-wrap: anywhere; }
+.ck-step p { margin: 0; }
+.ck-detail { color: var(--ink); overflow-wrap: anywhere; }
+.ck-detail p { margin: 0 0 8px; }
+.ck-detail ul, .ck-detail ol { margin: 4px 0 8px; padding-left: 22px; }
+.ck-detail li { margin: 3px 0; }
+.ck-detail pre { overflow-x: auto; background: var(--hover); padding: 8px 10px; border-radius: 8px; font-size: 13px; }
+.ck-exp { margin: 12px 0; border-radius: 12px; border: 1px solid var(--line); background: var(--card); }
+.ck-exp > summary { padding: 11px 14px; font-weight: 600; font-size: 14.5px; display: flex; align-items: center; gap: 8px; min-height: 44px; }
+.ck-exp > summary::before { content: ""; width: 0; height: 0; border-left: 5px solid currentColor; border-top: 4.5px solid transparent; border-bottom: 4.5px solid transparent; opacity: .55; transition: transform .12s; }
+.ck-exp[open] > summary::before { transform: rotate(90deg); }
+.ck-exp > div { padding: 0 14px 10px; font-size: 15px; overflow-wrap: anywhere; }
+.ck-exp p { margin: 0 0 6px; }
+.ck-exp ul { margin: 2px 0 6px; padding-left: 20px; }
+.ck-exp.right > summary { color: var(--check); }
+.ck-exp.wrong > summary { color: var(--bug); }
+.ck-words { display: block; width: 100%; margin-top: 14px; min-height: 76px; resize: vertical; font-size: 16px; line-height: 1.4; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--line); background: var(--card); }
+.ck-words.need { border-color: var(--bug); outline: 2px solid color-mix(in srgb, var(--bug) 30%, transparent); }
+.ck-need { color: var(--bug); font-size: 13.5px; margin: 6px 2px 0; }
+.ck-photos { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; align-items: center; }
+.ck-add { display: inline-flex; align-items: center; gap: 8px; min-height: 52px; padding: 0 16px; border-radius: 12px; border: 1px dashed var(--muted); background: var(--card); font-weight: 600; font-size: 15px; cursor: pointer; }
+.ck-add svg { width: 20px; height: 20px; flex: none; }
+.ck-add input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.ck-add.busy { opacity: .6; pointer-events: none; }
+.ck-ph { position: relative; width: 72px; height: 72px; flex: none; }
+.ck-ph a { display: block; width: 100%; height: 100%; }
+.ck-ph img { width: 100%; height: 100%; object-fit: cover; border-radius: 10px; border: 1px solid var(--line); display: block; }
+.ck-ph button { position: absolute; top: -8px; right: -8px; width: 28px; height: 28px; border-radius: 50%; border: 1px solid var(--line); background: var(--card); padding: 0; font-size: 16px; line-height: 1; display: grid; place-items: center; }
+.ck-bar { flex: none; padding: 8px 14px calc(12px + env(safe-area-inset-bottom)); border-top: 1px solid var(--line); background: var(--card); display: flex; flex-direction: column; gap: 8px; }
+.ck-nav { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.ck-nav button { background: transparent; border: 0; color: var(--muted); font-size: 14px; min-height: 40px; padding: 0 10px; border-radius: 8px; }
+.ck-nav button:disabled { opacity: .35; }
+.ck-nav .mid { color: var(--ink); }
+.ck-nav button[hidden] { display: block; visibility: hidden; }
+.ck-btns { display: flex; gap: 10px; }
+.ck-btn { flex: 1; min-height: 64px; border-radius: 16px; border: 2px solid transparent; font-size: 19px; font-weight: 700; display: flex; align-items: center; justify-content: center; gap: 8px; }
+.ck-btn svg { width: 22px; height: 22px; }
+.ck-pass { background: var(--check); color: var(--ck-on); }
+.ck-fail { background: var(--bug); color: var(--ck-on); }
+.ck-btn.off { background: var(--card); }
+.ck-pass.off { color: var(--check); border-color: var(--check); }
+.ck-fail.off { color: var(--bug); border-color: var(--bug); }
+.ck-btn:active { transform: scale(.98); }
+.ck-btn:disabled { opacity: .6; }
+.ck-go { min-height: 60px; border-radius: 16px; border: 0; background: var(--accent); color: var(--accent-ink); font-size: 18px; font-weight: 700; width: 100%; }
+.ck-go.fail { background: var(--bug); color: var(--ck-on); }
+.ck-go:disabled { opacity: .6; }
+.ck-link { background: transparent; border: 0; color: var(--muted); font-size: 14px; min-height: 40px; text-decoration: underline; }
+.ck-link.sure { color: var(--bug); }
+.ck-note { font-size: 14px; color: var(--muted); margin: 0 2px; text-align: center; }
+/* The overview */
+.ck-intro { margin: 4px 0 10px; color: var(--muted); font-size: 14.5px; }
+.ck-list { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.ck-grp { margin: 10px 2px 0; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); }
+.ck-row { display: flex; align-items: flex-start; gap: 12px; text-align: left; width: 100%; min-height: 56px; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--line); background: var(--card); }
+.ck-row.here { border-color: var(--accent); }
+.ck-badge { flex: none; width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; font-size: 14px; font-weight: 700; border: 2px solid var(--line); color: var(--muted); }
+.ck-row.pass .ck-badge { background: var(--check); border-color: var(--check); color: var(--ck-on); }
+.ck-row.fail .ck-badge { background: var(--bug); border-color: var(--bug); color: var(--ck-on); }
+.ck-badge svg { width: 16px; height: 16px; }
+.ck-rt { min-width: 0; flex: 1; font-size: 15.5px; line-height: 1.35; overflow-wrap: anywhere; }
+.ck-rt .t { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.ck-rt small { display: block; color: var(--muted); font-size: 13px; margin-top: 2px; }
+.ck-rt .t p { margin: 0; }
+/* The end */
+.ck-end { text-align: center; padding: 24px 6px 8px; }
+.ck-end .big { width: 76px; height: 76px; border-radius: 50%; margin: 0 auto 14px; display: grid; place-items: center; background: var(--check); color: var(--ck-on); }
+.ck-end .big.fail { background: var(--bug); }
+.ck-end .big svg { width: 38px; height: 38px; }
+.ck-end h2 { margin: 0 0 6px; font-size: 22px; }
+.ck-end p { margin: 0 0 10px; color: var(--muted); font-size: 15.5px; }
+.ck-bugs { text-align: left; margin: 14px 0 12px; display: flex; flex-direction: column; gap: 8px; }
+.ck-bug { display: flex; gap: 10px; align-items: baseline; width: 100%; text-align: left; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--line); background: var(--card); min-height: 48px; }
+.ck-bug .ref { flex: none; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; color: var(--accent); }
+.ck-bug span:last-child { min-width: 0; overflow-wrap: anywhere; }
+.ck-end .ck-what { text-align: left; color: var(--ink); background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px; font-size: 15px; }
+/* On the item dialog */
+.ck-box { border-top: 1px solid var(--line); padding-top: 10px; font-size: 13px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.ck-box .hint { margin: 0; flex: 1; min-width: 160px; }
+/* Phone: the whole screen is the check, over the project strip */
+@media (max-width: 760px) {
+	#check-view:not([hidden]) { position: fixed; inset: 0; z-index: 9; }
+	.ck-main { padding-left: 14px; padding-right: 14px; }
+}

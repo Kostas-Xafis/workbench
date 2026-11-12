@@ -12,6 +12,8 @@ import boardCss from "./ui/board.css" with { type: "file" };
 import boardJs from "./ui/board.js" with { type: "file" };
 import bootJs from "./ui/boot.js" with { type: "file" };
 import copyJs from "./ui/copy.js" with { type: "file" };
+import checkrunCss from "./ui/checkrun.css" with { type: "file" };
+import checkrunJs from "./ui/checkrun.js" with { type: "file" };
 import coreJs from "./ui/core.js" with { type: "file" };
 import dialogsCss from "./ui/dialogs.css" with { type: "file" };
 import goalsCss from "./ui/goals.css" with { type: "file" };
@@ -64,6 +66,8 @@ export const UI: Record<string, string> = {
 	"board.css": boardCss,
 	"board.js": boardJs,
 	"boot.js": bootJs,
+	"checkrun.css": checkrunCss,
+	"checkrun.js": checkrunJs,
 	"copy.js": copyJs,
 	"core.js": coreJs,
 	"dialogs.css": dialogsCss,
