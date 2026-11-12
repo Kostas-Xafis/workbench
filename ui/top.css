@@ -26,3 +26,7 @@ header.top > .here { overflow: hidden; }
 mark { background: color-mix(in srgb, var(--review) 30%, transparent); color: inherit; border-radius: 3px; padding: 0 1px; }
 .top-right { display: flex; justify-content: flex-end; gap: 8px; }
 #rail-open { display: none; }
+/* Narrower windows: Today, Usage and Vault keep their icons only, so New stays in view. */
+@media (max-width: 1180px) {
+	header.top .vault-btn span { display: none; }
+}
