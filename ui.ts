@@ -22,6 +22,8 @@ import railCss from "./ui/rail.css" with { type: "file" };
 import railJs from "./ui/rail.js" with { type: "file" };
 import reportCss from "./ui/report.css" with { type: "file" };
 import reportJs from "./ui/report.js" with { type: "file" };
+import rulingsCss from "./ui/rulings.css" with { type: "file" };
+import rulingsJs from "./ui/rulings.js" with { type: "file" };
 import searchJs from "./ui/search.js" with { type: "file" };
 import settingsDataJs from "./ui/settings-data.js" with { type: "file" };
 import settingsLookJs from "./ui/settings-look.js" with { type: "file" };
@@ -61,6 +63,8 @@ export const UI: Record<string, string> = {
 	"rail.js": railJs,
 	"report.css": reportCss,
 	"report.js": reportJs,
+	"rulings.css": rulingsCss,
+	"rulings.js": rulingsJs,
 	"search.js": searchJs,
 	"settings-data.js": settingsDataJs,
 	"settings-look.js": settingsLookJs,

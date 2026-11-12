@@ -19,6 +19,7 @@ async function runSearch() {
 		`<a class="res" href="${reportHref(r)}">${reportMark(r) || DOC}<span class="rt"><div>${hl(r.title, q)}</div><small>${r.snippet ? hl(r.snippet, q) : `v${r.version} · ${ago(r.updated_at)}`}${where(r.project)}</small></span></a>`).join("");
 	if (data.links.length) html += `<div class="rgroup">Links</div>` + data.links.map((l) =>
 		`<a class="res" href="${esc(l.url)}" target="_blank" rel="noreferrer">${fav(l)}<span class="rt"><div>${hl(l.label, q)}</div><small>${hl(l.url, q)}</small></span></a>`).join("");
+	html += hookHtml(hooks.searchResults, data, q);
 	results.innerHTML = (html || `<div class="res-none">Nothing matches “${esc(q)}”.</div>`) +
 		`<div class="res-foot">${state.project ? `In ${esc(projectName(state.project))} · pick All projects to search everywhere` : "In all projects"} · ↑↓ to move, Enter to open</div>`;
 	results.hidden = false;
