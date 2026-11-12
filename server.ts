@@ -54,6 +54,7 @@ import { checkUi, uiFile } from "./ui";
 import pkg from "./package.json";
 import { DB_PATH } from "./db";
 import { archivedDay, currentDay, publishDays } from "./day";
+import { todayData } from "./today";
 import { codeLinks, repoState, type CodeLinks } from "./git";
 import { candidateFolders, checkFolder, folderState, health } from "./health";
 import { getSettings, settingDefs, updateSettings } from "./settings";
@@ -509,6 +510,12 @@ export function serve({ lan = false } = {}) {
 				const u = new URL(req.url).searchParams;
 				const q = (u.get("q") ?? "").trim();
 				return json(q ? search(db, q, u.get("project") || undefined) : { items: [], reports: [], links: [] });
+			},
+			// The Today view's part the page can't build alone: what agents finished since `since` (with the finishing
+			// note's first line) and the reports updated since, day pages left out. ?project= (default all), ?since= (any time).
+			"/api/today": (req) => {
+				const u = new URL(req.url).searchParams;
+				return json(todayData(db, u.get("project") || "", u.get("since")));
 			},
 			"/api/reports": (req) => {
 				const today = currentDay(db);

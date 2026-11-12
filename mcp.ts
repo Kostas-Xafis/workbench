@@ -79,6 +79,7 @@ import {
 	type Tracker,
 	type TrackerPatch,
 } from "./trackers";
+import { briefText } from "./today";
 
 const BOARD = `http://localhost:${Number(process.env.WB_PORT ?? 4321)}`;
 const MODERN = "2026-07-28";
@@ -1223,6 +1224,19 @@ const PROMPTS: Prompt[] = [
 			const p = a.project ? projects(c.db).find((x) => x.slug === projectOrRpc(c, a.project)) : undefined;
 			const dir = p?.path || projects(c.db).find((x) => x.slug === c.project)?.path || process.env.CLAUDE_PROJECT_DIR || process.cwd();
 			return `Set this project up to work with the workbench by following the guide below. Ask me before you add the project to the board, change my Claude Code settings or move any to-do lists.\n\n${integrationGuide(c.db, dir)}`;
+		},
+	},
+	{
+		name: "today",
+		title: "Today's brief",
+		description: "A one-screen brief: what waits on {{name}}, what agents finished, what's stuck, reports updated. Read-only, same as the board's Today.",
+		arguments: [
+			{ name: "project", description: "Project slug (default: all projects)" },
+			{ name: "since", description: "From when, e.g. 2026-11-12 08:00 (UTC; default: the last 24 hours)" },
+		],
+		get(a, c) {
+			if (a.project && !projects(c.db).some((p) => p.slug === a.project)) throw new RpcError(-32602, `no project "${a.project}"`);
+			return `Here is today's brief. Tell me in a few plain lines what I should look at first, then what agents got done.\n\n${briefText(c.db, a.project ?? "", a.since)}`;
 		},
 	},
 	{

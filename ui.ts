@@ -34,6 +34,8 @@ import settingsJs from "./ui/settings.js" with { type: "file" };
 import setupCss from "./ui/setup.css" with { type: "file" };
 import setupJs from "./ui/setup.js" with { type: "file" };
 import shareJs from "./ui/share.js" with { type: "file" };
+import todayCss from "./ui/today.css" with { type: "file" };
+import todayJs from "./ui/today.js" with { type: "file" };
 import topCss from "./ui/top.css" with { type: "file" };
 import trackersCss from "./ui/trackers.css" with { type: "file" };
 import trackersJs from "./ui/trackers.js" with { type: "file" };
@@ -73,6 +75,8 @@ export const UI: Record<string, string> = {
 	"setup.css": setupCss,
 	"setup.js": setupJs,
 	"share.js": shareJs,
+	"today.css": todayCss,
+	"today.js": todayJs,
 	"top.css": topCss,
 	"trackers.css": trackersCss,
 	"trackers.js": trackersJs,
