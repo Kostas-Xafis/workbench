@@ -44,6 +44,7 @@ import { addSource, KEY_PATH, listSources, removeSource } from "./sources";
 import { PRESETS } from "./presets";
 import { checkBrief, WRITING_GUIDE } from "./brief";
 import { integrationGuide } from "./integrate";
+import { staleLabel } from "./stale";
 import { addImage, imageBytes, imageData, imageInfo, imageSummary, prepareImage, removeImage } from "./images";
 import { dayStartHour, ownerDefaultsText, ownerFor, yourName } from "./settings";
 import {
@@ -70,7 +71,8 @@ const help = (name = yourName(db), start = `${String(dayStartHour(db)).padStart(
 Items are named wb-xxxx (e.g. wb-k3f9); commands take that, the bare k3f9, or an old number.
 
   wb ls [--mine | --agents] [--all] [--project P] [--kind K] [-q text]
-                                   open items (--all includes done); --mine = ${name}'s
+                                   open items (--all includes done); --mine = ${name}'s;
+                                   ⚠ marks stale ones (doing 2+ days quiet, waiting 7+, on ${name} 14+)
   wb show <ref>                     an item with its history
   wb add "title" [options]         new item, prints its id
   wb start <ref> [--session S] [--branch B]   an agent picks it up (session defaults to the
@@ -281,6 +283,7 @@ function row(i: Item, showProject: boolean) {
 		showProject ? i.project.padEnd(12) : "",
 		`${status}${i.title}${i.answer ? `  → ${i.answer}` : ""}`,
 		where ? ` ${where}` : "",
+		i.stale ? ` ⚠ ${staleLabel(i.stale)}` : "",
 	]
 		.filter(Boolean)
 		.join(" ");
@@ -292,6 +295,7 @@ function show(id: number) {
 	console.log(
 		`${i.project} · ${i.kind} · for ${i.owner === "kostas" ? yourName(db) : "an agent"} · ${i.status} · P${i.priority}${i.area ? ` · ${i.area}` : ""}`,
 	);
+	if (i.stale) console.log(`stale: ${staleLabel(i.stale)} (since ${i.stale.since})`);
 	if (i.branch || i.session)
 		console.log([i.branch && `branch ${i.branch}`, i.session && `session ${i.session}`].filter(Boolean).join(" · "));
 	if (i.sources) console.log(`sources: ${i.sources}`);

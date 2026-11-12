@@ -77,7 +77,7 @@ function renderBoard() {
 		const sub = [state.who === "all" && mine ? `${mine} on you` : "", doing ? `${doing} in progress` : "", p1 ? `<span class="p1">${p1} P1</span>` : ""].filter(Boolean).join(" · ");
 		// Later (P3) items fold away so what matters now stays on screen.
 		const later = list.filter((i) => i.priority === 3);
-		return section(`sec-${kind}`, def, `${kindIcon(kind)}${label}<span class="count">${list.length}</span>${sub ? `<span class="sub">${sub}</span>` : ""}`,
+		return section(`sec-${kind}`, def, `${kindIcon(kind)}${label}<span class="count">${list.length}</span>${sub ? `<span class="sub">${sub}</span>` : ""}${hookHtml(hooks.sectionMeta, kind, list)}`,
 			cards(list.filter((i) => i.priority < 3)) +
 			(later.length ? `<details class="later fold" data-key="later-${kind}"${isOpen(`later-${kind}`)}><summary>${later.length} later</summary>${cards(later)}</details>` : ""));
 	}).join("") || boardEmpty(open.length);
