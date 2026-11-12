@@ -50,6 +50,7 @@ import type { Server } from "bun";
 import pagePath from "./index.html" with { type: "file" };
 import usagePath from "./usage.html" with { type: "file" };
 import iconPath from "./icon.svg" with { type: "file" };
+import { checkUi, uiFile } from "./ui";
 import pkg from "./package.json";
 import { DB_PATH } from "./db";
 import { archivedDay, currentDay, publishDays } from "./day";
@@ -118,6 +119,7 @@ export function serve({ lan = false } = {}) {
 	const page = Bun.file(pagePath as unknown as string);
 	const usagePage = Bun.file(usagePath as unknown as string);
 	const icon = Bun.file(iconPath);
+	checkUi().catch(() => {});
 	// The first read of Claude's transcripts takes seconds, so it starts now rather than when the page is opened.
 	refreshUsage().catch(() => {});
 	const json = (data: unknown, status = 200) => Response.json(data, { status });
@@ -238,6 +240,8 @@ export function serve({ lan = false } = {}) {
 		routes: {
 			// no-cache: the browser asks again each time (cheap, it gets 304), so an updated board shows at once.
 			"/": () => new Response(page, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-cache" } }),
+			// The page's style sheets and scripts (ui.ts).
+			"/ui/:file": (req) => uiFile(req.params.file),
 			// What the desktop app asks to tell a running board from anything else on the port: cheap, no auth, no database.
 			"/api/ping": () =>
 				Response.json({ app: "workbench", version: pkg.version, db: DB_PATH, pid: process.pid, lan }, { headers: { "cache-control": "no-store" } }),

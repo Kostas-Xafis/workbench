@@ -1,0 +1,14 @@
+/* Phones: the rail opens over the page from the header. */
+@media (max-width: 760px) {
+	body, body.rail-collapsed { grid-template-columns: 60px minmax(0, 1fr); }
+	#rail { position: fixed; z-index: 6; left: 60px; top: 0; bottom: 0; width: min(280px, calc(100vw - 76px)); box-shadow: var(--shadow); background: var(--bg); }
+	body.rail-collapsed #rail { display: none; }
+	#rail-open { display: grid; }
+	header.top { grid-template-columns: auto minmax(0, 1fr) auto; padding: 10px 12px; gap: 8px; }
+	.here div, .search-wrap kbd { display: none; }
+	#search { padding-right: 10px; }
+	#board, #vault-view { padding: 10px 12px 48px; }
+	.vault-btn span { display: none; }
+	.secret { grid-template-columns: minmax(0, 1fr) auto; }
+	.s-val { grid-column: 1 / -1; grid-row: 2; }
+}
