@@ -120,6 +120,7 @@ function openTarget(o) {
 	if (o?.item) api(`/api/items/${o.item}`).then(openItem).catch((e) => toast(e.message));
 	else if (o?.report) location.hash = `#report/${o.report}`;
 	else if (o?.tracker) openTracker(o.tracker);
+	else if (o?.today) location.hash = "#today";
 }
 // Events that happened during quiet hours, newest per item/report/tracker, until one summary when they end.
 function heldGet() { try { return JSON.parse(localGet("notify.held") || "[]"); } catch { return []; } }
@@ -140,7 +141,7 @@ function summarise(held) {
 		n("trackers") && `${n("trackers")} tracker${s(n("trackers"))} to look at`,
 	].filter(Boolean);
 	const first = held.find((h) => h.kind === "needs");
-	ping("While you were away", parts.join(" · ") + (first ? `\n${first.body}` : ""), "wb-away", first ? () => openTarget(first.open) : null, first?.open);
+	ping("While you were away", parts.join(" · ") + (first ? `\n${first.body}` : ""), "wb-away", () => openTarget({ today: 1 }), { today: 1 });
 }
 async function notifyCheck() {
 	if (!notifyOn()) return;

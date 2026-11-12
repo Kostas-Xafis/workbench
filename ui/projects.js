@@ -24,8 +24,8 @@ function setProject(slug) {
 	localSet("project", slug);
 	renderProjects();
 	renderRail();
-	// The vault stays open (showing the new project's secrets); a report goes back to the board.
-	if (location.hash && location.hash !== "#vault") history.pushState(null, "", location.pathname + location.search);
+	// The vault and Today stay open (showing the new project's); a report goes back to the board.
+	if (location.hash && location.hash !== "#vault" && location.hash !== "#today") history.pushState(null, "", location.pathname + location.search);
 	route();
 	loadItems();
 	loadCode();
