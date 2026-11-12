@@ -87,6 +87,7 @@ import {
 } from "./share";
 import { KEY_PATH, listSources, sourceFetch } from "./sources";
 import { existsSync } from "node:fs";
+import { addStepPhoto, finishRun, removeStepPhoto, runState, saveStep, startOver } from "./checkruns";
 import { addImage, imageData, prepareImage, removeImage, setImageCaption } from "./images";
 import { mcpHttp } from "./mcp";
 import { refreshUsage, usageData } from "./usage";
@@ -253,6 +254,8 @@ export function serve({ lan = false } = {}) {
 	const pairing = new Pairing();
 	const PAIR_OPEN = ["/pair", "/api/pair", "/manifest.webmanifest", "/icons/:file", "/favicon.svg"];
 	const gate = phoneGate(db, { port: PORT, loopback, open: PAIR_OPEN });
+	// Who is running a check: the paired phone's name, or a name from the browser ("Chrome on Android").
+	const deviceOf = (req: Request, srv: Server<unknown>) => gate.device(req, srv)?.name ?? deviceName(req.headers.get("user-agent") ?? "");
 	const pairPage = Bun.file(pairPath as unknown as string);
 	const APP_ICONS: Record<string, string> = { "icon-256.png": icon256Path, "icon-512.png": icon512Path };
 	// What Settings shows while a code is open: the code, until when, and the address with it for the QR code.
@@ -1077,6 +1080,58 @@ export function serve({ lan = false } = {}) {
 						if (typeof data !== "string" || !data) throw new Error("no image");
 						addImage(db, id, await prepareImage(Buffer.from(data.replace(/^data:[^,]*,/, ""), "base64"), "that file"), String(caption ?? ""), "kostas");
 						return json(getItem(db, id), 201);
+					} catch (e) {
+						return fail(e);
+					}
+				}),
+			},
+			// Running a check on a device, step by step (checkruns.ts): the steps with the results so far, a step's
+			// pass or fail, its photos, finishing (done, or a bug per failed step) and starting over.
+			"/api/items/:id/check": { GET: (req) => { try { return json(runState(db, itemId(req.params.id))); } catch (e) { return fail(e); } } },
+			"/api/items/:id/check/steps/:n": {
+				PUT: jsonOnly(async (req, srv) => {
+					try {
+						const { result, words } = await req.json();
+						return json(saveStep(db, itemId(req.params.id), Number(req.params.n) - 1, { result: String(result ?? ""), words }, deviceOf(req, srv)));
+					} catch (e) {
+						return fail(e);
+					}
+				}),
+			},
+			"/api/items/:id/check/steps/:n/photos": {
+				POST: jsonOnly(async (req, srv) => {
+					try {
+						const { data } = await req.json();
+						if (typeof data !== "string" || !data) throw new Error("no image");
+						const image = await prepareImage(Buffer.from(data.replace(/^data:[^,]*,/, ""), "base64"), "that file");
+						return json(addStepPhoto(db, itemId(req.params.id), Number(req.params.n) - 1, image, deviceOf(req, srv)), 201);
+					} catch (e) {
+						return fail(e);
+					}
+				}),
+			},
+			"/api/items/:id/check/steps/:n/photos/:image": {
+				DELETE: jsonOnly((req) => {
+					try {
+						return json(removeStepPhoto(db, itemId(req.params.id), Number(req.params.n) - 1, Number(req.params.image)));
+					} catch (e) {
+						return fail(e);
+					}
+				}),
+			},
+			"/api/items/:id/check/finish": {
+				POST: jsonOnly((req, srv) => {
+					try {
+						return json(finishRun(db, itemId(req.params.id), deviceOf(req, srv)));
+					} catch (e) {
+						return fail(e);
+					}
+				}),
+			},
+			"/api/items/:id/check/reset": {
+				POST: jsonOnly((req) => {
+					try {
+						return json(startOver(db, itemId(req.params.id)));
 					} catch (e) {
 						return fail(e);
 					}

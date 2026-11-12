@@ -44,6 +44,7 @@ import { PORT } from "./server";
 import { addSource, KEY_PATH, listSources, removeSource } from "./sources";
 import { PRESETS } from "./presets";
 import { checkBrief, WRITING_GUIDE } from "./brief";
+import { runText } from "./checkruns";
 import {
 	addRuling,
 	ASKING_KINDS,
@@ -401,6 +402,8 @@ function show(id: number) {
 	if (i.default_answer) console.log(`\nif ${yourName(db)} says nothing: ${defaultText(i)}`);
 	if (deadlineText(i) && ["todo", "doing", "waiting"].includes(i.status)) console.log(`deadline: ${deadlineText(i)}`);
 	if (i.answer) console.log(`\nanswer: ${i.answer}`);
+	const run = runText(db, i.id);
+	if (run) console.log(`\n${run}`);
 	const linkLine = (l: { ref: string; title: string; status: string; answer: string }) => `  wb-${l.ref} ${l.answer ? "answered" : l.status}: ${l.title}`;
 	if (i.waits_on.length) console.log(`\nwaits on:\n${i.waits_on.map(linkLine).join("\n")}`);
 	if (i.blocks.length) console.log(`\nblocks (waiting on this):\n${i.blocks.map(linkLine).join("\n")}`);

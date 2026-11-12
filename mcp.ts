@@ -52,6 +52,7 @@ import {
 import { applyDue, capRefusal, deadlineText, defaultText, itemPicks, itemRecommended, needsKostas } from "./asks";
 import { BRIEF_RULES, checkBrief } from "./brief";
 import { activeGoal, addGoal, dueText, GOAL_STATUSES, goalLine, goalsWithStats, goalTitle, needGoal, updateGoal, type GoalInfo } from "./goals";
+import { runData, runText } from "./checkruns";
 import { integrationGuide } from "./integrate";
 import { removeLinks, topUnblockers, waitOn } from "./links";
 import { repoState } from "./git";
@@ -380,6 +381,8 @@ function itemText(c: Conn, i: NonNullable<ReturnType<typeof getItem>>) {
 	if (i.default_answer) lines.push("", `if ${yourName(c.db)} says nothing: ${defaultText(i)}`);
 	if (deadlineText(i) && OPEN.includes(i.status)) lines.push(`deadline: ${deadlineText(i)}`);
 	if (i.answer) lines.push("", `answer: ${i.answer}`);
+	const run = runText(c.db, i.id);
+	if (run) lines.push("", run);
 	if (i.waits_on.length) lines.push("", "waits on:", ...i.waits_on.map((l) => `  ${linkLine(l)}`));
 	if (i.blocks.length) lines.push("", "blocks (waiting on this):", ...i.blocks.map((l) => `  ${linkLine(l)}`));
 	const rulings = itemRulings(c.db, i.id);
@@ -847,7 +850,7 @@ const TOOLS: Tool[] = [
 		hints: RO,
 		run(a, c) {
 			const i = getItem(c.db, itemId(c, a.ref))!;
-			return { text: itemText(c, i), data: { item: { ...itemJson(i), body: i.body, sources: i.sources || undefined, images: i.images.length ? i.images.map(({ id, caption, width, height }) => ({ id, caption, width, height })) : undefined, notes: i.notes.map(({ at, author, text }) => ({ at, author, text })), waits_on: i.waits_on.length ? i.waits_on.map(linkJson) : undefined, blocks: i.blocks.length ? i.blocks.map(linkJson) : undefined } }, links: [itemLink(i)] };
+			return { text: itemText(c, i), data: { item: { ...itemJson(i), body: i.body, sources: i.sources || undefined, images: i.images.length ? i.images.map(({ id, caption, width, height }) => ({ id, caption, width, height })) : undefined, notes: i.notes.map(({ at, author, text }) => ({ at, author, text })), waits_on: i.waits_on.length ? i.waits_on.map(linkJson) : undefined, blocks: i.blocks.length ? i.blocks.map(linkJson) : undefined, check_run: runData(c.db, i.id) } }, links: [itemLink(i)] };
 		},
 	},
 	{

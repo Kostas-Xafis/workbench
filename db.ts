@@ -11,6 +11,7 @@ import { createTables as createTrackerTables } from "./trackers";
 import { backfillRulings, createTables as createRulingTables, draftRuling, listRulings } from "./rulings";
 import { createDeviceTables } from "./devices";
 import { askChanges, cleanAsk, resolveAsk } from "./asks";
+import { createCheckRunTables } from "./checkruns";
 
 export const KINDS = ["task", "check", "review", "decision", "setup", "bug", "idea", "notice"] as const;
 export const STATUSES = ["todo", "doing", "waiting", "done", "dropped"] as const;
@@ -235,6 +236,8 @@ export function open(path = DB_PATH) {
 	createGoalTables(db);
 	// Phones paired for `--lan` (see devices.ts).
 	createDeviceTables(db);
+	// Checks run on a device, step by step (see checkruns.ts).
+	createCheckRunTables(db);
 	// When an MCP client last called the board, per transport, for the setup guide (see setup.ts). Here rather
 	// than in setup.ts, which reads health.ts and would make an import cycle.
 	db.run(`CREATE TABLE IF NOT EXISTS mcp_contact (

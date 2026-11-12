@@ -12,7 +12,7 @@ export const BRIEF_RULES = `{{name}} reads items on the board, often on a phone,
 - Break it up: numbered lists for steps or anything in order, bullets for the rest (indent to nest). No walls of text.
 - Say where things are as a user finds them (Settings → Reader → Toolbar), not by source file.
 - Anything visible on screen gets a screenshot, with a caption saying what to look at; two for before and after.
-- check: where to go, numbered steps, what right looks like, what wrong looks like.
+- check: numbered steps to run on the phone, what right and wrong look like.
 - review: quote the exact words (lines starting with >) or show a picture; what to judge; what happens if {{name}} says nothing.
 - notice: what changed and where to see it; what stays if {{name}} says nothing.
 - decision: what's being decided and why now; for each option, what changes for the user; your recommendation and why.
@@ -80,7 +80,7 @@ export function checkBrief(d: Draft, { name, images, attach }: { name: string; i
 	const sources = unique(body.matchAll(SOURCE));
 	if (forThem && sources.length >= 3) warnings.push(`It names source files (${sources.slice(0, 2).join(", ")}…). Say where each thing is in the app, and quote the wording, instead.`);
 	if (forThem && body.split("\n").some((line) => line.length > WALL)) warnings.push("It has a long paragraph. Break it into a list: numbered for steps or anything in order, bullets for the rest.");
-	if (d.kind === "check" && !/^\s*1[.)]\s/m.test(body)) warnings.push("A check needs numbered steps: where to go, what to do, what right and wrong look like.");
+	if (d.kind === "check" && !/^\s*1[.)]\s/m.test(body)) warnings.push("A check needs numbered steps (the board runs them on the phone, one at a time): where to go, what to do, what right and wrong look like.");
 	if (d.kind === "decision" && !/recommend/i.test(body)) warnings.push("A decision needs your recommendation and why.");
 	if (!images && (forThem || d.kind === "bug") && ["check", "review", "notice", "bug"].includes(d.kind)) {
 		const hint = `${d.title}\n${body}`.match(ON_SCREEN);
