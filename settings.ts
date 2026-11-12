@@ -196,7 +196,26 @@ const SETUP: Defs = {
 };
 /* ---------- end: Setup guide ---------- */
 
-export const SETTINGS: Defs = { ...YOU, ...NOTIFY, ...DATA, ...PRIVACY, ...LOOK, ...UPDATES, ...SETUP };
+/* ---------- Agents ---------- */
+// dispatch.ts: the board starting a Claude Code agent on an item (Answer & send, Run). Off until turned on here.
+/** The command a run starts with, in the project's folder (bash, your shell's PATH). The prompt and the rest come in
+ * as variables: WB_PROMPT, WB_ITEM (wb-xxxx), WB_TITLE, WB_PROJECT, WB_SESSION (a new session id). dontAsk: what
+ * your Claude Code settings don't already allow is refused, never asked (nobody watches) and never skipped. */
+export const AGENT_COMMAND =
+	'claude -p "$WB_PROMPT" --output-format stream-json --verbose --permission-mode dontAsk --allowedTools mcp__wb --session-id "$WB_SESSION" --name "$WB_TITLE"';
+const AGENTS: Defs = {
+	"agents.on": { about: "The board may start agents", default: false, check: bool },
+	"agents.command": { about: "The command that starts an agent", default: AGENT_COMMAND, check: text(2000, { empty: false }) },
+	"agents.at-once": { about: "Agents running at once, at most", default: 1, check: int(1, 10) },
+	"agents.per-day": { about: "Agents started per day, at most", default: 5, check: int(1, 200) },
+	// Whole dollars, as the Usage page counts them for the sessions the board started. 0 = no cap.
+	"agents.day-dollars": { about: "No new agent once today's cost this many dollars", default: 0, check: int(0, 10000) },
+	"agents.phone": { about: "A paired phone may start agents", default: false, check: bool },
+	"agents.unblocked": { about: "When an agent's work is unblocked", default: "tell", check: oneOf("tell", "send") },
+};
+/* ---------- end: Agents ---------- */
+
+export const SETTINGS: Defs = { ...YOU, ...NOTIFY, ...DATA, ...PRIVACY, ...LOOK, ...UPDATES, ...SETUP, ...AGENTS };
 
 /* ---------- Storage ---------- */
 

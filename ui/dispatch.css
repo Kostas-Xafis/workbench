@@ -1,0 +1,66 @@
+/* Answer & send (ui/dispatch.js): Run and the running chip on cards, the agent's box in the item dialog, Settings → Agents. */
+:root { --run: #0f766e; --run-bg: #e6f4f1; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --run: #4fd1c5; --run-bg: #12302c; } }
+:root[data-theme="dark"] { --run: #4fd1c5; --run-bg: #12302c; }
+
+/* A run's state, wherever it shows. */
+.run-chip { display: inline-flex; align-items: center; gap: 5px; border-radius: 6px; padding: 0 6px; font-size: 11.5px; font-weight: 500; line-height: 18px; white-space: nowrap; background: var(--hover); color: var(--muted); }
+.run-chip.running { background: var(--run-bg); color: var(--run); }
+.run-chip.running::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; animation: run-pulse 1.4s ease-in-out infinite; }
+.run-chip.done { background: color-mix(in srgb, var(--check) 14%, var(--card)); color: var(--check); }
+.run-chip.failed { background: color-mix(in srgb, var(--bug) 12%, var(--card)); color: var(--bug); }
+.run-chip.stopped { background: var(--warn-bg); color: var(--warn-ink); }
+@keyframes run-pulse { 50% { opacity: .3; } }
+@media (prefers-reduced-motion: reduce) { .run-chip.running::before { animation: none; } }
+
+/* On a card's meta line: small, so a list of them stays calm. */
+.run-go, .run-arm { display: inline-flex; align-items: center; gap: 3px; font: inherit; font-size: 11.5px; line-height: 18px; padding: 0 7px; border-radius: 6px; cursor: pointer;
+	border: 1px solid color-mix(in srgb, var(--run) 40%, var(--line)); background: transparent; color: var(--run); }
+.run-go:hover, .run-arm:hover { background: var(--run-bg); border-color: var(--run); }
+.run-go .gl { width: 12px; height: 12px; margin-right: 1px; }
+.run-go:disabled { opacity: .5; cursor: default; }
+.run-arm.on { background: var(--run); border-color: var(--run); color: var(--card); }
+/* With Answer & send on, the answers say they start the agent too. */
+.card:has(.run-arm.on) .opts .opt:not(.ask-pick) { border-color: var(--run); }
+
+/* In the item dialog. */
+.run-arm-row { display: flex; align-items: flex-start; gap: 8px; margin-top: 8px; font-size: 12.5px; cursor: pointer; }
+.run-arm-row input { margin: 2px 0 0; accent-color: var(--run); width: 14px; height: 14px; flex: none; }
+.run-arm-row small { color: var(--muted); overflow-wrap: anywhere; }
+.run-arm-row[hidden] { display: none; }
+.run-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; color: var(--muted); font-size: 12.5px; }
+.run-head .spacer { flex: 1; }
+.run-err { margin: 8px 0 0; color: var(--bug); overflow-wrap: anywhere; }
+.run-result { margin-top: 8px; padding: 8px 10px; border-radius: 8px; background: var(--bg); border: 1px solid var(--line); overflow-wrap: anywhere; }
+.run-result > :first-child { margin-top: 0; }
+.run-result > :last-child { margin-bottom: 0; }
+.run-tail { margin: 8px 0 0; max-height: 260px; overflow: auto; padding: 8px 10px; border-radius: 8px; background: var(--bg); border: 1px solid var(--line);
+	font: 11.5px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--ink); }
+.run-out { margin-top: 8px; }
+.run-out summary { cursor: pointer; color: var(--muted); font-size: 12.5px; }
+.run-resume { margin-top: 8px; display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; min-width: 0; }
+.run-resume .row { display: flex; gap: 6px; align-items: flex-start; min-width: 0; }
+.run-muted { color: var(--muted); }
+.run-offer { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
+.run-offer small { color: var(--muted); }
+.run-offer .primary { display: inline-flex; align-items: center; gap: 4px; flex: none; }
+.run-offer .gl { width: 13px; height: 13px; }
+
+/* Settings → Agents. */
+.agents-tab .run-cmd { display: flex; flex-direction: column; gap: 8px; }
+.agents-tab .run-cmd textarea { width: 100%; box-sizing: border-box; font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; padding: 8px 10px;
+	border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--ink); resize: vertical; }
+.agents-tab .run-cmd .row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.agents-tab .run-cmd .hint { margin: 0; }
+.agents-tab .run-ok { color: var(--check); }
+.agents-tab .run-bad { color: var(--bug); }
+.agents-tab .run-prompt summary { cursor: pointer; color: var(--muted); font-size: 12.5px; }
+.agents-tab .run-prompt pre { margin: 6px 0 0; padding: 8px 10px; border-radius: 8px; background: var(--bg); border: 1px solid var(--line); white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
+.run-row { display: flex; align-items: center; gap: 10px; }
+.run-row-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.run-row-main small { color: var(--muted); overflow-wrap: anywhere; }
+.run-link { all: unset; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.run-link:hover { text-decoration: underline; }
+.run-link code { color: var(--muted); margin-right: 4px; }
+.run-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+.run-offer .primary:disabled { opacity: .45; cursor: default; }

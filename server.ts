@@ -91,6 +91,7 @@ import { existsSync } from "node:fs";
 import { addStepPhoto, finishRun, removeStepPhoto, runState, saveStep, startOver } from "./checkruns";
 import { addImage, imageData, prepareImage, removeImage, setImageCaption } from "./images";
 import { mcpHttp } from "./mcp";
+import { getRun, listRuns, pollRuns, runPrompt, runsInfo, sendUnblocked, startRun, stopRun, testCommand, type From } from "./dispatch";
 import { refreshUsage, usageData } from "./usage";
 import { agentFiles, integratePrompt, integrateSummary } from "./integrate";
 import { setupStatus } from "./setup";
@@ -267,6 +268,31 @@ export function serve({ lan = false } = {}) {
 		return { ...open, minutes: CODE_MINUTES, urls, qr: urls[0] ? qrSvg(urls[0]) : "" };
 	};
 	const devicesInfo = () => ({ lan, devices: listDevices(db), pairing: pairingInfo() });
+
+	// Agents the board starts (dispatch.ts). Who asks matters: the board's own page on this computer, or a paired
+	// phone, which Settings → Agents has to allow. Anything else starts nothing.
+	const runFrom = (req: Request, srv: Server<unknown>): From | null => {
+		if (boardOnly(req, srv)) return { where: "local", label: "this computer" };
+		const d = loopback(req, srv) ? null : gate.device(req, srv);
+		return d ? { where: "phone", label: `phone (${d.name})` } : null;
+	};
+	// Every 2 s: new output into the runs' tails, and the end of those whose process is gone (also the ones that ended
+	// while the board was off: the first look is now). Unblocked work is sent from here when Settings says so.
+	let runsBusy = false;
+	const watchRuns = async () => {
+		if (runsBusy) return;
+		runsBusy = true;
+		try {
+			pollRuns(db);
+			await sendUnblocked(db);
+		} catch (e) {
+			console.error(`agents: ${(e as Error).message}`);
+		} finally {
+			runsBusy = false;
+		}
+	};
+	watchRuns();
+	setInterval(watchRuns, 2000);
 
 	const server = Bun.serve({
 		port: PORT,
@@ -1098,6 +1124,55 @@ export function serve({ lan = false } = {}) {
 				}),
 			},
 			// Pictures you add on the board: base64 in JSON, like every other write, checked and shrunk like an agent's.
+			// Agents the board starts (dispatch.ts): the limits and what's used, whether this client may start one,
+			// recent runs; one run with its output; start (on an agent's to-do, or answering an ask first); stop.
+			"/api/runs": {
+				GET: async (req, srv) => {
+					const item = new URL(req.url).searchParams.get("item");
+					if (item) return json(listRuns(db, { item: itemId(item), limit: 10 }));
+					return json(await runsInfo(db, runFrom(req, srv)));
+				},
+				POST: jsonOnly(async (req, srv) => {
+					const from = runFrom(req, srv);
+					if (!from) return json({ error: "agents start only from the board on this computer, or a phone paired with it" }, 403);
+					try {
+						const { item, answer, object } = await req.json();
+						const how = answer !== undefined ? { answer: Array.isArray(answer) ? answer.map(String) : String(answer) } : object !== undefined ? { object: String(object) } : {};
+						const run = await startRun(db, itemId(String(item)), from, how);
+						return json({ run, item: getItem(db, run.item_id) }, 201);
+					} catch (e) {
+						return fail(e);
+					}
+				}),
+			},
+			"/api/runs/test": {
+				POST: jsonOnly(async (req, srv) => {
+					if (!boardOnly(req, srv)) return json({ error: SETTINGS_LOCAL }, 403);
+					const { command } = await req.json().catch(() => ({}));
+					return json(await testCommand(String(command || getSettings(db)["agents.command"])));
+				}),
+			},
+			"/api/runs/prompt/:id": (req) => {
+				try {
+					return json({ prompt: runPrompt(db, getItem(db, itemId(req.params.id))!) });
+				} catch (e) {
+					return fail(e);
+				}
+			},
+			"/api/runs/:id": (req) => {
+				const r = getRun(db, Number(req.params.id));
+				return r ? json(r) : json({ error: "no such run" }, 404);
+			},
+			"/api/runs/:id/stop": {
+				POST: jsonOnly(async (req, srv) => {
+					if (!runFrom(req, srv)) return json({ error: "runs stop only from the board on this computer, or a phone paired with it" }, 403);
+					try {
+						return json(await stopRun(db, Number(req.params.id)));
+					} catch (e) {
+						return fail(e);
+					}
+				}),
+			},
 			"/api/items/:id/images": {
 				POST: jsonOnly(async (req) => {
 					try {

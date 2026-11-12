@@ -99,6 +99,7 @@ import {
 	type TrackerPatch,
 } from "./trackers";
 import { briefText } from "./today";
+import { latestRun, runLine } from "./dispatch";
 
 const BOARD = `http://localhost:${Number(process.env.WB_PORT ?? 4321)}`;
 const MODERN = "2026-07-28";
@@ -127,6 +128,7 @@ const INSTRUCTIONS = `The workbench is {{name}}'s local board of open work acros
 - When you start work {{name}} gave you: find its item (list_items with q) and start_item it, or add_item one and start it. One item per piece of work {{name}} would recognise.
 - finish_item with a note on what changed and where (commit, branch). wait_item when blocked. Everything you leave for {{name}} is its own item.
 - When you're blocked on {{name}} (a decision, a check, a setup step), file that as its own item and wait on it: add_item with blocks: <your item> does both in one call, or wait_item with on: <that item>. The board then puts your item back to todo, with the answer in its history, the moment it's answered or finished: don't poll. Items that hold up the most waiting work show first for {{name}} (unblocks in list_items).
+- The board can start an agent on an item itself ({{name}}'s Run or Answer & send): then nobody watches the session, so put questions on the board, not in the chat. Agents never start agents: there is no tool for it, and wb run is {{name}}'s. get_item shows an item's latest run.
 - {{name}} doesn't open files. An item has to make sense by itself, in plain words: put the content in the body instead of pointing at docs/x.md or PLAN §3, say where things are in the app rather than in the code, and attach a screenshot (attach_image) for anything on screen. add_item has the details, and warns you about what it can see is missing: fix those with update_item.
 - Rulings are {{name}}'s standing answers in a project, one line each: project_overview lists them, list_rulings searches them. Read them before you ask {{name}} anything, and follow them. An answered decision gets a drafted ruling ("<question>: <answer>"); when you pick one up, rewrite that draft as one clear line with update_ruling. add_ruling for a rule {{name}} states in the conversation; retire_ruling when one no longer holds.
 - Every report you publish gets its own icon in colour (publish_report's icon), so the sidebar reads at a glance.
@@ -363,6 +365,12 @@ const linkJson = (l: { ref: string; title: string; status: string; owner: string
 	answer: l.answer || undefined,
 });
 
+/** The latest agent run the board started on it (dispatch.ts), for get_item; undefined when none. */
+function runJson(db: Db, id: number) {
+	const r = latestRun(db, id);
+	return r ? { id: r.id, status: r.status, started_at: r.started_at, ended_at: r.ended_at ?? undefined, session: r.session || undefined, cost: r.cost ?? undefined, error: r.error || undefined, result: r.result ? r.result.slice(0, 500) : undefined } : undefined;
+}
+
 function itemText(c: Conn, i: NonNullable<ReturnType<typeof getItem>>) {
 	const lines = [
 		`wb-${i.ref}: ${i.title}`,
@@ -381,12 +389,14 @@ function itemText(c: Conn, i: NonNullable<ReturnType<typeof getItem>>) {
 	if (i.default_answer) lines.push("", `if ${yourName(c.db)} says nothing: ${defaultText(i)}`);
 	if (deadlineText(i) && OPEN.includes(i.status)) lines.push(`deadline: ${deadlineText(i)}`);
 	if (i.answer) lines.push("", `answer: ${i.answer}`);
-	const run = runText(c.db, i.id);
-	if (run) lines.push("", run);
+	const checkRun = runText(c.db, i.id);
+	if (checkRun) lines.push("", checkRun);
 	if (i.waits_on.length) lines.push("", "waits on:", ...i.waits_on.map((l) => `  ${linkLine(l)}`));
 	if (i.blocks.length) lines.push("", "blocks (waiting on this):", ...i.blocks.map((l) => `  ${linkLine(l)}`));
 	const rulings = itemRulings(c.db, i.id);
 	if (rulings.length) lines.push("", "rulings from it:", ...rulings.map((r) => `  ${rulingLine(r)}`));
+	const run = latestRun(c.db, i.id);
+	if (run) lines.push("", `latest agent run the board started: ${runLine(run)}`);
 	lines.push("", "history:", ...i.notes.map((n) => `  ${n.at} ${n.author ? `${n.author}: ` : ""}${n.text}`));
 	return lines.join("\n");
 }
@@ -850,7 +860,7 @@ const TOOLS: Tool[] = [
 		hints: RO,
 		run(a, c) {
 			const i = getItem(c.db, itemId(c, a.ref))!;
-			return { text: itemText(c, i), data: { item: { ...itemJson(i), body: i.body, sources: i.sources || undefined, images: i.images.length ? i.images.map(({ id, caption, width, height }) => ({ id, caption, width, height })) : undefined, notes: i.notes.map(({ at, author, text }) => ({ at, author, text })), waits_on: i.waits_on.length ? i.waits_on.map(linkJson) : undefined, blocks: i.blocks.length ? i.blocks.map(linkJson) : undefined, check_run: runData(c.db, i.id) } }, links: [itemLink(i)] };
+			return { text: itemText(c, i), data: { item: { ...itemJson(i), body: i.body, sources: i.sources || undefined, images: i.images.length ? i.images.map(({ id, caption, width, height }) => ({ id, caption, width, height })) : undefined, notes: i.notes.map(({ at, author, text }) => ({ at, author, text })), waits_on: i.waits_on.length ? i.waits_on.map(linkJson) : undefined, blocks: i.blocks.length ? i.blocks.map(linkJson) : undefined, check_run: runData(c.db, i.id), run: runJson(c.db, i.id) } }, links: [itemLink(i)] };
 		},
 	},
 	{
