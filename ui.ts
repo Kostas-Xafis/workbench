@@ -20,6 +20,7 @@ import linksCss from "./ui/links.css" with { type: "file" };
 import linksJs from "./ui/links.js" with { type: "file" };
 import notifyJs from "./ui/notify.js" with { type: "file" };
 import phoneCss from "./ui/phone.css" with { type: "file" };
+import phonesCss from "./ui/phones.css" with { type: "file" };
 import projectsCss from "./ui/projects.css" with { type: "file" };
 import projectsJs from "./ui/projects.js" with { type: "file" };
 import railCss from "./ui/rail.css" with { type: "file" };
@@ -32,6 +33,7 @@ import searchJs from "./ui/search.js" with { type: "file" };
 import settingsDataJs from "./ui/settings-data.js" with { type: "file" };
 import settingsLookJs from "./ui/settings-look.js" with { type: "file" };
 import settingsNotifyJs from "./ui/settings-notify.js" with { type: "file" };
+import settingsPhonesJs from "./ui/settings-phones.js" with { type: "file" };
 import settingsPrivacyJs from "./ui/settings-privacy.js" with { type: "file" };
 import settingsProjectsJs from "./ui/settings-projects.js" with { type: "file" };
 import settingsYouJs from "./ui/settings-you.js" with { type: "file" };
@@ -69,6 +71,7 @@ export const UI: Record<string, string> = {
 	"links.js": linksJs,
 	"notify.js": notifyJs,
 	"phone.css": phoneCss,
+	"phones.css": phonesCss,
 	"projects.css": projectsCss,
 	"projects.js": projectsJs,
 	"rail.css": railCss,
@@ -81,6 +84,7 @@ export const UI: Record<string, string> = {
 	"settings-data.js": settingsDataJs,
 	"settings-look.js": settingsLookJs,
 	"settings-notify.js": settingsNotifyJs,
+	"settings-phones.js": settingsPhonesJs,
 	"settings-privacy.js": settingsPrivacyJs,
 	"settings-projects.js": settingsProjectsJs,
 	"settings-you.js": settingsYouJs,

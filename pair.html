@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pair this phone · Workbench</title>
+<!-- What a phone shows before it's paired (devices.ts). Everything is in this file: the board's own styles and scripts
+     need a paired phone. -->
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/icons/icon-256.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Workbench">
+<meta name="theme-color" content="#f6f5f2" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#151514" media="(prefers-color-scheme: dark)">
+<script>try { const t = JSON.parse(localStorage.getItem("wb.pref.look.theme")); if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; } catch {}</script>
+<style>
+:root { --bg: #f6f5f2; --card: #ffffff; --ink: #1d1c1a; --muted: #6f6b64; --line: #e3e0da; --hover: #efede8;
+	--accent: #3d5afe; --accent-ink: #ffffff; --bad: #dc2626; --good: #15803d; --warn-bg: #fff4dc; --warn-ink: #8a5300; color-scheme: light; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg: #151514; --card: #1f1f1d; --ink: #ecebe8; --muted: #a29e96;
+	--line: #33322f; --hover: #2a2a27; --accent: #8c9eff; --accent-ink: #10132b; --bad: #ff7b7b; --good: #5fcf86; --warn-bg: #3a2c10; --warn-ink: #ffcf7a; color-scheme: dark; } }
+:root[data-theme="dark"] { --bg: #151514; --card: #1f1f1d; --ink: #ecebe8; --muted: #a29e96; --line: #33322f; --hover: #2a2a27;
+	--accent: #8c9eff; --accent-ink: #10132b; --bad: #ff7b7b; --good: #5fcf86; --warn-bg: #3a2c10; --warn-ink: #ffcf7a; color-scheme: dark; }
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body { margin: 0; min-height: 100dvh; background: var(--bg); color: var(--ink); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+	display: grid; place-items: start center; padding: max(24px, 6vh) 16px 32px; }
+main { width: 100%; max-width: 420px; background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 24px 20px; }
+.head { display: flex; gap: 12px; align-items: center; margin-bottom: 14px; }
+.head img { width: 40px; height: 40px; flex: none; }
+h1 { font-size: 18px; margin: 0; line-height: 1.25; }
+.head small { color: var(--muted); font-size: 13px; }
+ol { margin: 0 0 18px; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; }
+ol b { font-weight: 600; }
+label { display: flex; flex-direction: column; gap: 5px; font-size: 13px; font-weight: 600; margin-bottom: 14px; }
+input { font: inherit; color: inherit; background: var(--bg); border: 1px solid var(--line); border-radius: 9px; padding: 10px 12px; font-weight: 400; width: 100%; }
+input:focus-visible { outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent); outline-offset: -1px; }
+#code { font: 22px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .12em; text-transform: uppercase; text-align: center; }
+button { width: 100%; background: var(--accent); color: var(--accent-ink); border: 0; border-radius: 9px; padding: 11px 14px; font: inherit; font-weight: 600; cursor: pointer; }
+button:disabled { opacity: .6; cursor: default; }
+.error { color: var(--bad); font-size: 13.5px; margin: -4px 0 12px; }
+.done { color: var(--good); font-weight: 600; }
+.note { margin: 16px 0 0; padding: 9px 11px; border-radius: 9px; background: var(--warn-bg); color: var(--warn-ink); font-size: 12.5px; }
+.muted { color: var(--muted); font-size: 13px; }
+a { color: var(--accent); }
+</style>
+</head>
+<body>
+<main>
+	<div class="head"><img src="/favicon.svg" alt=""><div><h1>Pair this phone with the board</h1><small>Once, and it stays paired</small></div></div>
+	<div id="local" hidden><p>This is the computer the board runs on, which needs no pairing. <a href="/">Open the board</a></p></div>
+	<form id="form" autocomplete="off">
+		<ol>
+			<li>On the computer, open the board's <b>Settings → Privacy and security</b> and click <b>Pair a phone</b>.</li>
+			<li>Scan the QR code it shows with this phone's camera, or type the code here.</li>
+		</ol>
+		<label>Code<input id="code" name="code" inputmode="text" autocapitalize="characters" spellcheck="false" maxlength="11" placeholder="XXXX-XXXX" required></label>
+		<label>Name for this phone<input id="name" name="name" maxlength="60" placeholder="My phone"><span class="muted" style="font-weight:400">Shown in Settings on the computer, where you can remove it.</span></label>
+		<p id="error" class="error" role="alert" hidden></p>
+		<button type="submit" id="go">Pair this phone</button>
+	</form>
+	<p id="paired" class="done" hidden>Paired. Opening the board…</p>
+	<p class="note">The board talks to phones over plain http, without encryption: pair only on a network you trust.</p>
+</main>
+<script>
+(() => {
+	const $ = (s) => document.querySelector(s);
+	const q = new URLSearchParams(location.search);
+	// Where the phone was going (and its #…, which the redirect kept): only this board's own pages.
+	const want = q.get("next") || "/";
+	const next = (/^\/(?![/\\])/.test(want) ? want : "/") + location.hash;
+	const go = () => location.replace(next);
+	const fmt = (s) => { const c = s.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 8); return c.length > 4 ? `${c.slice(0, 4)}-${c.slice(4)}` : c; };
+	const code = $("#code"), name = $("#name");
+	if (q.get("code")) code.value = fmt(q.get("code"));
+	code.addEventListener("input", () => { const at = code.selectionStart === code.value.length; code.value = fmt(code.value); if (at) code.setSelectionRange(code.value.length, code.value.length); });
+	// Paired already (a link from another site opens this page without the cookie; this fetch sends it), or the computer itself.
+	fetch("/api/pair", { cache: "no-store" }).then((r) => r.json()).then((s) => {
+		if (s.paired) return go();
+		if (s.local) { $("#local").hidden = false; }
+		if (!name.value) name.value = s.name || "";
+		(code.value.length === 9 ? $("#go") : code).focus();
+	}).catch(() => {});
+	$("#form").addEventListener("submit", async (e) => {
+		e.preventDefault();
+		$("#error").hidden = true;
+		$("#go").disabled = true;
+		$("#go").textContent = "Pairing…";
+		try {
+			const r = await fetch("/api/pair", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ code: code.value, name: name.value }) });
+			const data = await r.json().catch(() => ({}));
+			if (!r.ok) throw new Error(data.error || r.statusText);
+			$("#form").hidden = true;
+			$("#paired").hidden = false;
+			setTimeout(go, 600);
+		} catch (err) {
+			$("#error").textContent = err.message;
+			$("#error").hidden = false;
+			$("#go").disabled = false;
+			$("#go").textContent = "Pair this phone";
+		}
+	});
+})();
+</script>
+</body>
+</html>

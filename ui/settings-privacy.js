@@ -10,7 +10,7 @@ const privacy = {
 	fetchShares: () => api("/api/shares"),
 };
 async function setPrivacyLoad() {
-	const [info, shares] = await Promise.allSettled([api("/api/settings/privacy"), privacy.fetchShares()]);
+	const [info, shares] = await Promise.allSettled([api("/api/settings/privacy"), privacy.fetchShares(), phonesLoad()]);
 	if (info.status === "fulfilled") privacy.info = info.value;
 	if (shares.status === "fulfilled") privacy.shares = shares.value;
 	const failed = [info, shares].find((r) => r.status === "rejected");
@@ -124,8 +124,8 @@ function pvReach(info) {
 		!info
 			? pvFact("off", "", "The board", "Loading…")
 			: info.lan
-				? pvFact("warn", "Your network", "The board: items, reports, links, trackers", `Listens on your network (<code>wb serve --lan</code>): anyone on it can open and change the board, as there's no login. Settings → Health shows the address for your phone.`)
-				: pvFact("ok", "This computer", "The board: items, reports, links, trackers", `Listens on this computer only (localhost:${esc(info.port)}). <code>wb serve --lan</code> would open it to your network.`),
+				? pvFact("warn", "Paired phones", "The board: items, reports, links, trackers", `Listens on your network (<code>wb serve --lan</code>): phones paired under Phones above open and change it; anything else gets only the pairing page. Over plain http, so only on a network you trust.`)
+				: pvFact("ok", "This computer", "The board: items, reports, links, trackers", `Listens on this computer only (localhost:${esc(info.port)}). <code>wb serve --lan</code> would open it to phones you pair.`),
 		pvFact("ok", "This computer", "Vault", "Answers only this computer, and only with the password. Nothing in it is readable without the password, not even by the board."),
 		pvFact("ok", "This computer", "Data sources", "Called only by the board's own page on this computer: not from the phone, other websites or share links."),
 		pvFact("ok", "This computer", "Settings and starting shares", "Changing settings, projects and tracker commands, and starting or stopping a share, work only on this computer."),
@@ -169,7 +169,7 @@ function setPrivacyRender() {
 	const info = privacy.info;
 	return `<p class="set-intro">What's open to whom, and how long secrets and share links stay out.</p>
 		${privacy.error ? `<p class="error">${esc(privacy.error)}</p>` : ""}
-		${pvVault(info)}${pvSharing()}${pvReach(info)}${pvSources(info)}`;
+		${pvVault(info)}${pvSharing()}${pvPhones()}${pvReach(info)}${pvSources(info)}`;
 }
 
 onSettingsChange(async (key) => {

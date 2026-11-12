@@ -5,6 +5,14 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Workbench</title>
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<!-- On a phone, "Add to Home Screen" makes the board an app with its own icon (README → "From the phone"). -->
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/icons/icon-256.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Workbench">
+<meta name="theme-color" content="#f6f5f2" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#151514" media="(prefers-color-scheme: dark)">
 <!-- Settings → Appearance: the theme picked in this browser, set before the first paint so a reload doesn't flash. -->
 <script>try { const t = JSON.parse(localStorage.getItem("wb.pref.look.theme")); if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; } catch {}</script>
 <!-- The board's styles and scripts are in ui/ (README → "The board's page"); the server sends each file listed in ui.ts. -->
@@ -27,6 +35,7 @@
 <link rel="stylesheet" href="/ui/links.css">
 <link rel="stylesheet" href="/ui/rulings.css">
 <link rel="stylesheet" href="/ui/goals.css">
+<link rel="stylesheet" href="/ui/phones.css">
 <!-- end: features -->
 </head>
 <body>
@@ -293,6 +302,7 @@
 <script src="/ui/links.js"></script>
 <script src="/ui/rulings.js"></script>
 <script src="/ui/goals.js"></script>
+<script src="/ui/settings-phones.js"></script>
 <!-- end: features -->
 <script src="/ui/boot.js"></script>
 </body>

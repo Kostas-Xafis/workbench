@@ -50,13 +50,19 @@ import type { Server } from "bun";
 import pagePath from "./index.html" with { type: "file" };
 import usagePath from "./usage.html" with { type: "file" };
 import iconPath from "./icon.svg" with { type: "file" };
+// Pairing a phone (devices.ts): its page, and the app icons a phone puts on its home screen.
+import pairPath from "./pair.html" with { type: "file" };
+import icon256Path from "./src-tauri/icons/256x256.png" with { type: "file" };
+import icon512Path from "./src-tauri/icons/icon.png" with { type: "file" };
+import { addDevice, CODE_MINUTES, deviceCookie, deviceName, listDevices, Pairing, phoneGate, removeAllDevices, removeDevice } from "./devices";
+import { qrSvg } from "./qr";
 import { checkUi, uiFile } from "./ui";
 import pkg from "./package.json";
 import { DB_PATH } from "./db";
 import { archivedDay, currentDay, publishDays } from "./day";
 import { todayData } from "./today";
 import { codeLinks, repoState, type CodeLinks } from "./git";
-import { candidateFolders, checkFolder, folderState, health } from "./health";
+import { candidateFolders, checkFolder, folderState, health, lanUrls } from "./health";
 import { addGoal, goalsWithStats, itemGoals, moveGoal, updateGoal, type GoalPatch } from "./goals";
 import { getSettings, settingDefs, updateSettings } from "./settings";
 import { addRuling, getRuling, listRulings, updateRuling } from "./rulings";
@@ -234,15 +240,36 @@ export function serve({ lan = false } = {}) {
 		return id;
 	};
 
+	// Phones (devices.ts): a request from another address needs a paired device's token, except on the routes that
+	// pair one (PAIR_OPEN). The page and its scripts, the API, reports, images: everything else.
+	const pairing = new Pairing();
+	const PAIR_OPEN = ["/pair", "/api/pair", "/manifest.webmanifest", "/icons/:file", "/favicon.svg"];
+	const gate = phoneGate(db, { port: PORT, loopback, open: PAIR_OPEN });
+	const pairPage = Bun.file(pairPath as unknown as string);
+	const APP_ICONS: Record<string, string> = { "icon-256.png": icon256Path, "icon-512.png": icon512Path };
+	// What Settings shows while a code is open: the code, until when, and the address with it for the QR code.
+	const pairingInfo = () => {
+		const open = pairing.current();
+		if (!open) return null;
+		const urls = lanUrls(PORT).map((u) => `${u}/pair?code=${open.code}`);
+		return { ...open, minutes: CODE_MINUTES, urls, qr: urls[0] ? qrSvg(urls[0]) : "" };
+	};
+	const devicesInfo = () => ({ lan, devices: listDevices(db), pairing: pairingInfo() });
+
 	const server = Bun.serve({
 		port: PORT,
-		// Loopback unless asked: there is no login, so anyone who can reach the port can edit.
+		// Loopback unless asked. On the network, only phones paired in Settings get in (the gate above).
 		hostname: lan ? "0.0.0.0" : "127.0.0.1",
 		// The first look at pull requests per project can take gh several seconds.
 		idleTimeout: 30,
-		routes: {
+		routes: gate.routes({
 			// no-cache: the browser asks again each time (cheap, it gets 304), so an updated board shows at once.
-			"/": () => new Response(page, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-cache" } }),
+			// A paired phone gets its cookie again, so it lasts as long as the phone keeps opening the board.
+			"/": (req, srv) => {
+				const res = new Response(page, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-cache" } });
+				if (!loopback(req, srv) && gate.device(req, srv)) res.headers.append("set-cookie", deviceCookie(PORT, gate.token(req)));
+				return res;
+			},
 			// The page's style sheets and scripts (ui.ts).
 			"/ui/:file": (req) => uiFile(req.params.file),
 			// What the desktop app asks to tell a running board from anything else on the port: cheap, no auth, no database.
@@ -265,6 +292,103 @@ export function serve({ lan = false } = {}) {
 			},
 			"/favicon.svg": () =>
 				new Response(icon, { headers: { "content-type": "image/svg+xml", "cache-control": "max-age=3600" } }),
+
+			// Phones: pairing, the paired devices, and what makes the board an app on a home screen (devices.ts).
+			// The pairing page, its call, the manifest and the app icons answer without a token (PAIR_OPEN): they say
+			// nothing about the board.
+			"/pair": (req, srv) => {
+				// Already paired: on to the board (or where the phone was going).
+				if (!loopback(req, srv) && gate.device(req, srv)) {
+					const next = new URL(req.url).searchParams.get("next") ?? "";
+					return new Response(null, { status: 302, headers: { location: /^\/(?![/\\])/.test(next) ? next : "/", "cache-control": "no-store" } });
+				}
+				return new Response(pairPage, {
+					headers: {
+						"content-type": "text/html; charset=utf-8",
+						"cache-control": "no-store",
+						"content-security-policy": "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; frame-ancestors 'none'",
+					},
+				});
+			},
+			"/api/pair": {
+				// Whether this phone is paired (the page's own fetch sends the cookie even when a link from another site
+				// opened the page without it), and a name to offer for it.
+				GET: (req, srv) => {
+					const d = gate.device(req, srv);
+					return json({ paired: !!d, local: loopback(req, srv), name: d?.name ?? deviceName(req.headers.get("user-agent") ?? "") });
+				},
+				// A code from Settings, typed or scanned: the phone gets its token as a cookie the page can't read.
+				POST: jsonOnly(async (req, srv) => {
+					const ip = srv.requestIP(req)?.address ?? "";
+					try {
+						const { code, name } = await req.json().catch(() => ({}));
+						pairing.redeem(String(code ?? ""), ip);
+						const { device, token } = addDevice(db, { name: String(name ?? ""), ip, ua: req.headers.get("user-agent") ?? "" });
+						console.log(`phone paired: ${device.name} (${device.id}) from ${ip}`);
+						return Response.json(
+							{ device: { id: device.id, name: device.name } },
+							{ status: 201, headers: { "set-cookie": deviceCookie(PORT, token), "cache-control": "no-store" } },
+						);
+					} catch (e) {
+						// Slows down guessing, on top of the limits in Pairing.redeem.
+						await Bun.sleep(400);
+						return json({ error: (e as Error).message }, (e as { status?: number }).status ?? 400);
+					}
+				}),
+			},
+			"/manifest.webmanifest": () =>
+				Response.json(
+					{
+						id: "/",
+						name: "Workbench",
+						short_name: "Workbench",
+						description: "Your board of open work across projects",
+						start_url: "/",
+						scope: "/",
+						display: "standalone",
+						background_color: "#f6f5f2",
+						theme_color: "#f6f5f2",
+						icons: [
+							{ src: "/icons/icon-256.png", sizes: "256x256", type: "image/png" },
+							{ src: "/icons/icon-512.png", sizes: "512x512", type: "image/png" },
+						],
+					},
+					{ headers: { "content-type": "application/manifest+json", "cache-control": "max-age=3600" } },
+				),
+			"/icons/:file": (req) =>
+				Object.hasOwn(APP_ICONS, req.params.file)
+					? new Response(Bun.file(APP_ICONS[req.params.file]), { headers: { "content-type": "image/png", "cache-control": "max-age=86400" } })
+					: new Response("not found", { status: 404 }),
+			// Settings → Privacy and security → Phones: this computer only, like the rest of Settings.
+			"/api/devices": {
+				GET: (req, srv) => (localRead(req, srv) ? json(devicesInfo()) : json({ error: SETTINGS_LOCAL }, 403)),
+				// Remove all: every phone has to pair again.
+				DELETE: jsonOnly((req, srv) => {
+					if (!boardOnly(req, srv)) return json({ error: SETTINGS_LOCAL }, 403);
+					removeAllDevices(db);
+					return json(devicesInfo());
+				}),
+			},
+			"/api/devices/pairing": {
+				// A new code (it replaces one still open), good for CODE_MINUTES and one phone.
+				POST: jsonOnly((req, srv) => {
+					if (!boardOnly(req, srv)) return json({ error: SETTINGS_LOCAL }, 403);
+					pairing.open();
+					return json(devicesInfo(), 201);
+				}),
+				DELETE: jsonOnly((req, srv) => {
+					if (!boardOnly(req, srv)) return json({ error: SETTINGS_LOCAL }, 403);
+					pairing.close();
+					return json(devicesInfo());
+				}),
+			},
+			"/api/devices/:id": {
+				DELETE: jsonOnly((req, srv) => {
+					if (!boardOnly(req, srv)) return json({ error: SETTINGS_LOCAL }, 403);
+					if (!removeDevice(db, req.params.id)) return json({ error: "no such device" }, 404);
+					return json(devicesInfo());
+				}),
+			},
 			"/api/projects": {
 				GET: () => json(projectsWithCounts(db)),
 				// Settings → Projects. A folder decides where git and tracker commands run, so projects change only
@@ -491,7 +615,7 @@ export function serve({ lan = false } = {}) {
 			"/api/settings/folders": (req, srv) =>
 				localRead(req, srv) ? json(candidateFolders(db)) : json({ error: SETTINGS_LOCAL }, 403),
 			"/api/settings/health": async (req, srv) =>
-				localRead(req, srv) ? json({ ...(await health(db, { port: PORT, lan })), integrate: integrateSummary(db) }) : json({ error: SETTINGS_LOCAL }, 403),
+				localRead(req, srv) ? json({ ...(await health(db, { port: PORT, lan })), integrate: integrateSummary(db), devices: listDevices(db).length }) : json({ error: SETTINGS_LOCAL }, 403),
 			// The setup guide (#welcome) and its checklist: what's set up, checked now (setup.ts). This computer only,
 			// like Health: it reads Claude Code's config and the projects' folders.
 			"/api/setup": async (req, srv) =>
@@ -977,8 +1101,8 @@ export function serve({ lan = false } = {}) {
 					}
 				}),
 			},
-		},
-		fetch: () => new Response("not found", { status: 404 }),
+		}),
+		fetch: (req, srv) => gate.check(req, srv) ?? new Response("not found", { status: 404 }),
 	});
 	// Shares outlive the board (see share.ts): take back the ones still running, close the expired ones.
 	resumeShares(db);

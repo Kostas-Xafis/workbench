@@ -160,6 +160,8 @@ const DOC = `<svg class="doc-ic" viewBox="0 0 16 16" fill="none" stroke="current
 
 async function api(path, opts = {}) {
 	const res = await fetch(path, { ...opts, headers: { "content-type": "application/json", ...opts.headers } });
+	// A phone that was removed in Settings (devices.ts): back to the pairing page, keeping where it was.
+	if (res.status === 401 && res.headers.get("x-wb-pair")) location.replace(`/pair${location.hash}`);
 	const data = await res.json();
 	if (!res.ok) throw new Error(data.error || res.statusText);
 	return data;
