@@ -240,12 +240,14 @@ function healthCards(h) {
 	const restart = su.underSystemd
 		? `<span class="muted">Add <code>--lan</code> to the end of the <code>ExecStart</code> line in <code>${esc(su.unitPath)}</code>, then:</span>${cmdRow("systemctl --user daemon-reload && systemctl --user restart workbench")}`
 		: `<span class="muted">Stop this board, then start it with:</span>${cmdRow("wb serve --lan")}`;
-	const qr = ph.urls[0]?.qr ? `<div class="set-qr" title="Scan to open the board">${ph.urls[0].qr}</div>` : "";
+	// Phones pair in Privacy and security (settings-phones.js); the button here takes you there with a code showing.
+	const paired = h.devices ?? 0;
 	const phone = card(ph.lan ? "ok" : "off", "Phone", ph.lan
-		? `<p>On: anyone on this network can open and change the board. There's no login, so keep it to networks you trust.</p>
-			<div class="row" style="align-items:flex-start;flex-wrap:nowrap">${qr}<div style="display:flex;flex-direction:column;gap:4px;min-width:0">${ph.urls.map((u) => `<a href="${esc(u.url)}" target="_blank" rel="noreferrer">${esc(u.url)}</a>`).join("") || `<span class="muted">No network address found.</span>`}</div></div>
-			<p class="hint">The vault, data sources and Settings stay on this computer.</p>`
-		: `<p>Off: the board answers this computer only. To open it from your phone, it has to listen on the network. There's no login, so do that only on a network you trust.</p>${h.app ? `<p>In the Workbench app, switch it on in the tray menu: <b>Phone access (on my network)</b>.</p>` : restart}`);
+		? `<p>On: phones you pair open and change the board; anything else on your network gets only the pairing page. ${paired ? `${paired} phone${paired === 1 ? "" : "s"} paired.` : "No phone paired yet."}</p>
+			<div style="display:flex;flex-direction:column;gap:4px;min-width:0">${ph.urls.map((u) => `<code>${esc(u.url)}</code>`).join("") || `<span class="muted">No network address found.</span>`}</div>
+			<div class="row"><button type="button" class="primary sm" data-phones="pair">Pair a phone</button></div>
+			<p class="hint">Over plain http, without encryption: only on a network you trust. The vault, data sources and Settings stay on this computer.</p>`
+		: `<p>Off: the board answers this computer only. To open it from your phone, it has to listen on the network; phones then pair once with a code from Privacy and security. It's plain http, so do that only on a network you trust.</p>${h.app ? `<p>In the Workbench app, switch it on in the tray menu: <b>Phone access (on my network)</b>.</p>` : restart}`);
 	let startup;
 	if (h.app) startup = card("", "Start on login", "<p>The Workbench app handles this itself. Switch it in the app's tray menu: <b>Start on login</b>.</p>");
 	else if (!su.supported) startup = card("off", "Start on login", "<p>Set up here only on Linux with systemd. Elsewhere, start the board from your login items (the README has the command).</p>");

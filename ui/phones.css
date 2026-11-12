@@ -1,0 +1,17 @@
+/* Settings → Privacy and security → Phones (settings-phones.js) */
+.ph-pair { display: flex; gap: 16px; align-items: flex-start; }
+.ph-qr { flex: none; width: 168px; }
+.ph-pair-main { min-width: 0; display: flex; flex-direction: column; gap: 5px; }
+.ph-pair-main > b { font-size: 13.5px; }
+.ph-pair-main small { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+.ph-pair-main .row { margin-top: 4px; }
+.ph-code { font: 600 26px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .1em; padding: 4px 0; user-select: all; }
+.ph-plain { padding: 6px 9px; border-radius: 8px; background: var(--warn-bg); color: var(--warn-ink) !important; }
+.ph-dev { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; align-items: center; }
+.ph-dev-main { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.ph-dev-main b { font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ph-dev-main small { color: var(--muted); font-size: 12px; }
+@media (max-width: 520px) {
+	.ph-pair { flex-direction: column; align-items: stretch; }
+	.ph-qr { width: 200px; align-self: center; }
+}

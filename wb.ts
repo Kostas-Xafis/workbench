@@ -134,7 +134,10 @@ Items are named wb-xxxx (e.g. wb-k3f9); commands take that, the bare k3f9, or an
   wb project <slug> <path> "Name"  add or update a project
   wb project <slug> --icon <file>  use this logo (path in the repo); --icon "" = find one again
   wb project <slug> --archive      take a finished project off the board (--unarchive brings it back)
-  wb serve [--lan]                 run the board on http://localhost:${PORT}
+  wb serve [--lan]                 run the board on http://localhost:${PORT}; --lan also on your network, for
+                                   phones paired in Settings → Privacy and security (plain http: a trusted network only)
+  wb devices                       phones paired with the board, and when each was last seen
+  wb unpair <id|all>               remove a phone (or every one): it stops reaching the board at once
   wb open                          open the desktop app; without it, start the board and open the browser
 
 Options for add/edit:
@@ -851,6 +854,23 @@ try {
 			upsertProject(db, { slug, path: path.replace(/\/$/, ""), name: name ?? slug });
 			if (o.icon !== undefined) setProjectIcon(db, slug, o.icon);
 			console.log(`project ${slug} → ${path}`);
+			break;
+		}
+		case "devices": {
+			const { listDevices } = await import("./devices");
+			const list = listDevices(db);
+			if (!list.length) console.log("no phones paired: pair one in Settings → Privacy and security, with the board under --lan");
+			for (const d of list)
+				console.log(`${d.id}  ${d.name.padEnd(24)} paired ${d.paired_at}  last seen ${d.last_seen_at ?? "never"}${d.last_ip ? ` from ${d.last_ip}` : ""}`);
+			break;
+		}
+		case "unpair": {
+			const { removeAllDevices, removeDevice } = await import("./devices");
+			const id = args[1];
+			if (!id) die("usage: wb unpair <id|all> (wb devices lists them)");
+			if (id === "all") console.log(`${removeAllDevices(db)} phones removed`);
+			else if (removeDevice(db, id)) console.log(`phone ${id} removed`);
+			else die(`no phone ${id} (wb devices lists them)`);
 			break;
 		}
 		case "serve": {

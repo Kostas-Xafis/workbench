@@ -186,7 +186,8 @@ function claudeConfig(): string {
 	}
 }
 
-function lanUrls(port: number) {
+/** The board's addresses on this computer's networks (IPv4, not loopback), for a phone. */
+export function lanUrls(port: number) {
 	const out: string[] = [];
 	for (const list of Object.values(networkInterfaces()))
 		for (const a of list ?? []) if (a.family === "IPv4" && !a.internal) out.push(`http://${a.address}:${port}`);

@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import { createTables as createImageTables, itemImages, type ImageInfo } from "./images";
 import { createSettingsTable, getSetting, getSettings, ownerFor } from "./settings";
 import { createTables as createTrackerTables } from "./trackers";
+import { createDeviceTables } from "./devices";
 
 export const KINDS = ["task", "check", "review", "decision", "setup", "bug", "idea"] as const;
 export const STATUSES = ["todo", "doing", "waiting", "done", "dropped"] as const;
@@ -197,6 +198,8 @@ export function open(path = DB_PATH) {
 	createTrackerTables(db);
 	// Board-wide settings (see settings.ts).
 	createSettingsTable(db);
+	// Phones paired for `--lan` (see devices.ts).
+	createDeviceTables(db);
 	// When an MCP client last called the board, per transport, for the setup guide (see setup.ts). Here rather
 	// than in setup.ts, which reads health.ts and would make an import cycle.
 	db.run(`CREATE TABLE IF NOT EXISTS mcp_contact (
