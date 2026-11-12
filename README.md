@@ -83,6 +83,20 @@ bun run nightly --no-launch     # build and install only
 - **Where it goes:** the AppImage at `~/Applications/Workbench-Nightly.AppImage`, its launcher entry in `~/.local/share/applications/workbench-nightly.desktop`. To remove it: delete those two and `~/.local/share/workbench-nightly/`.
 - **Faster, for the page alone:** `WB_PORT=4399 WB_DB=<copy> bun server.ts` and a browser at `localhost:4399` show a page or server change in seconds, without building the app (see "Development" above).
 
+## Tests
+
+```bash
+bun test                       # everything, in a second or two
+bun test test/mcp.test.ts      # one area
+bun test -t "round trip"       # tests whose name matches
+```
+
+`test/` has one file per area: `db` (projects, items, decisions, search, reports, settings), `trackers` (the reading parser and levels), `mcp` (a client's JSON-RPC against the same entry the board serves at `/mcp`) and `server` (the HTTP write guard and the localhost-only routes, on a real server on port 4401). `bun run typecheck` covers them too.
+
+- **A fresh board per file:** `bunfig.toml` runs `test/preload.ts` before every file. It points `WB_DB`, `WB_BACKUPS`, `WB_PORT` (4401) and `XDG_RUNTIME_DIR` at a temp folder, and stops with an error if the database would be `workbench.db` or anywhere outside the temp folder, so a test can't touch the real board. (They are set there because `db.ts`, `server.ts` and `mcp.ts` read them when imported.)
+- **Adding a test:** make `test/<area>.test.ts`, `import { freshDb } from "./helpers"` and call it at the top: it gives a new database with one project, `demo`, that no other file shares. Call the functions in `db.ts` and friends directly, or an MCP tool through `mcpHttp` (see `test/mcp.test.ts`). A test that needs the server starts `server.ts` as a subprocess with its own `WB_DB` and `HOME` (see `test/server.test.ts`) and stops it in `afterAll`.
+- **Not covered by `bun test`:** the board's page, and anything that runs a shell command or `gh` (tracker refresh, git). Look at those in a browser or by hand.
+
 ## Releases
 
 A version tag builds and publishes a release on GitHub (Actions → Release): the desktop app as a `.deb` and an AppImage, the server alone as one executable (`workbench-server_<version>_linux_x86_64`, for running the board without the app, e.g. as the systemd service above), `SHA256SUMS`, and the signed files the app's update check reads (`*.sig`, `latest.json`). The notes are the commit subjects since the previous tag.
@@ -99,7 +113,7 @@ bun run release 0.2.0 --push      # the same, in one go
 - **Signing:** update files are signed with a private key that lives only in the repository's secrets (`TAURI_SIGNING_PRIVATE_KEY`, `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`) and in `~/.tauri/workbench.key` on Kostas's machine; the app carries its public half (`plugins.updater.pubkey` in `src-tauri/tauri.conf.json`) and refuses an update not signed with it. Losing the key means installed apps can't update any more: they'd need a new version installed by hand.
 - **Building a release locally:** `bun run app:build:release` with both variables set builds the same signed files; `bun scripts/release-assets.ts <version>` gathers them into `dist/` with `latest.json` and `SHA256SUMS` (`--unsigned` after a plain `bun run app:build`).
 - **The standalone server** needs `WB_DB` (the database's path); `WB_PORT` and `WB_BACKUPS` as for `bun server.ts`. For the service: `ExecStart=/path/to/workbench-server_<version>_linux_x86_64` with `Environment=WB_DB=/home/kostas/Projects/workbench/workbench.db`.
-- **CI:** every push and pull request to master runs the typecheck, compiles the server and checks it answers, and runs `cargo check`, `clippy` (warnings fail) and `cargo test` on the app (Actions → CI).
+- **CI:** every push and pull request to master runs the typecheck and `bun test`, compiles the server and checks it answers, and runs `cargo check`, `clippy` (warnings fail) and `cargo test` on the app (Actions → CI).
 
 ## Settings
 

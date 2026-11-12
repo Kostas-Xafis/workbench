@@ -30,6 +30,7 @@ jobs:
           bun-version: ${{ env.BUN_VERSION }}
       - run: bun install --frozen-lockfile
       - run: bun run typecheck
+      - run: bun test
       - name: Compile the server into one binary
         run: bun build --compile --minify --bytecode --sourcemap server.ts --outfile workbench-server
       - name: The binary starts and answers /api/ping
