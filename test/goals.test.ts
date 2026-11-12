@@ -159,7 +159,7 @@ describe("items on a goal", () => {
 		expect(search(db, "zoo", "demo").goals.map((x) => x.id)).toEqual([g.id]);
 		expect(search(db, "zoo", "nobody").goals).toEqual([]);
 		addItem(db, { title: "Item", project: "demo", goal_id: g.id });
-		const out = exportAll(db) as { goals: { title: string }[]; items: { goal_id: number }[] };
+		const out = exportAll(db) as unknown as { goals: { title: string }[]; items: { goal_id: number }[] };
 		expect(out.goals.map((x) => x.title)).toEqual(["Quokka launch"]);
 		expect(out.items[0].goal_id).toBe(g.id);
 	});

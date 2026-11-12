@@ -130,6 +130,7 @@ function formPatch() {
 	for (const k of ["title", "status", "owner", "kind", "project", "area", "branch", "session", "body"]) p[k] = form[k].value;
 	p.priority = Number(form.priority.value);
 	p.options = form.options.value.split("\n").map((o) => o.trim()).filter(Boolean);
+	hookRun(hooks.itemSave, p);
 	return p;
 }
 

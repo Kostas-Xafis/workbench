@@ -8,10 +8,17 @@ const hooks = {
 	boardTop: [],
 	// (shown) → HTML: sections after the kinds' sections, before "Done lately".
 	boardEnd: [],
+	// (item) → boolean: false keeps an item off the board's sections (and its counts); for a filter such as a goal.
+	boardFilter: [],
+	// (openCount) → HTML: what the board shows instead of its empty card when `openCount` (what the filter lets
+	// through) is 0 and you have something to say about it; "" lets the usual empty card show.
+	boardEmpty: [],
 	// (item) → HTML: more on a card's meta line, after the code count.
 	cardMeta: [],
 	// (item, isNew) → nothing: the item dialog is filled and about to open; show or fill your own part of it.
 	itemOpen: [],
+	// (patch) → nothing: Save is about to send `patch` (an item's fields); add your own part of the form to it.
+	itemSave: [],
 	// (collapsed) → HTML: in the sidebar, under the trackers (the folded rail when `collapsed`).
 	rail: [],
 	// () → nothing: every 10 s with the board's own reloads (not while a dialog is open or the tab is hidden).
@@ -32,4 +39,6 @@ function addSettingsTab(tab, after) {
 	SET_TABS.splice(i < 0 ? SET_TABS.length : i + 1, 0, tab);
 }
 const hookHtml = (list, ...args) => list.map((fn) => { try { return fn(...args) ?? ""; } catch (e) { console.error(e); return ""; } }).join("");
+// Every hook answers true (or nothing): false from any of them is a no.
+const hookPass = (list, ...args) => list.every((fn) => { try { return fn(...args) !== false; } catch (e) { console.error(e); return true; } });
 const hookRun = (list, ...args) => { for (const fn of list) try { fn(...args); } catch (e) { console.error(e); } };

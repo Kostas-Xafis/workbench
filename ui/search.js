@@ -15,6 +15,9 @@ async function runSearch() {
 	if (data.items.length) html += `<div class="rgroup">Items</div>` + data.items.map((i) =>
 		`<button class="res" data-item="${i.id}">${kindIcon(i.kind)}<span class="rt"><div>${hl(i.title, q)}</div>
 		<small>wb-${hl(i.ref, q)} · ${i.kind} · ${i.status} · ${i.owner === "kostas" ? "you" : "agent"}${where(i.project)}</small></span></button>`).join("");
+	if (data.goals?.length) html += `<div class="rgroup">Goals</div>` + data.goals.map((g) =>
+		`<button class="res" data-goal="${g.id}"><span class="kic" style="--k:var(--accent)">${glyph("goal")}</span><span class="rt"><div>${hl(g.title, q)}</div>
+		<small>goal${g.status === "open" ? "" : ` · ${g.status}`}${g.due ? ` · ${esc(g.due)}` : ""}${where(g.project)}</small></span></button>`).join("");
 	if (data.reports.length) html += `<div class="rgroup">Reports</div>` + data.reports.map((r) =>
 		`<a class="res" href="${reportHref(r)}">${reportMark(r) || DOC}<span class="rt"><div>${hl(r.title, q)}</div><small>${r.snippet ? hl(r.snippet, q) : `v${r.version} · ${ago(r.updated_at)}`}${where(r.project)}</small></span></a>`).join("");
 	if (data.links.length) html += `<div class="rgroup">Links</div>` + data.links.map((l) =>
@@ -50,6 +53,7 @@ results.addEventListener("click", async (e) => {
 	if (!r) return;
 	closeSearch();
 	if (r.dataset.item) openItem(await api(`/api/items/${r.dataset.item}`));
+	if (r.dataset.goal) showGoal(Number(r.dataset.goal));
 });
 document.addEventListener("pointerdown", (e) => { if (!e.target.closest(".search-wrap")) closeSearch(); });
 document.addEventListener("keydown", (e) => {

@@ -62,10 +62,10 @@ function repoCard(r) {
 }
 
 function renderBoard() {
-	const open = state.items.filter((i) => OPEN.includes(i.status));
+	const open = state.items.filter((i) => OPEN.includes(i.status) && hookPass(hooks.boardFilter, i));
 	const counts = { all: open.length, kostas: open.filter((i) => i.owner === "kostas").length, agent: open.filter((i) => i.owner === "agent").length };
 	paint($("#who"), WHO.map(([k, label]) => `<button data-who="${k}" aria-pressed="${k === state.who}">${label}<span class="n">${counts[k]}</span></button>`).join(""));
-	const mineOnly = (i) => state.who === "all" || i.owner === state.who;
+	const mineOnly = (i) => (state.who === "all" || i.owner === state.who) && hookPass(hooks.boardFilter, i);
 	const shown = open.filter(mineOnly);
 
 	let html = sectionOrder().map(([kind, label, def]) => {
@@ -80,7 +80,7 @@ function renderBoard() {
 		return section(`sec-${kind}`, def, `${kindIcon(kind)}${label}<span class="count">${list.length}</span>${sub ? `<span class="sub">${sub}</span>` : ""}`,
 			cards(list.filter((i) => i.priority < 3)) +
 			(later.length ? `<details class="later fold" data-key="later-${kind}"${isOpen(`later-${kind}`)}><summary>${later.length} later</summary>${cards(later)}</details>` : ""));
-	}).join("") || boardEmpty(open.length);
+	}).join("") || hookHtml(hooks.boardEmpty, open.length) || boardEmpty(open.length);
 	html = hookHtml(hooks.boardTop, shown) + html + hookHtml(hooks.boardEnd, shown);
 
 	const cutoff = Date.now() - 14 * 86400e3;
