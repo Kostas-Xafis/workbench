@@ -7,6 +7,7 @@ const YOU_KIND_HINT = {
 	setup: "Accounts, consoles, stores",
 	check: "Trying something on a device",
 	review: "Reading a wording or a design",
+	notice: "What changed, for you to see",
 	bug: "Something broken",
 	task: "Code work",
 	idea: "Later, maybe",
@@ -46,7 +47,18 @@ function setYouRender() {
 			bind: { setting: "day.start" },
 			control: ctlSelect({ setting: "day.start" }, hours, { label: "A work day starts at" }),
 		})])}
-		${optGroup("Who gets new items", owners, "When nobody says who acts: the New button, agents and <code>wb add</code>. Items already on the board stay with whoever has them.")}</div>`;
+		${optGroup("Who gets new items", owners, "When nobody says who acts: the New button, agents and <code>wb add</code>. Items already on the board stay with whoever has them.")}
+		${optGroup("Asks that don't block", [optRow({
+			label: "A default goes ahead after",
+			hint: "When an agent leaves a decision, review or notice with what happens if you say nothing, and no date. Then it goes ahead as if you had picked it; a notice closes as seen. 0: only on a date the agent gives.",
+			bind: { setting: "asks.days" },
+			control: ctlNumber({ setting: "asks.days" }, { min: 0, max: 60, unit: "days", label: "A default goes ahead after this many days (0 to 60)" }),
+		}), optRow({
+			label: "Open asks per project",
+			hint: "At most this many decisions, reviews, checks and setup steps from agents wait on you in a project. Past it, agents are asked to bundle questions, send a notice or decide with a default. Your own items and P1s always go on. 0: no limit.",
+			bind: { setting: "asks.cap" },
+			control: ctlNumber({ setting: "asks.cap" }, { min: 0, max: 500, unit: "asks", label: "Open asks from agents per project, at most (0 for no limit)" }),
+		})], "Agents ask faster than anyone answers: these keep work moving.")}</div>`;
 }
 async function setYouLoad() {
 	youError = "";

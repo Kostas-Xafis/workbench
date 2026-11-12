@@ -10,6 +10,9 @@ const hooks = {
 	boardEnd: [],
 	// (item) → HTML: more on a card's meta line, after the code count.
 	cardMeta: [],
+	// (item) → HTML: buttons under an open card's title, in place of a decision's answer buttons when any returns
+	// some. Wrap them in an element with class card-act: the board then leaves their clicks to you.
+	cardActions: [],
 	// (item, isNew) → nothing: the item dialog is filled and about to open; show or fill your own part of it.
 	itemOpen: [],
 	// (collapsed) → HTML: in the sidebar, under the trackers (the folded rail when `collapsed`).

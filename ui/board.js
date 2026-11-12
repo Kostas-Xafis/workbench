@@ -10,9 +10,11 @@ function codeMeta(i) {
 		(c.commits.length ? `<span class="code-tag" title="Commits that mention wb-${i.ref}">${glyph("commit")}${c.commits.length} commit${c.commits.length > 1 ? "s" : ""}</span>` : "");
 }
 
-function card(i, { tick = i.owner === "kostas" && OPEN.includes(i.status), kind = false } = {}) {
+// A notice has its own Got it (ui/asks.js) instead of the tick.
+function card(i, { tick = i.owner === "kostas" && OPEN.includes(i.status) && i.kind !== "notice", kind = false } = {}) {
 	const closed = !OPEN.includes(i.status);
-	const options = !closed && i.owner === "kostas" ? optionsOf(i) : [];
+	const actions = closed ? "" : hookHtml(hooks.cardActions, i);
+	const options = !closed && !actions && i.owner === "kostas" ? optionsOf(i) : [];
 	const meta = [
 		`<button class="ref" data-copy="wb-${i.ref}" title="Copy wb-${i.ref}">wb-${i.ref}</button>`,
 		kind ? `<span class="kind k-${i.kind}">${i.kind}</span>` : "",
@@ -31,7 +33,7 @@ function card(i, { tick = i.owner === "kostas" && OPEN.includes(i.status), kind 
 	return `<article class="card ${i.status} ${closed ? "closed" : ""}" data-id="${i.id}">
 		${tick ? `<button class="tick" data-tick="${i.id}" title="Mark done" aria-label="Mark done">✓</button>` : ""}
 		<div class="main"><div class="title">${esc(i.title)}</div><div class="meta">${meta}</div>
-		${options.length ? `<div class="opts">${options.map((o) => `<button class="opt" data-answer="${i.id}" data-choice="${esc(o)}" title="Answer: ${esc(o)}">${esc(o)}</button>`).join("")}</div>` : ""}</div></article>`;
+		${actions}${options.length ? `<div class="opts">${options.map((o) => `<button class="opt" data-answer="${i.id}" data-choice="${esc(o)}" title="Answer: ${esc(o)}">${esc(o)}</button>`).join("")}</div>` : ""}</div></article>`;
 }
 
 const section = (key, def, summary, body) =>
@@ -63,7 +65,7 @@ function repoCard(r) {
 
 function renderBoard() {
 	const open = state.items.filter((i) => OPEN.includes(i.status));
-	const counts = { all: open.length, kostas: open.filter((i) => i.owner === "kostas").length, agent: open.filter((i) => i.owner === "agent").length };
+	const counts = { all: open.length, kostas: open.filter(needsYou).length, agent: open.filter((i) => i.owner === "agent").length };
 	paint($("#who"), WHO.map(([k, label]) => `<button data-who="${k}" aria-pressed="${k === state.who}">${label}<span class="n">${counts[k]}</span></button>`).join(""));
 	const mineOnly = (i) => state.who === "all" || i.owner === state.who;
 	const shown = open.filter(mineOnly);
@@ -71,7 +73,7 @@ function renderBoard() {
 	let html = sectionOrder().map(([kind, label, def]) => {
 		const list = shown.filter((i) => i.kind === kind);
 		if (!list.length) return "";
-		const mine = list.filter((i) => i.owner === "kostas").length;
+		const mine = list.filter(needsYou).length;
 		const doing = list.filter((i) => i.status === "doing").length;
 		const p1 = list.filter((i) => i.priority === 1).length;
 		const sub = [state.who === "all" && mine ? `${mine} on you` : "", doing ? `${doing} in progress` : "", p1 ? `<span class="p1">${p1} P1</span>` : ""].filter(Boolean).join(" · ");
@@ -159,6 +161,8 @@ $("#fold-toggle").onclick = () => {
 document.addEventListener("toggle", (e) => { if (e.target.matches?.("#sections details.sec")) syncFoldToggle(); }, true);
 
 $("#sections").addEventListener("click", async (e) => {
+	// Buttons a feature put on a card (hooks.cardActions) handle their own clicks.
+	if (e.target.closest(".card-act")) return;
 	const opt = e.target.closest("[data-answer]");
 	if (opt) {
 		e.stopPropagation();

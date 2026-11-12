@@ -1,0 +1,33 @@
+/* Asks that don't block (ui/asks.js): the notice kind's colour, Got it / Object…, ticks, deadlines. */
+:root { --notice: #0e7490; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --notice: #5ccfe6; } }
+:root[data-theme="dark"] { --notice: #5ccfe6; }
+.k-notice { --k: var(--notice); --dot: var(--notice); }
+
+/* Got it is the quiet yes; Object… the way to say no. */
+.opt.ask-ok { border-color: color-mix(in srgb, var(--notice) 45%, var(--line)); background: color-mix(in srgb, var(--notice) 8%, var(--card)); }
+.opt.ask-ok:hover { border-color: var(--notice); background: color-mix(in srgb, var(--notice) 20%, var(--card)); }
+.opt.ask-ok.picked { background: var(--notice); border-color: var(--notice); color: var(--card); }
+.opt.ask-no { border-color: var(--line); background: transparent; }
+.opt.ask-no:hover { border-color: var(--muted); background: var(--hover); }
+.opt small { margin-left: 6px; font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .3px; opacity: .75; }
+.opt.ask-rec { border-color: var(--decision); }
+
+/* Pick several: each option a tick box, then one Answer. */
+.ask-pick { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; user-select: none; }
+.ask-pick input { margin: 0; accent-color: var(--decision); width: 14px; height: 14px; flex: none; }
+.ask-pick.on { border-color: var(--decision); background: color-mix(in srgb, var(--decision) 16%, var(--card)); }
+.opt.ask-send { background: var(--decision); color: var(--card); border-color: var(--decision); font-weight: 600; }
+.opt.ask-send:hover { background: color-mix(in srgb, var(--decision) 85%, #000); }
+
+/* When it goes ahead by itself; within a day it stands out. */
+.ask-due { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.ask-due.soon { background: var(--warn-bg); color: var(--warn-ink); border-radius: 6px; padding: 0 6px; font-weight: 500; }
+.ask-none { padding: 10px 2px 2px; }
+
+/* In the item dialog. */
+.ask-box .ask-what { margin: 0 0 8px; }
+.ask-when { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 8px; }
+.ask-when label { display: inline-flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12.5px; }
+.ask-when input[type=date] { border: 1px solid var(--line); border-radius: 8px; padding: 4px 8px; background: var(--card); color: var(--ink); }
+#ask-reply .opts { margin: 0 0 8px; }

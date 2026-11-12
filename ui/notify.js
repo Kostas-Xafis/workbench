@@ -146,7 +146,7 @@ async function notifyCheck() {
 	if (!notifyOn()) return;
 	const [items, reports, trackers] = await Promise.all([api("/api/items"), api("/api/reports"), api("/api/trackers")]);
 	const away = document.visibilityState !== "visible" || !document.hasFocus();
-	const mine = (i) => i && i.owner === "kostas" && OPEN.includes(i.status);
+	const mine = (i) => i && needsYou(i);
 	for (const [id, at] of localChanges) if (Date.now() - at > 60e3) localChanges.delete(id);
 	const events = [];
 	const ev = (kind, title, body, tag, open) => events.push({ kind, title, body, tag, open });

@@ -146,7 +146,7 @@ Items are named wb-xxxx (e.g. wb-k3f9); commands take that, the bare k3f9, or an
   wb open                          open the desktop app; without it, start the board and open the browser
 
 Options for add/edit:
-  --kind task|check|review|decision|setup|bug|idea   (default task)
+  --kind task|check|review|decision|setup|bug|idea|notice   (default task)
   --owner kostas|agent       who has to act (kostas = ${name}). Without it, by kind:
                              ${ownerDefaultsText(db)}
   --project P                default: the project whose path contains the current folder

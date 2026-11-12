@@ -5,6 +5,8 @@
  * the only files GET /ui/<name> sends. A new file needs its import and its UI entry, each in alphabetical order.
  */
 import pagePath from "./index.html" with { type: "file" };
+import asksCss from "./ui/asks.css" with { type: "file" };
+import asksJs from "./ui/asks.js" with { type: "file" };
 import baseCss from "./ui/base.css" with { type: "file" };
 import boardCss from "./ui/board.css" with { type: "file" };
 import boardJs from "./ui/board.js" with { type: "file" };
@@ -44,6 +46,8 @@ import vaultJs from "./ui/vault.js" with { type: "file" };
 
 /** ui/<name> → the file's path (a path inside the binary when compiled). */
 export const UI: Record<string, string> = {
+	"asks.css": asksCss,
+	"asks.js": asksJs,
 	"base.css": baseCss,
 	"board.css": boardCss,
 	"board.js": boardJs,

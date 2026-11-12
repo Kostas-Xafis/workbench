@@ -18,6 +18,7 @@ const WL_KIND = {
 	setup: "Something only you can do: an account, a console, a store. Each click is spelled out.",
 	check: "Trying something on a device: numbered steps, and what right and wrong look like.",
 	review: "Reading a wording or looking at a design, with the exact words or a picture.",
+	notice: "What an agent changed, just so you know. Got it closes it, Object… sends it back. It doesn't wait on you.",
 	bug: "Something broken, for an agent to fix.",
 	task: "Code work for an agent.",
 	idea: "Later, maybe. Folded away at the bottom.",
