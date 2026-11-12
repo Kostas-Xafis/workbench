@@ -57,6 +57,7 @@ import { PRESETS } from "./presets";
 import { ownerDefaultsText, ownerFor, yourName } from "./settings";
 import { noteMcpContact } from "./setup";
 import { listSources } from "./sources";
+import { SITTING_DAYS, STALLED_DAYS, WAITING_DAYS, staleLabel } from "./stale";
 import {
 	addTracker,
 	cleanReading,
@@ -323,7 +324,7 @@ function itemLine(c: Conn, i: Item, withProject: boolean) {
 		withProject ? `[${i.project}]` : "",
 		i.area ? `(${i.area})` : "",
 	].filter(Boolean);
-	const extra = [i.branch && `branch ${i.branch}`, i.answer && `answered: ${i.answer}`, i.image_count && `${i.image_count} image${i.image_count > 1 ? "s" : ""}`].filter(Boolean).join(" · ");
+	const extra = [i.branch && `branch ${i.branch}`, i.answer && `answered: ${i.answer}`, i.image_count && `${i.image_count} image${i.image_count > 1 ? "s" : ""}`, i.stale && staleLabel(i.stale)].filter(Boolean).join(" · ");
 	return `${bits.join(" ")}: ${i.title}${extra ? ` · ${extra}` : ""}`;
 }
 
@@ -332,6 +333,7 @@ function itemText(c: Conn, i: NonNullable<ReturnType<typeof getItem>>) {
 		`wb-${i.ref}: ${i.title}`,
 		`${i.project} · ${i.kind} · for ${WHO(c, i.owner)} · ${i.status} · P${i.priority}${i.area ? ` · ${i.area}` : ""}`,
 	];
+	if (i.stale) lines.push(`stale: ${staleLabel(i.stale)} (since ${i.stale.since})`);
 	if (i.branch || i.session) lines.push([i.branch && `branch ${i.branch}`, i.session && `session ${i.session}`].filter(Boolean).join(" · "));
 	if (i.sources) lines.push(`from: ${i.sources}`);
 	if (i.body) lines.push("", i.body);
@@ -357,6 +359,7 @@ const itemJson = (i: Item) => ({
 	options: itemOptions(i).length ? itemOptions(i) : undefined,
 	answer: i.answer || undefined,
 	images: i.image_count || undefined,
+	stale: i.stale ?? null,
 	created_at: i.created_at,
 	updated_at: i.updated_at,
 	done_at: i.done_at ?? undefined,
@@ -385,6 +388,9 @@ async function overview(c: Conn, slug: string) {
 		const list = open.filter((i) => i.kind === kind);
 		if (list.length) out.push(`${kind}:`, ...list.map((i) => `- ${itemLine(c, i, false)}`));
 	}
+	const stale = open.filter((i) => i.stale);
+	if (stale.length)
+		out.push("", `## Stale: ${stale.length} (doing with no news for ${STALLED_DAYS}+ days, waiting for ${WAITING_DAYS}+, or open on ${yourName(c.db)} for ${SITTING_DAYS}+)`, ...stale.map((i) => `- ${itemLine(c, i, false)}`));
 	const trackers = listTrackers(c.db, slug);
 	out.push("", "## Trackers", ...(trackers.length ? trackers.map((t) => `- ${trackerBlock(t)}`) : ["none"]));
 	const g = p.path ? await repoState(p) : null;
@@ -526,7 +532,7 @@ const TOOLS: Tool[] = [
 		name: "project_overview",
 		title: "Project overview",
 		description:
-			"Everything about one project at a glance: open items by kind, status trackers with their readings, git state (branch, uncommitted files, unpushed commits, unmerged branches, worktrees), reports, links and data sources. A good first call when you start work in a project.",
+			"Everything about one project at a glance: open items by kind, stale ones (stalled doing, long waiting, long on the user) listed apart, status trackers with their readings, git state (branch, uncommitted files, unpushed commits, unmerged branches, worktrees), reports, links and data sources. A good first call when you start work in a project.",
 		input: obj({ project: PROJECT }),
 		hints: RO,
 		async run(a, c) {
@@ -1232,7 +1238,7 @@ const PROMPTS: Prompt[] = [
 		arguments: [{ name: "project", description: "Project slug (default: the current one)" }],
 		async get(a, c) {
 			const slug = projectOrRpc(c, a.project);
-			return `Write me a short status of ${slug}: what's in progress, what waits on me (decisions first), anything blocked, trackers that warn, and git loose ends. A few lines, no preamble.\n\n${await overview(c, slug)}`;
+			return `Write me a short status of ${slug}: what's in progress, what waits on me (decisions first), anything blocked, stale items (stalled or forgotten work to chase), trackers that warn, and git loose ends. A few lines, no preamble.\n\n${await overview(c, slug)}`;
 		},
 	},
 ];

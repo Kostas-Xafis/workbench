@@ -1,0 +1,4 @@
+/* Amber like a warning: darker on light, lighter on dark. */
+.stale { color: #b45309; font-weight: 600; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .stale { color: #fbbf24; } }
+:root[data-theme="dark"] .stale { color: #fbbf24; }

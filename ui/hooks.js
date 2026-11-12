@@ -10,6 +10,8 @@ const hooks = {
 	boardEnd: [],
 	// (item) → HTML: more on a card's meta line, after the code count.
 	cardMeta: [],
+	// (kind, items) → HTML: more in a kind section's header, after its counts; `items` are the open ones it lists.
+	sectionMeta: [],
 	// (item, isNew) → nothing: the item dialog is filled and about to open; show or fill your own part of it.
 	itemOpen: [],
 	// (collapsed) → HTML: in the sidebar, under the trackers (the folded rail when `collapsed`).

@@ -3,6 +3,7 @@ import { timingSafeEqual } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, rmSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { createTables as createImageTables, itemImages, type ImageInfo } from "./images";
+import { staleOf, type Stale } from "./stale";
 import { createSettingsTable, getSetting, getSettings, ownerFor } from "./settings";
 import { createTables as createTrackerTables } from "./trackers";
 
@@ -35,6 +36,8 @@ export type Item = {
 	answer: string;
 	/** How many images it has (listItems and getItem). */
 	image_count?: number;
+	/** Quiet for too long (see stale.ts), or null (listItems and getItem). */
+	stale?: Stale | null;
 	created_at: string;
 	updated_at: string;
 	done_at: string | null;
@@ -419,7 +422,14 @@ export function listItems(db: Db, f: ItemFilter = {}): Item[] {
 	const sql = `SELECT *, (SELECT COUNT(*) FROM images WHERE images.item_id = items.id) AS image_count FROM items ${where.length ? "WHERE " + where.join(" AND ") : ""}
 		ORDER BY CASE status WHEN 'doing' THEN 0 WHEN 'todo' THEN 1 WHEN 'waiting' THEN 2 ELSE 3 END,
 		priority, COALESCE(done_at, '') DESC, id`;
-	return db.query(sql).all(args) as Item[];
+	const items = db.query(sql).all(args) as Item[];
+	// One grouped query for every item's newest note, not one per item.
+	const last = new Map(
+		(db.query("SELECT item_id, MAX(at) AS at FROM notes GROUP BY item_id").all() as { item_id: number; at: string }[]).map((r) => [r.item_id, r.at]),
+	);
+	const now = Date.now();
+	for (const i of items) i.stale = staleOf(i, last.get(i.id), now);
+	return items;
 }
 
 export function getItem(db: Db, id: number): (Item & { notes: Note[]; images: ImageInfo[] }) | undefined {
@@ -427,7 +437,7 @@ export function getItem(db: Db, id: number): (Item & { notes: Note[]; images: Im
 	if (!item) return undefined;
 	const notes = db.query("SELECT * FROM notes WHERE item_id = ? ORDER BY at, id").all(id) as Note[];
 	const images = itemImages(db, id);
-	return { ...item, notes, images, image_count: images.length };
+	return { ...item, notes, images, image_count: images.length, stale: staleOf(item, notes.at(-1)?.at) };
 }
 
 export function addItem(db: Db, item: ItemPatch & { title: string; project: string }, author = ""): number {
