@@ -50,6 +50,7 @@ import {
 	type Status,
 } from "./db";
 import { BRIEF_RULES, checkBrief } from "./brief";
+import { activeGoal, addGoal, dueText, GOAL_STATUSES, goalLine, goalsWithStats, goalTitle, needGoal, updateGoal, type GoalInfo } from "./goals";
 import { integrationGuide } from "./integrate";
 import { repoState } from "./git";
 import { addImage, imageBytes, imageData, imageInfo, imageSummary, prepareImage, removeImage, type Prepared } from "./images";
@@ -108,6 +109,7 @@ const INSTRUCTIONS = `The workbench is {{name}}'s local board of open work acros
 - {{name}} doesn't open files. An item has to make sense by itself, in plain words: put the content in the body instead of pointing at docs/x.md or PLAN §3, say where things are in the app rather than in the code, and attach a screenshot (attach_image) for anything on screen. add_item has the details, and warns you about what it can see is missing: fix those with update_item.
 - Every report you publish gets its own icon in colour (publish_report's icon), so the sidebar reads at a glance.
 - Status trackers are live readings shown on the board, such as build quotas or CI minutes left. Check list_trackers before something that uses up a quota, refresh_trackers after.
+- A goal says what a project's work is for (a release, a milestone), with a target date and the items that serve it. list_goals and project_overview show each goal's progress and what blocks it. Give the items you file the goal they serve (add_item's goal), and prefer work on the active goal. Don't create goals for {{name}} unless they ask: when you think the project needs one, file a decision item proposing it.
 - Tools default to the project of the folder this server runs in; pass project (a slug from list_projects) to work elsewhere.`;
 
 /**
@@ -323,7 +325,7 @@ function itemLine(c: Conn, i: Item, withProject: boolean) {
 		withProject ? `[${i.project}]` : "",
 		i.area ? `(${i.area})` : "",
 	].filter(Boolean);
-	const extra = [i.branch && `branch ${i.branch}`, i.answer && `answered: ${i.answer}`, i.image_count && `${i.image_count} image${i.image_count > 1 ? "s" : ""}`].filter(Boolean).join(" · ");
+	const extra = [i.goal_id != null && `goal: ${goalTitle(c.db, i.goal_id)}`, i.branch && `branch ${i.branch}`, i.answer && `answered: ${i.answer}`, i.image_count && `${i.image_count} image${i.image_count > 1 ? "s" : ""}`].filter(Boolean).join(" · ");
 	return `${bits.join(" ")}: ${i.title}${extra ? ` · ${extra}` : ""}`;
 }
 
@@ -333,6 +335,7 @@ function itemText(c: Conn, i: NonNullable<ReturnType<typeof getItem>>) {
 		`${i.project} · ${i.kind} · for ${WHO(c, i.owner)} · ${i.status} · P${i.priority}${i.area ? ` · ${i.area}` : ""}`,
 	];
 	if (i.branch || i.session) lines.push([i.branch && `branch ${i.branch}`, i.session && `session ${i.session}`].filter(Boolean).join(" · "));
+	if (i.goal_id != null) lines.push(`goal: #${i.goal_id} ${goalTitle(c.db, i.goal_id)}`);
 	if (i.sources) lines.push(`from: ${i.sources}`);
 	if (i.body) lines.push("", i.body);
 	if (i.images.length) lines.push("", "images (see one with get_image):", ...i.images.map((m) => `  ${imageSummary(m)}`));
@@ -346,6 +349,7 @@ function itemText(c: Conn, i: NonNullable<ReturnType<typeof getItem>>) {
 const itemJson = (i: Item) => ({
 	ref: `wb-${i.ref}`,
 	project: i.project,
+	goal_id: i.goal_id ?? undefined,
 	title: i.title,
 	kind: i.kind,
 	owner: i.owner,
@@ -373,6 +377,50 @@ function trackerBlock(t: Tracker) {
 	return `${head}\n  ${when}${t.reading?.url ? ` · ${t.reading.url}` : ""}`;
 }
 
+/** A goal for project_overview and list_goals: its line, then what blocks it. */
+function goalBlock(c: Conn, g: GoalInfo): string[] {
+	const name = yourName(c.db);
+	const lines = [`- ${goalLine(g, name)}`];
+	if (g.body) lines.push(`  ${g.body.replace(/\s*\n\s*/g, " ").slice(0, 300)}`);
+	if (g.stats.blockers.length) {
+		lines.push("  blocked by:");
+		for (const b of g.stats.blockers.slice(0, 8))
+			lines.push(`    wb-${b.ref} ${b.kind} ${b.why === "kostas" ? `for ${name}` : "(agent, waiting)"}: ${b.title}`);
+		if (g.stats.blockers.length > 8) lines.push(`    …and ${g.stats.blockers.length - 8} more`);
+	}
+	return lines;
+}
+
+const goalJson = (g: GoalInfo) => ({
+	id: g.id,
+	project: g.project,
+	title: g.title,
+	description: g.body || undefined,
+	due: g.due || undefined,
+	status: g.status,
+	active: g.is_active,
+	items: g.stats.total,
+	done: g.stats.done,
+	open: g.stats.open,
+	waiting_on_kostas: g.stats.mine,
+	blocked_by: g.stats.blockers.map((b) => ({ ref: `wb-${b.ref}`, title: b.title, kind: b.kind, owner: b.owner, status: b.status, why: b.why })),
+});
+
+/** The `goal` an add_item or update_item names, as a goal id (null = none). */
+function goalArg(c: Conn, goal: string | number | undefined, project?: string): number | null | undefined {
+	if (goal === undefined) return undefined;
+	if (goal === null || ["none", "no", ""].includes(String(goal).trim().toLowerCase())) return null;
+	try {
+		return needGoal(c.db, goal, project);
+	} catch (e) {
+		throw new ToolError((e as Error).message);
+	}
+}
+const GOAL_REF: Schema = {
+	anyOf: [{ type: "integer" }, { type: "string" }],
+	description: 'The goal this item serves: its number (see list_goals) or its exact title. "none" takes it off its goal.',
+};
+
 const SECTION_ORDER = ["decision", "setup", "check", "review", "bug", "task", "idea"];
 
 async function overview(c: Conn, slug: string) {
@@ -380,6 +428,10 @@ async function overview(c: Conn, slug: string) {
 	const open = listItems(c.db, { project: slug, status: OPEN });
 	const mine = open.filter((i) => i.owner === "kostas").length;
 	const out = [`# ${p.name} (${p.slug})`, p.path ? `Folder: ${p.path}` : "", ""];
+	const goals = goalsWithStats(c.db, { project: slug, status: ["open"] });
+	if (goals.length) {
+		out.push("## Goals", ...goals.flatMap((g) => goalBlock(c, g)), "");
+	}
 	out.push(`## Open items: ${open.length} (${mine} for ${yourName(c.db)}, ${open.length - mine} for agents)`);
 	for (const kind of SECTION_ORDER) {
 		const list = open.filter((i) => i.kind === kind);
@@ -535,6 +587,81 @@ const TOOLS: Tool[] = [
 		},
 	},
 	{
+		name: "list_goals",
+		title: "List goals",
+		description:
+			"A project's goals: what its work is for. Each with its target date, progress (items done of all), how many items wait on {{name}}, and what blocks it (open items for {{name}}, and agent items in waiting). The active goal comes first. Items serve a goal through add_item and update_item's goal.",
+		input: obj({
+			project: str('Project slug, or "*" for every project. Default: the current project.'),
+			status: { type: "string", enum: ["open", "all", ...GOAL_STATUSES], description: "open (the default), all, or one status." },
+		}),
+		hints: RO,
+		run(a, c) {
+			const project = a.project === "*" ? undefined : projectOf(c, a.project, false);
+			const status = a.status === "all" ? undefined : [a.status ?? "open"];
+			const list = goalsWithStats(c.db, { project, status }).sort((x, y) => x.project.localeCompare(y.project) || Number(y.is_active) - Number(x.is_active));
+			const head = `${list.length} goal${list.length === 1 ? "" : "s"}${project ? ` in ${project}` : ""}`;
+			return {
+				text: [head, ...list.flatMap((g) => goalBlock(c, g).map((l, n) => (n === 0 && !project ? l.replace("- ", `- [${g.project}] `) : l)))].join("\n"),
+				data: { goals: list.map(goalJson) },
+			};
+		},
+	},
+	{
+		name: "add_goal",
+		title: "Add a goal",
+		description:
+			"Adds a goal to a project: a milestone its items serve (a release, a launch). Only when {{name}} asked for one: when you think a project needs a goal, file a decision item proposing it instead. Returns its number, which add_item and update_item take as goal.",
+		input: obj(
+			{
+				title: str('What the work is for, as {{name}} would say it, e.g. "First release".', { minLength: 1, maxLength: 200 }),
+				description: str("A few lines in markdown: what done looks like."),
+				due: str("Target date, YYYY-MM-DD."),
+				active: { type: "boolean", description: "Make it the project's active goal." },
+				project: PROJECT,
+			},
+			["title"],
+		),
+		hints: WRITE,
+		run(a, c) {
+			const g = addGoal(c.db, { project: projectOf(c, a.project)!, title: a.title, body: a.description, due: a.due, active: a.active });
+			const info = goalsWithStats(c.db, { project: g.project }).find((x) => x.id === g.id)!;
+			return { text: `Added goal ${goalLine(info, yourName(c.db))}`, data: { goal: goalJson(info) } };
+		},
+	},
+	{
+		name: "update_goal",
+		title: "Update a goal",
+		description:
+			"Changes a goal: title, description, target date, status (done when it's reached, dropped when it's off), whether it's the active goal, or its place among the project's open goals.",
+		input: obj(
+			{
+				goal: { ...GOAL_REF, description: "The goal: its number (see list_goals) or its exact title." },
+				title: str("New title.", { minLength: 1, maxLength: 200 }),
+				description: str("Replaces the description (markdown)."),
+				due: str('Target date, YYYY-MM-DD; "" removes it.'),
+				status: { type: "string", enum: GOAL_STATUSES },
+				active: { type: "boolean", description: "true makes it the project's active goal." },
+				position: { type: "integer", minimum: 1, description: "Its place among the project's open goals, 1 = first." },
+				project: PROJECT,
+			},
+			["goal"],
+		),
+		hints: { ...WRITE, idempotentHint: true },
+		run(a, c) {
+			const project = a.project !== undefined ? projectOf(c, a.project) : projectOf(c, undefined, false);
+			let id: number;
+			try {
+				id = needGoal(c.db, a.goal, project);
+			} catch (e) {
+				throw new ToolError((e as Error).message);
+			}
+			const g = updateGoal(c.db, id, { title: a.title, body: a.description, due: a.due, status: a.status, active: a.active, position: a.position });
+			const info = goalsWithStats(c.db, { project: g.project }).find((x) => x.id === g.id)!;
+			return { text: `Updated goal ${goalLine(info, yourName(c.db))}`, data: { goal: goalJson(info) } };
+		},
+	},
+	{
 		name: "integration_guide",
 		title: "Wire a project into the workbench",
 		description:
@@ -569,8 +696,9 @@ const TOOLS: Tool[] = [
 				...r.reports.map((x) => `- #${x.id} ${x.title} [${x.project}]${x.snippet ? `: ${x.snippet}` : ""}`),
 				`links (${r.links.length}):`,
 				...(r.links as { label: string; url: string }[]).map((l) => `- ${l.label}: ${l.url}`),
+				...(r.goals.length ? [`goals (${r.goals.length}):`, ...r.goals.map((g) => `- #${g.id} ${g.title} [${g.project}]${g.status === "open" ? "" : ` (${g.status})`}${g.due ? ` ${dueText(g.due)}` : ""}`)] : []),
 			].join("\n");
-			return { text, data: { items: r.items.map(itemJson), reports: r.reports, links: r.links } };
+			return { text, data: { items: r.items.map(itemJson), reports: r.reports, links: r.links, goals: r.goals.map(({ id, project, title, status, due }) => ({ id, project, title, status, due: due || undefined })) } };
 		},
 	},
 	{
@@ -590,6 +718,7 @@ const TOOLS: Tool[] = [
 				description: 'open (todo, doing, waiting; the default), all, one status, or a list.',
 			},
 			q: str("Words to look for in titles, details and notes, or a ref."),
+			goal: { ...GOAL_REF, description: 'Only items on this goal: its number or exact title; "none" for items on no goal.' },
 			limit: { type: "integer", minimum: 1, maximum: 500, description: "At most this many (default 50)." },
 		}),
 		hints: RO,
@@ -597,7 +726,9 @@ const TOOLS: Tool[] = [
 			const project = a.project === "*" ? undefined : projectOf(c, a.project, false);
 			const status: Status[] =
 				a.status === undefined || a.status === "open" ? OPEN : a.status === "all" ? [] : ([] as Status[]).concat(a.status);
-			const all = listItems(c.db, { project, owner: a.owner, kind: a.kind, status, q: a.q });
+			let goal: number | "none" | undefined;
+			if (a.goal !== undefined) goal = String(a.goal).trim().toLowerCase() === "none" ? "none" : goalArg(c, a.goal, project)!;
+			const all = listItems(c.db, { project, owner: a.owner, kind: a.kind, status, q: a.q, goal: goal === null ? undefined : goal });
 			const items = all.slice(0, a.limit ?? 50);
 			const head = `${all.length} item${all.length === 1 ? "" : "s"}${project ? ` in ${project}` : ""}${all.length > items.length ? ` (first ${items.length})` : ""}`;
 			return { text: [head, ...items.map((i) => `- ${itemLine(c, i, !project)}`)].join("\n"), data: { total: all.length, items: items.map(itemJson) } };
@@ -638,6 +769,7 @@ const TOOLS: Tool[] = [
 				branch: str("The git branch the work is on."),
 				source: str('Where it came from, e.g. "src/app.ts:42".'),
 				status: { type: "string", enum: STATUSES, description: "Default todo." },
+				goal: { ...GOAL_REF, description: "The goal this item serves: its number (see list_goals) or its exact title. Attach what you file to the goal it serves." },
 			},
 			["title"],
 		),
@@ -650,6 +782,7 @@ const TOOLS: Tool[] = [
 			);
 			if (brief.refuse) throw new ToolError(brief.refuse);
 			const images = await readImages(a.images);
+			const project = projectOf(c, a.project)!;
 			const id = addItem(
 				c.db,
 				{
@@ -657,7 +790,8 @@ const TOOLS: Tool[] = [
 					kind,
 					// Without one, the board's setting for the kind.
 					owner: a.owner,
-					project: projectOf(c, a.project)!,
+					project,
+					goal_id: goalArg(c, a.goal, project),
 					priority: a.priority,
 					area: a.area,
 					body: a.body,
@@ -689,6 +823,7 @@ const TOOLS: Tool[] = [
 				options: { type: "array", items: { type: "string", minLength: 1 }, maxItems: 12, description: "Replaces a decision's choices." },
 				branch: str("Git branch."),
 				project: str("Move it to this project (slug)."),
+				goal: GOAL_REF,
 				note: str("Also add this note to the history."),
 			},
 			["ref"],
@@ -700,6 +835,7 @@ const TOOLS: Tool[] = [
 			for (const k of ["title", "kind", "owner", "status", "priority", "area", "body", "options", "branch"] as const)
 				if (a[k] !== undefined) (patch as Json)[k] = a[k];
 			if (a.project !== undefined) patch.project = projectOf(c, a.project)!;
+			if (a.goal !== undefined) patch.goal_id = goalArg(c, a.goal, patch.project ?? getItem(c.db, id)!.project);
 			updateItem(c.db, id, patch, "agent");
 			if (a.note?.trim()) addNote(c.db, id, a.note.trim(), "agent");
 			const i = getItem(c.db, id)!;
@@ -1209,9 +1345,16 @@ const PROMPTS: Prompt[] = [
 		arguments: [{ name: "project", description: "Project slug (default: the current one)" }],
 		get(a, c) {
 			const slug = projectOrRpc(c, a.project);
-			const items = listItems(c.db, { project: slug, owner: "agent", status: OPEN });
+			const goal = activeGoal(c.db, slug);
+			// In progress first, then todo on the active goal, then the other todo, then what waits: each by priority.
+			const rank = (i: Item) => (i.status === "doing" ? 0 : i.status === "waiting" ? 3 : goal && i.goal_id === goal.id ? 1 : 2);
+			const items = listItems(c.db, { project: slug, owner: "agent", status: OPEN })
+				.map((i, n) => ({ i, n }))
+				.sort((x, y) => rank(x.i) - rank(y.i) || x.n - y.n)
+				.map((x) => x.i);
 			const list = items.length ? items.map((i) => `- ${itemLine(c, i, false)}`).join("\n") : "(nothing open for agents)";
-			return `Here is the open agent work in ${slug}, most urgent first (doing, then todo by priority, then waiting):\n\n${list}\n\nPick the item to do next: one already in progress in this session, else the most urgent todo. Read it with get_item, tell me which one you picked and why in a sentence, then do it.\n\n${personal(TRACKING, c)}`;
+			const focus = goal ? `\nThe active goal is "${goal.title}"${goal.due ? `, ${dueText(goal.due)}` : ""}: prefer work that serves it (those items name it).\n` : "";
+			return `Here is the open agent work in ${slug}, most urgent first (doing, then todo${goal ? " on the active goal, then other todo" : ""} by priority, then waiting):\n${focus}\n${list}\n\nPick the item to do next: one already in progress in this session, else the most urgent todo${goal ? ", from the active goal when it has one" : ""}. Read it with get_item, tell me which one you picked and why in a sentence, then do it.\n\n${personal(TRACKING, c)}`;
 		},
 	},
 	{

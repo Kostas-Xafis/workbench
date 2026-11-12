@@ -129,7 +129,7 @@ describe("search", () => {
 		const r = search(d, "ocelot");
 		expect(r.reports.map((x) => x.name)).toEqual(["r1"]);
 		expect(r.reports[0].snippet).toContain("ocelot");
-		expect(search(d, "nothing-like-this")).toEqual({ items: [], reports: [], links: [] });
+		expect(search(d, "nothing-like-this")).toEqual({ items: [], reports: [], links: [], goals: [] });
 	});
 });
 
