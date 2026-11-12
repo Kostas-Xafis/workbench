@@ -54,6 +54,7 @@ import { checkUi, uiFile } from "./ui";
 import pkg from "./package.json";
 import { DB_PATH } from "./db";
 import { archivedDay, currentDay, publishDays } from "./day";
+import { applyDue, resolveAsk } from "./asks";
 import { codeLinks, repoState, type CodeLinks } from "./git";
 import { candidateFolders, checkFolder, folderState, health } from "./health";
 import { getSettings, settingDefs, updateSettings } from "./settings";
@@ -219,6 +220,13 @@ export function serve({ lan = false } = {}) {
 	};
 	setTimeout(trackers, 5e3);
 	setInterval(trackers, 30e3);
+
+	// Asks whose deadline passed with no answer: their default goes ahead (asks.ts). Every minute, and at start.
+	const due = () => {
+		for (const ref of applyDue(db)) console.log(`ask: wb-${ref} went ahead with its default`);
+	};
+	due();
+	setInterval(due, 60e3);
 	// A new or changed tracker is read right away rather than at the next tick.
 	const readSoon = (id: number) => {
 		const t = getTracker(db, id);
@@ -844,8 +852,28 @@ export function serve({ lan = false } = {}) {
 				POST: jsonOnly(async (req) => {
 					try {
 						const { answer } = await req.json();
-						answerItem(db, itemId(req.params.id), String(answer ?? ""), "kostas");
+						answerItem(db, itemId(req.params.id), Array.isArray(answer) ? answer.map(String) : String(answer ?? ""), "kostas");
 						return json(getItem(db, itemId(req.params.id)));
+					} catch (e) {
+						return fail(e);
+					}
+				}),
+			},
+			// A notice: Got it (a review: No objections), or an objection in your words, back to the agent (asks.ts).
+			"/api/items/:id/ack": {
+				POST: jsonOnly((req) => {
+					try {
+						return json(resolveAsk(db, itemId(req.params.id), { ack: true }, "kostas"));
+					} catch (e) {
+						return fail(e);
+					}
+				}),
+			},
+			"/api/items/:id/object": {
+				POST: jsonOnly(async (req) => {
+					try {
+						const { text } = await req.json();
+						return json(resolveAsk(db, itemId(req.params.id), { object: String(text ?? "") }, "kostas"));
 					} catch (e) {
 						return fail(e);
 					}

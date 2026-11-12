@@ -49,6 +49,7 @@ import {
 	type Note,
 	type Status,
 } from "./db";
+import { applyDue, capRefusal, deadlineText, defaultText, itemPicks, itemRecommended, needsKostas } from "./asks";
 import { BRIEF_RULES, checkBrief } from "./brief";
 import { integrationGuide } from "./integrate";
 import { repoState } from "./git";
@@ -102,7 +103,8 @@ const CAPABILITIES = { tools: {}, resources: {}, prompts: {}, completions: {} };
 // {{name}} and {{owner-defaults}} in what agents read are filled in per request (personal), from the board's settings.
 const INSTRUCTIONS = `The workbench is {{name}}'s local board of open work across their projects. Open work lives here, never in markdown lists.
 - Items are named wb-xxxx (e.g. wb-k3f9). When a prompt names one, get_item first: its body and notes are the brief.
-- Kinds: task and bug (code), check ({{name}} tries it on a device: write the steps), review (wording or design for {{name}}), decision (a question only {{name}} can answer: options plus your recommendation), setup (accounts, consoles, stores), idea. {{owner-defaults}} The owner value for {{name}} is kostas.
+- Kinds: task and bug (code), check ({{name}} tries it on a device: write the steps), review (wording or design for {{name}}), decision (a question only {{name}} can answer: options plus your recommendation), setup (accounts, consoles, stores), notice (what changed, for {{name}} to see; it doesn't wait on them), idea. {{owner-defaults}} The owner value for {{name}} is kostas.
+- {{name}}'s attention is the bottleneck: ask so work doesn't stop. Nothing needs their decision → a notice, and carry on. A decision or review with a safe default → give default and decide_by: it goes ahead by itself if they say nothing. Related choices → one decision with pick "many". Each project takes a limited number of open asks from agents.
 - When you start work {{name}} gave you: find its item (list_items with q) and start_item it, or add_item one and start it. One item per piece of work {{name}} would recognise.
 - finish_item with a note on what changed and where (commit, branch). wait_item when blocked. Everything you leave for {{name}} is its own item.
 - {{name}} doesn't open files. An item has to make sense by itself, in plain words: put the content in the body instead of pointing at docs/x.md or PLAN §3, say where things are in the app rather than in the code, and attach a screenshot (attach_image) for anything on screen. add_item has the details, and warns you about what it can see is missing: fix those with update_item.
@@ -323,7 +325,8 @@ function itemLine(c: Conn, i: Item, withProject: boolean) {
 		withProject ? `[${i.project}]` : "",
 		i.area ? `(${i.area})` : "",
 	].filter(Boolean);
-	const extra = [i.branch && `branch ${i.branch}`, i.answer && `answered: ${i.answer}`, i.image_count && `${i.image_count} image${i.image_count > 1 ? "s" : ""}`].filter(Boolean).join(" · ");
+	const due = OPEN.includes(i.status) && i.owner === "kostas" ? deadlineText(i) : "";
+	const extra = [i.branch && `branch ${i.branch}`, i.answer && `answered: ${i.answer}`, due, i.image_count && `${i.image_count} image${i.image_count > 1 ? "s" : ""}`].filter(Boolean).join(" · ");
 	return `${bits.join(" ")}: ${i.title}${extra ? ` · ${extra}` : ""}`;
 }
 
@@ -337,7 +340,11 @@ function itemText(c: Conn, i: NonNullable<ReturnType<typeof getItem>>) {
 	if (i.body) lines.push("", i.body);
 	if (i.images.length) lines.push("", "images (see one with get_image):", ...i.images.map((m) => `  ${imageSummary(m)}`));
 	const options = itemOptions(i);
-	if (options.length) lines.push("", "options:", ...options.map((o, n) => `  ${n + 1}. ${o}`));
+	const rec = itemRecommended(i);
+	if (options.length)
+		lines.push("", i.pick === "many" ? "options (several can be picked):" : "options:", ...options.map((o, n) => `  ${n + 1}. ${o}${rec.includes(o) ? " (recommended)" : ""}`));
+	if (i.default_answer) lines.push("", `if ${yourName(c.db)} says nothing: ${defaultText(i)}`);
+	if (deadlineText(i) && OPEN.includes(i.status)) lines.push(`deadline: ${deadlineText(i)}`);
 	if (i.answer) lines.push("", `answer: ${i.answer}`);
 	lines.push("", "history:", ...i.notes.map((n) => `  ${n.at} ${n.author ? `${n.author}: ` : ""}${n.text}`));
 	return lines.join("\n");
@@ -356,6 +363,12 @@ const itemJson = (i: Item) => ({
 	session: i.session || undefined,
 	options: itemOptions(i).length ? itemOptions(i) : undefined,
 	answer: i.answer || undefined,
+	pick: i.pick === "many" ? "many" : undefined,
+	picks: i.picks ? itemPicks(i) : undefined,
+	recommended: itemRecommended(i).length ? itemRecommended(i) : undefined,
+	default: i.default_answer ? defaultText(i) : undefined,
+	decide_by: i.decide_by ?? undefined,
+	waits_on_kostas: needsKostas(i),
 	images: i.image_count || undefined,
 	created_at: i.created_at,
 	updated_at: i.updated_at,
@@ -373,14 +386,16 @@ function trackerBlock(t: Tracker) {
 	return `${head}\n  ${when}${t.reading?.url ? ` · ${t.reading.url}` : ""}`;
 }
 
-const SECTION_ORDER = ["decision", "setup", "check", "review", "bug", "task", "idea"];
+const SECTION_ORDER = ["decision", "setup", "check", "review", "notice", "bug", "task", "idea"];
 
 async function overview(c: Conn, slug: string) {
 	const p = projects(c.db).find((x) => x.slug === slug)!;
 	const open = listItems(c.db, { project: slug, status: OPEN });
-	const mine = open.filter((i) => i.owner === "kostas").length;
+	// Notices don't wait on Kostas: they count with the agents' side here.
+	const mine = open.filter(needsKostas).length;
 	const out = [`# ${p.name} (${p.slug})`, p.path ? `Folder: ${p.path}` : "", ""];
-	out.push(`## Open items: ${open.length} (${mine} for ${yourName(c.db)}, ${open.length - mine} for agents)`);
+	const notices = open.filter((i) => i.owner === "kostas" && i.kind === "notice").length;
+	out.push(`## Open items: ${open.length} (${mine} for ${yourName(c.db)}, ${notices ? `${notices} notices for them to see, ` : ""}${open.length - mine - notices} for agents)`);
 	for (const kind of SECTION_ORDER) {
 		const list = open.filter((i) => i.kind === kind);
 		if (list.length) out.push(`${kind}:`, ...list.map((i) => `- ${itemLine(c, i, false)}`));
@@ -496,27 +511,48 @@ function reportId(a: Record<string, any>, c: Conn) {
 	return r.id;
 }
 
+/** The fields that let an ask go ahead without {{name}} (asks.ts), on add_item and update_item. */
+const ASK_PARAMS: Record<string, Schema> = {
+	default: {
+		anyOf: [{ type: "string" }, { type: "array", items: { type: "string" }, maxItems: 12 }],
+		description: 'What happens if {{name}} says nothing (decisions, reviews, notices). A decision with options: one of them (pick "many": a list, [] for none of them). With a default the ask goes ahead by itself at decide_by, exactly as if {{name}} had picked it. "" removes it.',
+	},
+	decide_by: str('When the default goes ahead: a date (2026-11-14, the end of that day), "in 3 days", or "none". Left out, a new default gets the board\'s usual wait (Settings → You and your day, 3 days unless changed).'),
+	pick: { type: "string", enum: ["one", "many"], description: 'A decision: answered with one option (default) or several ticked at once ("many"), e.g. which extras to build. Bundle related choices into one this way.' },
+	recommended: {
+		anyOf: [{ type: "string" }, { type: "array", items: { type: "string" }, maxItems: 12 }],
+		description: 'Your pick among the options (pick "many": a list). Marked on its button; a pick-many decision starts with these ticked.',
+	},
+};
+/** The ask fields of a tool call as an item patch. */
+const askPatch = (a: Record<string, any>): ItemPatch => ({
+	...(a.default !== undefined ? { default_answer: a.default } : {}),
+	...(a.decide_by !== undefined ? { decide_by: a.decide_by } : {}),
+	...(a.pick !== undefined ? { pick: a.pick } : {}),
+	...(a.recommended !== undefined ? { recommended: a.recommended } : {}),
+});
+
 const TOOLS: Tool[] = [
 	{
 		name: "list_projects",
 		title: "List projects",
-		description: "The projects on the workbench: slug, name, folder, and how many open items wait on {{name}} and on agents.",
+		description: "The projects on the workbench: slug, name, folder, and how many open items wait on {{name}} (notices, which don't wait, counted apart) and on agents.",
 		input: obj({}),
 		hints: RO,
 		run(_, c) {
 			const counts = c.db
 				.query(
-					`SELECT project, SUM(owner = 'kostas') AS kostas, SUM(owner = 'agent') AS agent FROM items
+					`SELECT project, SUM(owner = 'kostas' AND kind != 'notice') AS kostas, SUM(owner = 'kostas' AND kind = 'notice') AS notices, SUM(owner = 'agent') AS agent FROM items
 					WHERE status IN ('todo', 'doing', 'waiting') GROUP BY project`,
 				)
-				.all() as { project: string; kostas: number; agent: number }[];
+				.all() as { project: string; kostas: number; notices: number; agent: number }[];
 			const list = projects(c.db).map((p) => {
 				const n = counts.find((x) => x.project === p.slug);
-				return { slug: p.slug, name: p.name, path: p.path, open_for_kostas: n?.kostas ?? 0, open_for_agents: n?.agent ?? 0, current: p.slug === c.project, archived: !!p.archived_at };
+				return { slug: p.slug, name: p.name, path: p.path, open_for_kostas: n?.kostas ?? 0, notices_for_kostas: n?.notices ?? 0, open_for_agents: n?.agent ?? 0, current: p.slug === c.project, archived: !!p.archived_at };
 			});
 			return {
 				text: list
-					.map((p) => `${p.slug}${p.current ? " (current)" : ""}${p.archived ? " (archived)" : ""}: ${p.name} · ${p.path || "no folder"} · ${p.open_for_kostas} for ${yourName(c.db)}, ${p.open_for_agents} for agents`)
+					.map((p) => `${p.slug}${p.current ? " (current)" : ""}${p.archived ? " (archived)" : ""}: ${p.name} · ${p.path || "no folder"} · ${p.open_for_kostas} for ${yourName(c.db)}${p.notices_for_kostas ? ` (+${p.notices_for_kostas} notices)` : ""}, ${p.open_for_agents} for agents`)
 					.join("\n"),
 				data: { projects: list },
 			};
@@ -618,7 +654,7 @@ const TOOLS: Tool[] = [
 		name: "add_item",
 		title: "Add an item",
 		description:
-			`Files a new item. kind: task or bug (code work), check ({{name}} tries it on a device), review (wording or design), decision (a question only {{name}} can answer), setup (accounts, consoles, stores), idea. Returns the new wb-xxxx, and warnings about what {{name}} won't be able to follow.\n\n${BRIEF_RULES}`,
+			`Files a new item. kind: task or bug (code work), check ({{name}} tries it on a device), review (wording or design), decision (a question only {{name}} can answer), setup (accounts, consoles, stores), notice (what changed, for {{name}} to see; doesn't wait on them), idea. Returns the new wb-xxxx, and warnings about what {{name}} won't be able to follow.\nDon't stop work on {{name}}: nothing to decide → a notice. A safe default → give default (and decide_by). Related choices → one decision, pick "many". A project takes a limited number of open asks.\n\n${BRIEF_RULES}`,
 		input: obj(
 			{
 				title: str("Short, specific and in plain words: what to do or decide, as {{name}} would say it.", { minLength: 1, maxLength: 300 }),
@@ -634,7 +670,8 @@ const TOOLS: Tool[] = [
 					description: "Screenshots to show on the item, in this order.",
 					items: obj({ ...IMAGE_SOURCE, caption: CAPTION }, ["caption"]),
 				},
-				options: { type: "array", items: { type: "string", minLength: 1 }, maxItems: 12, description: "The choices of a decision; {{name}} answers with one click." },
+				options: { type: "array", items: { type: "string", minLength: 1 }, maxItems: 12, description: "The choices of a decision; {{name}} answers with one click (or ticks several, with pick many)." },
+				...ASK_PARAMS,
 				branch: str("The git branch the work is on."),
 				source: str('Where it came from, e.g. "src/app.ts:42".'),
 				status: { type: "string", enum: STATUSES, description: "Default todo." },
@@ -644,11 +681,15 @@ const TOOLS: Tool[] = [
 		hints: WRITE,
 		async run(a, c) {
 			const kind = a.kind ?? (a.options?.length ? "decision" : "task");
+			const owner = a.owner ?? ownerFor(c.db, kind);
 			const brief = checkBrief(
-				{ title: a.title, body: a.body ?? "", kind, owner: a.owner ?? ownerFor(c.db, kind) },
+				{ title: a.title, body: a.body ?? "", kind, owner },
 				{ name: yourName(c.db), images: a.images?.length ?? 0, attach: ATTACH },
 			);
 			if (brief.refuse) throw new ToolError(brief.refuse);
+			const project = projectOf(c, a.project)!;
+			const capped = capRefusal(c.db, { project, kind, owner, priority: a.priority });
+			if (capped) throw new ToolError(capped);
 			const images = await readImages(a.images);
 			const id = addItem(
 				c.db,
@@ -657,11 +698,12 @@ const TOOLS: Tool[] = [
 					kind,
 					// Without one, the board's setting for the kind.
 					owner: a.owner,
-					project: projectOf(c, a.project)!,
+					project,
 					priority: a.priority,
 					area: a.area,
 					body: a.body,
 					options: a.options,
+					...askPatch(a),
 					branch: a.branch,
 					sources: a.source,
 					status: a.status,
@@ -687,6 +729,7 @@ const TOOLS: Tool[] = [
 				area: str("Area tag."),
 				body: str("Replaces the details (markdown)."),
 				options: { type: "array", items: { type: "string", minLength: 1 }, maxItems: 12, description: "Replaces a decision's choices." },
+				...ASK_PARAMS,
 				branch: str("Git branch."),
 				project: str("Move it to this project (slug)."),
 				note: str("Also add this note to the history."),
@@ -696,10 +739,16 @@ const TOOLS: Tool[] = [
 		hints: { ...WRITE, idempotentHint: true },
 		run(a, c) {
 			const id = itemId(c, a.ref);
-			const patch: ItemPatch = {};
+			const patch: ItemPatch = askPatch(a);
 			for (const k of ["title", "kind", "owner", "status", "priority", "area", "body", "options", "branch"] as const)
 				if (a[k] !== undefined) (patch as Json)[k] = a[k];
 			if (a.project !== undefined) patch.project = projectOf(c, a.project)!;
+			// Handing an item to {{name}} is filing an ask: the same cap.
+			const was = getItem(c.db, id)!;
+			if (patch.owner === "kostas" && was.owner !== "kostas") {
+				const capped = capRefusal(c.db, { project: patch.project ?? was.project, kind: patch.kind ?? was.kind, owner: "kostas", priority: patch.priority ?? was.priority });
+				if (capped) throw new ToolError(capped.replace("Nothing was filed.", "Nothing was changed."));
+			}
 			updateItem(c.db, id, patch, "agent");
 			if (a.note?.trim()) addNote(c.db, id, a.note.trim(), "agent");
 			const i = getItem(c.db, id)!;
@@ -816,8 +865,17 @@ const TOOLS: Tool[] = [
 		name: "answer_decision",
 		title: "Record {{name}}'s answer",
 		description:
-			"Records the answer to a decision and hands it back to the agents. Only with an answer {{name}} gave in the conversation: never decide for them. answer is one of the item's options (or its number) or their own words.",
-		input: obj({ ref: REF, answer: str("{{name}}'s answer.", { minLength: 1 }) }, ["ref", "answer"]),
+			'Records the answer to a decision and hands it back to the agents. Only with an answer {{name}} gave in the conversation: never decide for them. answer is one of the item\'s options (or its number) or their own words; for a pick-"many" decision, a list of the options they picked ([] for none of them).',
+		input: obj(
+			{
+				ref: REF,
+				answer: {
+					anyOf: [{ type: "string", minLength: 1 }, { type: "array", items: { type: "string", minLength: 1 }, maxItems: 12 }],
+					description: "{{name}}'s answer: an option, its number, their words, or a list of options.",
+				},
+			},
+			["ref", "answer"],
+		),
 		hints: { ...WRITE, idempotentHint: true },
 		run(a, c) {
 			const id = itemId(c, a.ref);
@@ -1096,6 +1154,8 @@ async function callTool(params: Json, c: Conn, era: Era): Promise<Json> {
 	const bad = check(args, tool.input, "");
 	if (bad) return fail(bad);
 	try {
+		// Defaults whose deadline passed go ahead first, so what the tool reads or changes is current (asks.ts).
+		applyDue(c.db);
 		const out = await tool.run(args, c);
 		const content: Json[] = [{ type: "text", text: out.text }];
 		if (out.image) content.push({ type: "image", ...out.image });
@@ -1159,6 +1219,7 @@ async function readResource(uri: string, c: Conn, era: Era) {
 		return text(JSON.stringify((arg ? listTrackers(c.db, slug(arg)) : listTrackers(c.db)).map(trackerJson), null, 2), "application/json");
 	if (kind === "project" && arg) return text(await overview(c, slug(arg)), "text/markdown");
 	if (kind === "item" && arg) {
+		applyDue(c.db);
 		const id = resolveItem(c.db, decodeURIComponent(arg));
 		if (id === undefined) throw notFound();
 		return text(itemText(c, getItem(c.db, id)!), "text/markdown");
@@ -1185,7 +1246,7 @@ const TRACKING = `Track it on the workbench with this server's tools:
 - start_item now (it links this session to the item); add the branch once you have one.
 - add_note for what {{name}} should know along the way; wait_item when you're blocked, saying on what.
 - finish_item with a note on what changed and where (commit, branch, PR).
-- Anything you leave for {{name}} (a device check, a wording, a question) is its own item: add_item with kind check, review or decision. It has to make sense without opening anything else: the content in the body, a screenshot for anything on screen (attach_image).
+- Anything you leave for {{name}} (a device check, a wording, a question) is its own item: add_item with kind check, review or decision, or a notice when nothing needs their decision (give a decision a default when there is a safe one). It has to make sense without opening anything else: the content in the body, a screenshot for anything on screen (attach_image).
 - This item's images, if it lists any, are part of the brief: read them with get_image.`;
 
 const PROMPTS: Prompt[] = [

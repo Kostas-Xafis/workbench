@@ -14,6 +14,7 @@ export const BRIEF_RULES = `{{name}} reads items on the board, often on a phone,
 - Anything visible on screen gets a screenshot, with a caption saying what to look at; two for before and after.
 - check: where to go, numbered steps, what right looks like, what wrong looks like.
 - review: quote the exact words (lines starting with >) or show a picture; what to judge; what happens if {{name}} says nothing.
+- notice: what changed and where to see it; what stays if {{name}} says nothing.
 - decision: what's being decided and why now; for each option, what changes for the user; your recommendation and why.
 - setup: the exact address, each click, what to copy back and where it goes, why it's needed.
 - bug: what happens, what should happen, how to make it happen.
@@ -81,7 +82,7 @@ export function checkBrief(d: Draft, { name, images, attach }: { name: string; i
 	if (forThem && body.split("\n").some((line) => line.length > WALL)) warnings.push("It has a long paragraph. Break it into a list: numbered for steps or anything in order, bullets for the rest.");
 	if (d.kind === "check" && !/^\s*1[.)]\s/m.test(body)) warnings.push("A check needs numbered steps: where to go, what to do, what right and wrong look like.");
 	if (d.kind === "decision" && !/recommend/i.test(body)) warnings.push("A decision needs your recommendation and why.");
-	if (!images && (forThem || d.kind === "bug") && ["check", "review", "bug"].includes(d.kind)) {
+	if (!images && (forThem || d.kind === "bug") && ["check", "review", "notice", "bug"].includes(d.kind)) {
 		const hint = `${d.title}\n${body}`.match(ON_SCREEN);
 		if (hint) warnings.push(`This seems to be about something on screen ("${hint[0]}"). Show it: ${attach}.`);
 	}

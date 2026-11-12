@@ -5,8 +5,9 @@ import { dirname, join } from "node:path";
 import { createTables as createImageTables, itemImages, type ImageInfo } from "./images";
 import { createSettingsTable, getSetting, getSettings, ownerFor } from "./settings";
 import { createTables as createTrackerTables } from "./trackers";
+import { askChanges, cleanAsk, resolveAsk } from "./asks";
 
-export const KINDS = ["task", "check", "review", "decision", "setup", "bug", "idea"] as const;
+export const KINDS = ["task", "check", "review", "decision", "setup", "bug", "idea", "notice"] as const;
 export const STATUSES = ["todo", "doing", "waiting", "done", "dropped"] as const;
 export const OWNERS = ["kostas", "agent"] as const;
 
@@ -31,8 +32,18 @@ export type Item = {
 	sources: string;
 	/** JSON array of the choices a decision offers; '' = none. */
 	options: string;
-	/** What Kostas picked or wrote. */
+	/** What Kostas picked or wrote. For a pick-many decision, the picks joined by "; " (the list is `picks`). */
 	answer: string;
+	/** What happens if Kostas says nothing (asks.ts): free words, an option, or for a pick-many decision a JSON list of options. '' = none. */
+	default_answer: string;
+	/** When the default goes ahead, UTC 'YYYY-MM-DD HH:MM:SS'; NULL = no deadline. */
+	decide_by: string | null;
+	/** How a decision is answered: one option, or several ticked ("many"). */
+	pick: "one" | "many";
+	/** JSON list of the options the agent recommends; '' = none. */
+	recommended: string;
+	/** JSON list of the options Kostas ticked on a pick-many decision; '' = not answered that way. */
+	picks: string;
 	/** How many images it has (listItems and getItem). */
 	image_count?: number;
 	created_at: string;
@@ -113,6 +124,12 @@ export function open(path = DB_PATH) {
 		db.run("ALTER TABLE items ADD COLUMN options TEXT NOT NULL DEFAULT ''");
 		db.run("ALTER TABLE items ADD COLUMN answer TEXT NOT NULL DEFAULT ''");
 	}
+	// Asks that don't block (asks.ts): a default answer with a deadline, several picks, the agent's recommendation.
+	if (!itemCols.includes("default_answer")) db.run("ALTER TABLE items ADD COLUMN default_answer TEXT NOT NULL DEFAULT ''");
+	if (!itemCols.includes("decide_by")) db.run("ALTER TABLE items ADD COLUMN decide_by TEXT");
+	if (!itemCols.includes("pick")) db.run("ALTER TABLE items ADD COLUMN pick TEXT NOT NULL DEFAULT 'one'");
+	if (!itemCols.includes("recommended")) db.run("ALTER TABLE items ADD COLUMN recommended TEXT NOT NULL DEFAULT ''");
+	if (!itemCols.includes("picks")) db.run("ALTER TABLE items ADD COLUMN picks TEXT NOT NULL DEFAULT ''");
 	const linkCols = (db.query("PRAGMA table_info(links)").all() as { name: string }[]).map((c) => c.name);
 	if (!linkCols.includes("icon_url")) {
 		db.run("ALTER TABLE links ADD COLUMN icon_url TEXT NOT NULL DEFAULT ''");
@@ -247,10 +264,18 @@ const EDITABLE = [
 	"sources",
 	"options",
 	"answer",
+	"default_answer",
+	"decide_by",
+	"pick",
+	"recommended",
+	"picks",
 ] as const;
-/** `options` may also be given as a list. */
-export type ItemPatch = Partial<Omit<Pick<Item, (typeof EDITABLE)[number]>, "options">> & {
+/** `options` may also be given as a list; so may `recommended`, `default_answer` and `picks` (cleanAsk in asks.ts). */
+export type ItemPatch = Partial<Omit<Pick<Item, (typeof EDITABLE)[number]>, "options" | "recommended" | "default_answer" | "picks">> & {
 	options?: string | string[];
+	recommended?: string | string[];
+	default_answer?: string | string[];
+	picks?: string | string[];
 };
 
 /** The choices of a decision as a list. */
@@ -286,16 +311,17 @@ export function projects(db: Db): Project[] {
 	return db.query(`SELECT * FROM projects ${PROJECT_ORDER}`).all() as Project[];
 }
 
-/** Projects with their open items: `mine` waits on Kostas, `open` is all of them. */
-export function projectsWithCounts(db: Db): (Project & { mine: number; open: number })[] {
+/** Projects with their open items: `mine` waits on Kostas (notices don't wait: they're `notices`), `open` is all of them. */
+export function projectsWithCounts(db: Db): (Project & { mine: number; notices: number; open: number })[] {
 	return db
 		.query(
 			`SELECT p.*,
-				(SELECT COUNT(*) FROM items i WHERE i.project = p.slug AND i.owner = 'kostas' AND i.status IN ('todo', 'doing', 'waiting')) AS mine,
+				(SELECT COUNT(*) FROM items i WHERE i.project = p.slug AND i.owner = 'kostas' AND i.kind != 'notice' AND i.status IN ('todo', 'doing', 'waiting')) AS mine,
+				(SELECT COUNT(*) FROM items i WHERE i.project = p.slug AND i.owner = 'kostas' AND i.kind = 'notice' AND i.status IN ('todo', 'doing', 'waiting')) AS notices,
 				(SELECT COUNT(*) FROM items i WHERE i.project = p.slug AND i.status IN ('todo', 'doing', 'waiting')) AS open
 			FROM projects p ${PROJECT_ORDER}`,
 		)
-		.all() as (Project & { mine: number; open: number })[];
+		.all() as (Project & { mine: number; notices: number; open: number })[];
 }
 
 export const PROJECT_SLUG = /^[a-z0-9][a-z0-9-]{0,39}$/;
@@ -435,6 +461,7 @@ export function addItem(db: Db, item: ItemPatch & { title: string; project: stri
 	validate(item);
 	// Nobody said who acts: the board's setting for the kind (Settings → You and your day).
 	item.owner ||= ownerFor(db, item.kind || "task");
+	item = { ...item, ...cleanAsk(db, item) };
 	const fields = EDITABLE.filter((k) => item[k] !== undefined);
 	const row = Object.fromEntries([...fields.map((k) => [k, item[k]]), ["ref", newRef(db)]]);
 	const { id } = db
@@ -455,6 +482,7 @@ export function updateItem(db: Db, id: number, patch: ItemPatch, author = ""): v
 	validate(patch);
 	const before = getItem(db, id);
 	if (!before) throw new Error(`no item #${id}`);
+	patch = cleanAsk(db, patch, before);
 	const fields = EDITABLE.filter((k) => patch[k] !== undefined && patch[k] !== before[k]);
 	if (!fields.length) return;
 	const row = Object.fromEntries(fields.map((k) => [k, patch[k]])) as Record<string, string | number>;
@@ -465,12 +493,16 @@ export function updateItem(db: Db, id: number, patch: ItemPatch, author = ""): v
 		`UPDATE items SET ${fields.map((k) => `${k} = $${k}`).join(", ")}, updated_at = datetime('now')${doneAt} WHERE id = $id`,
 	).run({ ...row, id });
 	const changes = fields
-		.filter((k) => k !== "body" && k !== "options")
+		.filter((k) => !SAID_APART.has(k))
 		.map((k) => `${k}: ${before[k] || "—"} → ${patch[k] || "—"}`);
 	if (fields.includes("body")) changes.push("body edited");
 	if (fields.includes("options")) changes.push(`options: ${itemOptions(patch as Item).join(" | ") || "—"}`);
+	changes.push(...askChanges(before, patch as Partial<Item>, fields));
 	addNote(db, id, changes.join(" · "), author);
 }
+
+// Changes said in words rather than as "field: old → new" (the ask fields: askChanges in asks.ts).
+const SAID_APART = new Set<string>(["body", "options", "default_answer", "decide_by", "pick", "recommended", "picks"]);
 
 export function addNote(db: Db, itemId: number, text: string, author = "") {
 	db.query("INSERT INTO notes (item_id, text, author) VALUES (?, ?, ?)").run(itemId, text, author);
@@ -903,15 +935,12 @@ export function resetVault(db: Db): number {
 	})();
 }
 
-/** Kostas answers a decision: it goes back to the agent, to act on. A number picks that option (1-based). */
-export function answerItem(db: Db, id: number, answer: string, author = "kostas") {
-	const item = getItem(db, id);
-	if (!item) throw new Error(`no item #${id}`);
-	const options = itemOptions(item);
-	let text = answer.trim();
-	if (/^\d+$/.test(text) && !options.includes(text) && options[Number(text) - 1]) text = options[Number(text) - 1];
-	if (!text) throw new Error("empty answer");
-	updateItem(db, id, { answer: text, owner: "agent", status: item.status === "doing" ? "doing" : "todo" }, author);
+/**
+ * Kostas answers a decision: it goes back to the agent, to act on. A number picks that option (1-based); a pick-many
+ * decision takes a list (or "1, 3"). It goes through resolveAsk (asks.ts), like every other way an ask ends.
+ */
+export function answerItem(db: Db, id: number, answer: string | string[], author = "kostas") {
+	resolveAsk(db, id, { answer }, author);
 }
 
 // Backups: whole-database copies next to it, the newest `backups.keep` kept (Settings → Data; 14 unless changed).
