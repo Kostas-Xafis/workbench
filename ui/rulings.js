@@ -28,7 +28,7 @@ const rulingsHref = (slug, id) => `#rulings${slug ? `/${encodeURIComponent(slug)
 hooks.rail.push((collapsed) => {
 	const list = liveRulings(state.project);
 	if (collapsed) return list.length ? `<a class="ritem" href="${rulingsHref(state.project)}" title="Rulings (${list.length})"><span class="tile">${GAVEL}</span></a>` : "";
-	const row = (r) => `<a class="ritem ruling" href="${rulingsHref(r.project, r.id)}" title="${esc(r.text)}${r.drafted ? "\n(drafted from the answer: an agent rewrites it)" : ""}">${GAVEL}<span>${esc(!state.project ? `${projectName(r.project)} · ${r.text}` : r.text)}</span>${r.drafted ? `<small>draft</small>` : ""}</a>`;
+	const row = (r) => `<a class="ritem ruling" href="${rulingsHref(r.project, r.id)}" title="${esc(r.text)}${r.drafted ? "\n(drafted from the answer: an agent rewrites it)" : ""}">${GAVEL}<span>${esc(!state.project ? `${projectName(r.project)} · ${r.text}` : r.text)}</span></a>`;
 	const rest = list.length - RULINGS_SHOWN;
 	const tools = `<span class="tools"><button class="icon-btn" id="ruling-new" title="Add a ruling" aria-label="Add a ruling"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor"><g stroke-width="1.6"><path d="M8 3v10M3 8h10"/></g></svg></button></span>`;
 	const body = list.length
@@ -86,20 +86,20 @@ function renderRulings() {
 	const projectOpts = [`<option value="">All projects</option>`, ...state.projects.map((p) => `<option value="${esc(p.slug)}"${p.slug === rv.slug ? " selected" : ""}>${esc(p.name)}</option>`)].join("");
 	const row = (r) => {
 		if (rv.editing === r.id) return `<div class="ruling-row editing" data-ruling="${r.id}"><form class="ruling-edit" data-edit="${r.id}">
-			<textarea name="text" rows="2" maxlength="400" required aria-label="The ruling">${esc(r.text)}</textarea>
+			<textarea name="text" rows="3" maxlength="400" required aria-label="The ruling">${esc(r.text)}</textarea>
 			<div class="ruling-btns"><button class="primary sm" type="submit">Save</button><button class="ghost sm" type="button" data-cancel>Cancel</button></div>
 			<p class="error" data-err></p></form></div>`;
 		const from = r.item_ref ? `<button type="button" class="ruling-ref" data-open-item="${esc(r.item_ref)}" title="${esc(r.question)}">wb-${esc(r.item_ref)}</button>` : "";
 		const meta = [from, esc(rulingDay(r.created_at)), r.drafted ? `<span class="ruling-draft" title="Drafted from the question and its answer. The next agent that picks the item up rewrites it as one clear line; you can too.">draft</span>` : "", r.retired_at ? `retired ${esc(rulingDay(r.retired_at))}` : ""].filter(Boolean).join(" · ");
 		return `<div class="ruling-row${rv.focus === r.id ? " focus" : ""}" data-ruling="${r.id}">
 			<div class="ruling-main"><div class="ruling-text">${esc(r.text)}</div>
-			${r.question && !r.text.includes(r.question) ? `<div class="ruling-q">${esc(r.question)}</div>` : ""}
+			${r.question && !r.drafted ? `<div class="ruling-q">${esc(r.question)}</div>` : ""}
 			<small>${meta}</small></div>
 			<div class="ruling-btns">${r.retired_at
 				? `<button class="ghost sm" type="button" data-unretire="${r.id}">Bring back</button>`
 				: `<button class="ghost sm" type="button" data-edit-ruling="${r.id}">Edit</button><button class="ghost sm" type="button" data-retire="${r.id}" title="It no longer holds: agents stop reading it">Retire</button>`}</div></div>`;
 	};
-	const groups = slugs.map((s) => `${rv.slug ? "" : `<div class="v-group">${esc(projectName(s))}</div>`}${shown.filter((r) => r.project === s).map(row).join("")}`).join("");
+	const groups = slugs.map((s) => `${rv.slug ? "" : `<div class="v-group ruling-group">${esc(projectName(s))}</div>`}${shown.filter((r) => r.project === s).map(row).join("")}`).join("");
 	const addSlug = rv.slug || state.project || state.projects[0]?.slug || "";
 	const add = rv.retired ? "" : rv.adding
 		? `<form class="ruling-add" id="ruling-add">

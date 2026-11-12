@@ -1,5 +1,4 @@
 /* Rulings (ui/rulings.js) */
-.ritem.ruling small { font-size: 10.5px; border: 1px solid var(--line); border-radius: 5px; padding: 0 4px; }
 .ritem.more-link { color: var(--muted); font-size: 12px; padding-left: 35px; }
 .ritem.more-link:hover { color: var(--ink); }
 #rulings-view { flex: 1; overflow: auto; padding: 18px 18px 56px; }
@@ -37,3 +36,4 @@
 	.ruling-row { flex-direction: column; gap: 6px; }
 	.ruling-btns { align-self: flex-end; }
 }
+.v-group.ruling-group { text-transform: none; letter-spacing: 0; font-size: 12px; }
