@@ -7,6 +7,7 @@ import { staleOf, type Stale } from "./stale";
 import { blockersOf, clearLinks, createLinkTable, LINK_COUNTS, resumeWaiting, waitersOf, type LinkRef } from "./links";
 import { createSettingsTable, getSetting, getSettings, ownerFor } from "./settings";
 import { createTables as createTrackerTables } from "./trackers";
+import { backfillRulings, createTables as createRulingTables, draftRuling, listRulings } from "./rulings";
 
 export const KINDS = ["task", "check", "review", "decision", "setup", "bug", "idea"] as const;
 export const STATUSES = ["todo", "doing", "waiting", "done", "dropped"] as const;
@@ -206,6 +207,9 @@ export function open(path = DB_PATH) {
 	createTrackerTables(db);
 	// Board-wide settings (see settings.ts).
 	createSettingsTable(db);
+	// A project's standing answers (see rulings.ts); answers given without them get their drafts now.
+	createRulingTables(db);
+	backfillRulings(db);
 	// When an MCP client last called the board, per transport, for the setup guide (see setup.ts). Here rather
 	// than in setup.ts, which reads health.ts and would make an import cycle.
 	db.run(`CREATE TABLE IF NOT EXISTS mcp_contact (
@@ -374,6 +378,7 @@ export function projectUsage(db: Db, slug: string) {
 		secrets: n("SELECT COUNT(*) AS n FROM secrets WHERE project = ?"),
 		trackers: n("SELECT COUNT(*) AS n FROM trackers WHERE project = ?"),
 		sources: n("SELECT COUNT(*) AS n FROM sources WHERE project = ?"),
+		rulings: n("SELECT COUNT(*) AS n FROM rulings WHERE project = ?"),
 	};
 }
 
@@ -823,7 +828,8 @@ export function search(db: Db, q: string, project?: string) {
 			AND (label LIKE $q OR url LIKE $q OR grp LIKE $q) ORDER BY label LIMIT 10`,
 		)
 		.all({ project: project ?? "", q: like });
-	return { items, reports, links };
+	const rulings = listRulings(db, { project, q }).slice(0, 10);
+	return { items, reports, links, rulings };
 }
 
 export type VaultInfo = { salt: string; iterations: number; changed_at: string };
@@ -946,6 +952,8 @@ export function answerItem(db: Db, id: number, answer: string, author = "kostas"
 	if (/^\d+$/.test(text) && !options.includes(text) && options[Number(text) - 1]) text = options[Number(text) - 1];
 	if (!text) throw new Error("empty answer");
 	updateItem(db, id, { answer: text, owner: "agent", status: item.status === "doing" ? "doing" : "todo" }, author);
+	// The answer becomes the project's standing rule, as a draft an agent rewrites (rulings.ts).
+	draftRuling(db, id, author);
 }
 
 // Backups: whole-database copies next to it, the newest `backups.keep` kept (Settings → Data; 14 unless changed).
@@ -1151,6 +1159,7 @@ export function exportAll(db: Db) {
 			history: history.get(t.id) ?? [],
 		})),
 		settings: getSettings(db),
+		rulings: all("SELECT * FROM rulings ORDER BY project, id"),
 		sources: all("SELECT project, name, base_url, write, header_names, created_at, updated_at FROM sources ORDER BY project, name").map(
 			(s) => ({ ...s, write: !!s.write, header_names: String(s.header_names || "").split("\n").filter(Boolean) }),
 		),

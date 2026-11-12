@@ -58,6 +58,7 @@ import { todayData } from "./today";
 import { codeLinks, repoState, type CodeLinks } from "./git";
 import { candidateFolders, checkFolder, folderState, health } from "./health";
 import { getSettings, settingDefs, updateSettings } from "./settings";
+import { addRuling, getRuling, listRulings, updateRuling } from "./rulings";
 import { checkNow, startUpdateChecks, updateInfo } from "./updates";
 // Settings → Data
 import { BACKUP_DIR, backupFile, backupsKeep, compactDb, dbStats, exportAll, restoreSteps, shellWord, tidy, tidyCount, tidyKeep, type TidyKeep } from "./db";
@@ -509,7 +510,30 @@ export function serve({ lan = false } = {}) {
 			"/api/search": (req) => {
 				const u = new URL(req.url).searchParams;
 				const q = (u.get("q") ?? "").trim();
-				return json(q ? search(db, q, u.get("project") || undefined) : { items: [], reports: [], links: [] });
+				return json(q ? search(db, q, u.get("project") || undefined) : { items: [], reports: [], links: [], rulings: [] });
+			},
+			// Rulings, live and retired (rulings.ts): the board's sidebar part and its view.
+			"/api/rulings": {
+				GET: () => json(listRulings(db, { retired: "all" })),
+				POST: jsonOnly(async (req) => {
+					try {
+						const { project, text, item } = await req.json();
+						const id = addRuling(db, { project: String(project ?? ""), text, item: item ? itemId(String(item)) : undefined }, "kostas");
+						return json(getRuling(db, id), 201);
+					} catch (e) {
+						return fail(e);
+					}
+				}),
+			},
+			"/api/rulings/:id": {
+				PATCH: jsonOnly(async (req) => {
+					try {
+						const { text, project, retired } = await req.json();
+						return json(updateRuling(db, Number(req.params.id), { text, project, retired: retired === undefined ? undefined : !!retired }, "kostas"));
+					} catch (e) {
+						return fail(e);
+					}
+				}),
 			},
 			// The Today view's part the page can't build alone: what agents finished since `since` (with the finishing
 			// note's first line) and the reports updated since, day pages left out. ?project= (default all), ?since= (any time).

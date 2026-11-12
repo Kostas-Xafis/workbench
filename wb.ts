@@ -43,6 +43,19 @@ import { PORT } from "./server";
 import { addSource, KEY_PATH, listSources, removeSource } from "./sources";
 import { PRESETS } from "./presets";
 import { checkBrief, WRITING_GUIDE } from "./brief";
+import {
+	addRuling,
+	ASKING_KINDS,
+	getRuling,
+	itemRulings,
+	listRulings,
+	repeatWarning,
+	retireRuling,
+	rulingSource,
+	similarRulings,
+	updateRuling,
+	type Ruling,
+} from "./rulings";
 import { integrationGuide } from "./integrate";
 import { staleLabel } from "./stale";
 import { removeLinks, waitOn } from "./links";
@@ -94,7 +107,12 @@ Items are named wb-xxxx (e.g. wb-k3f9); commands take that, the bare k3f9, or an
   wb image save <id> <file>         write one to a file, to look at it (wb show lists them)
   wb image rm <id>                  take one off
   wb import <file.json> [--project P]   bulk add (array of items)
-  wb links                         bookmarks shown on the board
+  wb rulings [--project P | --all] [-q text] [--retired]
+                                   ${name}'s standing answers in this project: read them before asking anything
+  wb rule "text" [--item <ref>] [--project P]   write one down, one line (--item: where it was decided);
+                                   wb rule <id> "text" rewrites one (a drafted one stops being a draft)
+  wb unrule <id>                   retire one: it no longer holds
+  wb links                        bookmarks shown on the board
   wb link "Label" <url> [--project P | --all] [--group G] [--icon <icon url>]
                                    add one (--all: shown with every project)
   wb relink <id> [--group G] [--icon <url>] [--title "Label"]   change one
@@ -207,6 +225,8 @@ const { values: o, positionals: args } = parseArgs({
 		blocks: { type: "string" },
 		image: { type: "string", multiple: true },
 		caption: { type: "string", multiple: true },
+		item: { type: "string" },
+		retired: { type: "boolean" },
 		help: { type: "boolean", short: "h" },
 	},
 });
@@ -304,6 +324,12 @@ function row(i: Item, showProject: boolean) {
 		.join(" ");
 }
 
+/** "#12  Traditional is the default melisma style  (wb-k3f9, 25 Oct · drafted)". */
+function rulingRow(r: Ruling, showProject: boolean) {
+	const notes = [rulingSource(r), r.drafted ? "drafted" : "", r.retired_at ? `retired ${r.retired_at.slice(0, 10)}` : ""].filter(Boolean).join(" · ");
+	return `#${String(r.id).padEnd(4)} ${showProject ? `${r.project.padEnd(12)} ` : ""}${r.text}  (${notes})`;
+}
+
 function show(id: number) {
 	const i = getItem(db, id)!;
 	console.log(`wb-${i.ref}  ${i.title}`);
@@ -322,6 +348,8 @@ function show(id: number) {
 	const linkLine = (l: { ref: string; title: string; status: string; answer: string }) => `  wb-${l.ref} ${l.answer ? "answered" : l.status}: ${l.title}`;
 	if (i.waits_on.length) console.log(`\nwaits on:\n${i.waits_on.map(linkLine).join("\n")}`);
 	if (i.blocks.length) console.log(`\nblocks (waiting on this):\n${i.blocks.map(linkLine).join("\n")}`);
+	const rulings = itemRulings(db, i.id);
+	if (rulings.length) console.log(`\nrulings from it:\n${rulings.map((r) => `  ${rulingRow(r, false)}`).join("\n")}`);
 	console.log("\nhistory:");
 	for (const n of i.notes) console.log(`  ${n.at}  ${n.author ? n.author + ": " : ""}${n.text}`);
 }
@@ -513,8 +541,14 @@ try {
 			for (const m of images) addImage(db, id, m.image, m.caption, author);
 			if (waitsOn.length) waitOn(db, id, waitsOn, author);
 			if (blocked !== undefined) waitOn(db, blocked, [id], author);
-			console.log(`wb-${getItem(db, id)!.ref}`);
+			const added = getItem(db, id)!;
+			console.log(`wb-${added.ref}`);
 			warnAbout(brief.warnings);
+			// An agent's ask that looks like one already answered (rulings.ts): saved, with the ruling it may repeat.
+			if (author === "agent" && ASKING_KINDS.includes(kind)) {
+				const said = repeatWarning(similarRulings(db, added.project, added.title, added.body, { except: id }), yourName(db), `wb drop wb-${added.ref}`);
+				if (said) console.error(`wb: ${said}`);
+			}
 			break;
 		}
 		case "guide":
@@ -652,6 +686,33 @@ try {
 				}
 			})();
 			console.log(`imported ${n} items into ${project}`);
+			break;
+		}
+		case "rulings": {
+			const project = o.all ? undefined : (o.project ?? currentProject(false));
+			const list = listRulings(db, { project, q: o.q, retired: !!o.retired });
+			if (!list.length) console.log(o.retired ? "no retired rulings" : "no rulings yet");
+			for (const r of list) console.log(rulingRow(r, !project));
+			break;
+		}
+		case "rule": {
+			// wb rule <id> "text" rewrites; wb rule "text" adds.
+			if (/^#?\d+$/.test(args[1] ?? "") && args.length > 2) {
+				const r = updateRuling(db, Number(args[1].replace("#", "")), { text: args.slice(2).join(" ") }, author);
+				console.log(rulingRow(r, true));
+				break;
+			}
+			const text = args.slice(1).join(" ");
+			if (!text) die('usage: wb rule "text" [--item <ref>] [--project P]');
+			const item = o.item ? (resolveItem(db, o.item) ?? die(`no item "${o.item}"`)) : undefined;
+			const project = o.project ? currentProject()! : item ? getItem(db, item)!.project : currentProject()!;
+			console.log(`#${addRuling(db, { project, text, item }, author)}`);
+			break;
+		}
+		case "unrule": {
+			const id = Number((args[1] ?? "").replace("#", ""));
+			if (!Number.isInteger(id) || !getRuling(db, id)) die("usage: wb unrule <id> (wb rulings has them)");
+			console.log(rulingRow(retireRuling(db, id, author), true));
 			break;
 		}
 		case "links":

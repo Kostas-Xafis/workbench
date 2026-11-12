@@ -55,6 +55,20 @@ import { removeLinks, topUnblockers, waitOn } from "./links";
 import { repoState } from "./git";
 import { addImage, imageBytes, imageData, imageInfo, imageSummary, prepareImage, removeImage, type Prepared } from "./images";
 import { PRESETS } from "./presets";
+import {
+	addRuling,
+	ASKING_KINDS,
+	getRuling,
+	itemRulings,
+	listRulings,
+	RELEVANT,
+	repeatWarning,
+	retireRuling,
+	rulingSource,
+	similarRulings,
+	updateRuling,
+	type Ruling,
+} from "./rulings";
 import { ownerDefaultsText, ownerFor, yourName } from "./settings";
 import { noteMcpContact } from "./setup";
 import { listSources } from "./sources";
@@ -110,6 +124,7 @@ const INSTRUCTIONS = `The workbench is {{name}}'s local board of open work acros
 - finish_item with a note on what changed and where (commit, branch). wait_item when blocked. Everything you leave for {{name}} is its own item.
 - When you're blocked on {{name}} (a decision, a check, a setup step), file that as its own item and wait on it: add_item with blocks: <your item> does both in one call, or wait_item with on: <that item>. The board then puts your item back to todo, with the answer in its history, the moment it's answered or finished: don't poll. Items that hold up the most waiting work show first for {{name}} (unblocks in list_items).
 - {{name}} doesn't open files. An item has to make sense by itself, in plain words: put the content in the body instead of pointing at docs/x.md or PLAN §3, say where things are in the app rather than in the code, and attach a screenshot (attach_image) for anything on screen. add_item has the details, and warns you about what it can see is missing: fix those with update_item.
+- Rulings are {{name}}'s standing answers in a project, one line each: project_overview lists them, list_rulings searches them. Read them before you ask {{name}} anything, and follow them. An answered decision gets a drafted ruling ("<question>: <answer>"); when you pick one up, rewrite that draft as one clear line with update_ruling. add_ruling for a rule {{name}} states in the conversation; retire_ruling when one no longer holds.
 - Every report you publish gets its own icon in colour (publish_report's icon), so the sidebar reads at a glance.
 - Status trackers are live readings shown on the board, such as build quotas or CI minutes left. Check list_trackers before something that uses up a quota, refresh_trackers after.
 - Tools default to the project of the folder this server runs in; pass project (a slug from list_projects) to work elsewhere.`;
@@ -357,6 +372,8 @@ function itemText(c: Conn, i: NonNullable<ReturnType<typeof getItem>>) {
 	if (i.answer) lines.push("", `answer: ${i.answer}`);
 	if (i.waits_on.length) lines.push("", "waits on:", ...i.waits_on.map((l) => `  ${linkLine(l)}`));
 	if (i.blocks.length) lines.push("", "blocks (waiting on this):", ...i.blocks.map((l) => `  ${linkLine(l)}`));
+	const rulings = itemRulings(c.db, i.id);
+	if (rulings.length) lines.push("", "rulings from it:", ...rulings.map((r) => `  ${rulingLine(r)}`));
 	lines.push("", "history:", ...i.notes.map((n) => `  ${n.at} ${n.author ? `${n.author}: ` : ""}${n.text}`));
 	return lines.join("\n");
 }
@@ -381,6 +398,29 @@ const itemJson = (i: Item) => ({
 	updated_at: i.updated_at,
 	done_at: i.done_at ?? undefined,
 });
+
+/** "#12 Traditional is the default melisma style (wb-k3f9, 25 Oct; drafted)". */
+const rulingLine = (r: Ruling, withProject = false) =>
+	`#${r.id}${withProject ? ` [${r.project}]` : ""} ${r.text} (${[rulingSource(r), r.drafted ? "drafted: rewrite it as one clear line" : "", r.retired_at ? `retired ${r.retired_at.slice(0, 10)}` : ""].filter(Boolean).join("; ")})`;
+
+const rulingJson = (r: Ruling) => ({
+	id: r.id,
+	project: r.project,
+	text: r.text,
+	item: r.item_ref ? `wb-${r.item_ref}` : undefined,
+	question: r.question || undefined,
+	drafted: !!r.drafted,
+	created_at: r.created_at,
+	updated_at: r.updated_at,
+	retired_at: r.retired_at ?? undefined,
+});
+
+const rulingId = (c: Conn, id: unknown) => {
+	const n = Number(String(id).replace(/^#/, ""));
+	const r = Number.isInteger(n) ? getRuling(c.db, n) : undefined;
+	if (!r) throw new ToolError(`no ruling "${id}" (list_rulings has them)`);
+	return r.id;
+};
 
 const trackerJson = (t: Tracker) => {
 	const { id: _, sort: __, ...rest } = t;
@@ -411,6 +451,9 @@ async function overview(c: Conn, slug: string) {
 	const top = topUnblockers(c.db, slug);
 	if (top.length)
 		out.push("", `## What ${yourName(c.db)} can unblock (open items that waiting work depends on)`, ...top.map((t) => `- wb-${t.item.ref} ${t.item.kind}: ${t.item.title} · unblocks ${t.waiters.map((w) => `wb-${w.ref} (${w.title})`).join(", ")}`));
+	const rulings = listRulings(c.db, { project: slug });
+	out.push("", `## Rulings (${rulings.length}): ${yourName(c.db)}'s standing answers. Follow them; read them before you ask anything`);
+	out.push(...(rulings.length ? rulings.map((r) => `- ${rulingLine(r)}`) : ["none yet"]));
 	const trackers = listTrackers(c.db, slug);
 	out.push("", "## Trackers", ...(trackers.length ? trackers.map((t) => `- ${trackerBlock(t)}`) : ["none"]));
 	const g = p.path ? await repoState(p) : null;
@@ -552,7 +595,7 @@ const TOOLS: Tool[] = [
 		name: "project_overview",
 		title: "Project overview",
 		description:
-			"Everything about one project at a glance: open items by kind, stale ones (stalled doing, long waiting, long on the user) listed apart, status trackers with their readings, git state (branch, uncommitted files, unpushed commits, unmerged branches, worktrees), reports, links and data sources. A good first call when you start work in a project.",
+			"Everything about one project at a glance: open items by kind, {{name}}'s rulings (standing answers: read them before you ask anything), stale ones (stalled doing, long waiting, long on the user) listed apart, status trackers with their readings, git state (branch, uncommitted files, unpushed commits, unmerged branches, worktrees), reports, links and data sources. A good first call when you start work in a project.",
 		input: obj({ project: PROJECT }),
 		hints: RO,
 		async run(a, c) {
@@ -644,7 +687,7 @@ const TOOLS: Tool[] = [
 		name: "add_item",
 		title: "Add an item",
 		description:
-			`Files a new item. kind: task or bug (code work), check ({{name}} tries it on a device), review (wording or design), decision (a question only {{name}} can answer), setup (accounts, consoles, stores), idea. Returns the new wb-xxxx, and warnings about what {{name}} won't be able to follow.\n\n${BRIEF_RULES}`,
+			`Files a new item. kind: task or bug (code work), check ({{name}} tries it on a device), review (wording or design), decision (a question only {{name}} can answer), setup (accounts, consoles, stores), idea. Returns the new wb-xxxx, and warnings about what {{name}} won't be able to follow. Before you ask {{name}} something, read the project's rulings (list_rulings): a decision or review that looks like one already ruled on is saved, with a warning quoting the ruling; drop it if that answers it.\n\n${BRIEF_RULES}`,
 		input: obj(
 			{
 				title: str("Short, specific and in plain words: what to do or decide, as {{name}} would say it.", { minLength: 1, maxLength: 300 }),
@@ -710,7 +753,15 @@ const TOOLS: Tool[] = [
 			} catch (e) {
 				throw new ToolError(`${(e as Error).message}. The item is filed as wb-${getItem(c.db, id)!.ref}; wait_item links it.`);
 			}
-			return changed(c, id, blocked !== undefined ? `Added (wb-${getItem(c.db, blocked)!.ref} now waits on it)` : "Added", brief.warnings);
+			const out = changed(c, id, blocked !== undefined ? `Added (wb-${getItem(c.db, blocked)!.ref} now waits on it)` : "Added", brief.warnings);
+			// An ask that looks like one already answered: saved all the same, with the ruling it may repeat.
+			const i = getItem(c.db, id)!;
+			const repeats = ASKING_KINDS.includes(kind) ? similarRulings(c.db, i.project, i.title, i.body, { except: id }) : [];
+			if (repeats.length) {
+				out.text += `\n\n${repeatWarning(repeats, yourName(c.db))}`;
+				out.data = { ...out.data, already_ruled: repeats.map((m) => ({ ...rulingJson(m.ruling), score: m.score })) };
+			}
+			return out;
 		},
 	},
 	{
@@ -873,7 +924,86 @@ const TOOLS: Tool[] = [
 		run(a, c) {
 			const id = itemId(c, a.ref);
 			answerItem(c.db, id, a.answer, "agent");
-			return changed(c, id, "Answered");
+			const out = changed(c, id, "Answered");
+			const r = itemRulings(c.db, id).find((x) => x.origin === "answer");
+			if (r) out.text += `\n\nIts ruling: ${rulingLine(r)}${r.drafted ? `. Rewrite it as one clear line with update_ruling (id ${r.id}).` : ""}`;
+			return out;
+		},
+	},
+	{
+		name: "list_rulings",
+		title: "List rulings",
+		description:
+			"{{name}}'s rulings: standing answers in a project, one line each, with the item each came from. Read them before you ask {{name}} anything (a decision, a review), and follow them in your work. Words in q match with or without accents.",
+		input: obj({
+			project: str('Project slug, or "*" for every project. Default: the current project.'),
+			q: str("Words to look for in the rulings and the questions they answer."),
+			retired: { type: "boolean", description: "List the retired ones instead (no longer hold)." },
+		}),
+		hints: RO,
+		run(a, c) {
+			const project = a.project === "*" ? undefined : projectOf(c, a.project, false);
+			const list = listRulings(c.db, { project, q: a.q, retired: a.retired === true });
+			const head = `${list.length} ${a.retired ? "retired " : ""}ruling${list.length === 1 ? "" : "s"}${project ? ` in ${project}` : ""}`;
+			return { text: [head, ...list.map((r) => `- ${rulingLine(r, !project)}`)].join("\n"), data: { rulings: list.map(rulingJson) } };
+		},
+	},
+	{
+		name: "add_ruling",
+		title: "Add a ruling",
+		description:
+			"Writes down one of {{name}}'s standing answers for a project, as one line in plain words (\"Traditional is the default melisma style\"). Only what {{name}} decided, in the conversation or in an answer: never your own preference. item names where it was decided.",
+		input: obj(
+			{
+				text: str("The rule, one line in plain words, as {{name}} would say it.", { minLength: 1, maxLength: 400 }),
+				project: PROJECT,
+				item: str("The item it was decided in, e.g. wb-k3f9."),
+			},
+			["text"],
+		),
+		hints: WRITE,
+		run(a, c) {
+			const project = projectOf(c, a.project)!;
+			const id = addRuling(c.db, { project, text: a.text, item: a.item ? itemId(c, a.item) : undefined }, "agent");
+			const r = getRuling(c.db, id)!;
+			return { text: `Added ruling ${rulingLine(r)}`, data: { ruling: rulingJson(r) } };
+		},
+	},
+	{
+		name: "update_ruling",
+		title: "Rewrite a ruling",
+		description:
+			"Rewrites a ruling (it then no longer counts as a draft), or moves it to another project or item. Use it to turn a drafted ruling (\"<question>: <answer>\") into one clear line that stands by itself, in {{name}}'s meaning: never change what was decided.",
+		input: obj(
+			{
+				id: { type: "integer", minimum: 1, description: "The ruling's id (list_rulings)." },
+				text: str("The new line.", { minLength: 1, maxLength: 400 }),
+				project: str("Move it to this project (slug)."),
+				item: str('The item it came from, e.g. wb-k3f9 ("" for none).'),
+			},
+			["id"],
+		),
+		hints: { ...WRITE, idempotentHint: true },
+		run(a, c) {
+			const id = rulingId(c, a.id);
+			const r = updateRuling(
+				c.db,
+				id,
+				{ text: a.text, project: a.project !== undefined ? projectOf(c, a.project) : undefined, item: a.item === undefined ? undefined : a.item.trim() ? itemId(c, a.item) : null },
+				"agent",
+			);
+			return { text: `Updated ruling ${rulingLine(r)}`, data: { ruling: rulingJson(r) } };
+		},
+	},
+	{
+		name: "retire_ruling",
+		title: "Retire a ruling",
+		description: "Takes a ruling out of use when it no longer holds: {{name}} changed their mind, or what it was about is gone. It's kept, with the retired ones.",
+		input: obj({ id: { type: "integer", minimum: 1, description: "The ruling's id (list_rulings)." } }, ["id"]),
+		hints: { ...WRITE, idempotentHint: true },
+		run(a, c) {
+			const r = retireRuling(c.db, rulingId(c, a.id), "agent");
+			return { text: `Retired ruling ${rulingLine(r)}`, data: { ruling: rulingJson(r) } };
 		},
 	},
 	{
@@ -1168,6 +1298,7 @@ const TEMPLATES = [
 	{ uriTemplate: "wb://project/{project}", name: "project", title: "Project overview", description: "Open items, trackers, git state, reports and links of a project.", mimeType: "text/markdown" },
 	{ uriTemplate: "wb://trackers/{project}", name: "project-trackers", title: "Project trackers", description: "A project's status trackers and the global ones, as JSON.", mimeType: "application/json" },
 	{ uriTemplate: "wb://report/{id}", name: "report", title: "Report page", description: "A report's latest HTML.", mimeType: "text/html" },
+	{ uriTemplate: "wb://rulings/{project}", name: "rulings", title: "Project rulings", description: "A project's standing answers, one line each: read them before asking anything.", mimeType: "text/markdown" },
 ];
 
 function allResources(c: Conn): Resource[] {
@@ -1176,7 +1307,10 @@ function allResources(c: Conn): Resource[] {
 		{ uri: "wb://trackers", name: "trackers", title: "Status trackers", description: "Every tracker with its reading.", mimeType: "application/json" },
 	];
 	for (const p of projects(c.db))
-		out.push({ uri: `wb://project/${p.slug}`, name: p.slug, title: `${p.name} overview`, description: `Open items, trackers, git, reports and links of ${p.name}.`, mimeType: "text/markdown" });
+		out.push(
+			{ uri: `wb://project/${p.slug}`, name: p.slug, title: `${p.name} overview`, description: `Open items, trackers, git, reports and links of ${p.name}.`, mimeType: "text/markdown" },
+			{ uri: `wb://rulings/${p.slug}`, name: `${p.slug}/rulings`, title: `${p.name} rulings`, description: `The standing answers in ${p.name}.`, mimeType: "text/markdown" },
+		);
 	for (const i of listItems(c.db, { status: OPEN }))
 		out.push({ uri: `wb://item/wb-${i.ref}`, name: `wb-${i.ref}`, title: i.title, description: `${i.project} · ${i.kind} for ${WHO(c, i.owner)} · ${i.status}`, mimeType: "text/markdown" });
 	for (const r of listReports(c.db).filter((r) => !r.name.startsWith("day-")))
@@ -1209,6 +1343,10 @@ async function readResource(uri: string, c: Conn, era: Era) {
 	if (kind === "trackers")
 		return text(JSON.stringify((arg ? listTrackers(c.db, slug(arg)) : listTrackers(c.db)).map(trackerJson), null, 2), "application/json");
 	if (kind === "project" && arg) return text(await overview(c, slug(arg)), "text/markdown");
+	if (kind === "rulings" && arg) {
+		const list = listRulings(c.db, { project: slug(arg) });
+		return text([`# Rulings in ${slug(arg)}`, "", ...(list.length ? list.map((r) => `- ${rulingLine(r)}`) : ["none yet"])].join("\n"), "text/markdown");
+	}
 	if (kind === "item" && arg) {
 		const id = resolveItem(c.db, decodeURIComponent(arg));
 		if (id === undefined) throw notFound();
@@ -1239,6 +1377,18 @@ const TRACKING = `Track it on the workbench with this server's tools:
 - Anything you leave for {{name}} (a device check, a wording, a question) is its own item: add_item with kind check, review or decision. It has to make sense without opening anything else: the content in the body, a screenshot for anything on screen (attach_image).
 - This item's images, if it lists any, are part of the brief: read them with get_image.`;
 
+/** For work-on: the rulings that bear on the item (by its words), and its own drafted one to rewrite. */
+function workOnRulings(c: Conn, i: Item) {
+	const name = yourName(c.db);
+	const own = itemRulings(c.db, i.id).filter((r) => r.drafted && !r.retired_at);
+	const near = similarRulings(c.db, i.project, i.title, i.body, { min: RELEVANT, limit: 5, except: i.id });
+	const out: string[] = [];
+	if (near.length) out.push(`${name}'s rulings in this project that may bear on it (follow them; list_rulings has the rest):`, ...near.map((m) => `- ${rulingLine(m.ruling)}`));
+	if (own.length)
+		out.push(`${out.length ? "\n" : ""}${name} answered this item, and its ruling is still the automatic draft. Rewrite it as one clear line that stands by itself, in their meaning (update_ruling):`, ...own.map((r) => `- ${rulingLine(r)}`));
+	return out.length ? `\n\n${out.join("\n")}` : "";
+}
+
 const PROMPTS: Prompt[] = [
 	{
 		name: "work-on",
@@ -1250,7 +1400,7 @@ const PROMPTS: Prompt[] = [
 			if (id === undefined) throw new RpcError(-32602, `no item "${a.ref}"`);
 			const i = getItem(c.db, id)!;
 			const p = projects(c.db).find((x) => x.slug === i.project);
-			return `Work on wb-${i.ref} in ${p?.name ?? i.project}${p?.path ? ` (${p.path})` : ""}. Its body and notes are the brief.\n\n${itemText(c, i)}\n\n${personal(TRACKING, c)}`;
+			return `Work on wb-${i.ref} in ${p?.name ?? i.project}${p?.path ? ` (${p.path})` : ""}. Its body and notes are the brief.\n\n${itemText(c, i)}${workOnRulings(c, i)}\n\n${personal(TRACKING, c)}`;
 		},
 	},
 	{
@@ -1325,7 +1475,7 @@ function complete(params: Json, c: Conn) {
 	} else if (ref.type === "ref/resource") {
 		const uri = String(ref.uri ?? "");
 		if (uri === "wb://item/{ref}") pool = refs();
-		else if (uri === "wb://project/{project}" || uri === "wb://trackers/{project}") pool = slugs();
+		else if (uri === "wb://project/{project}" || uri === "wb://trackers/{project}" || uri === "wb://rulings/{project}") pool = slugs();
 		else if (uri === "wb://report/{id}") pool = listReports(c.db).filter((r) => !r.name.startsWith("day-")).map((r) => String(r.id));
 	} else throw new RpcError(-32602, "ref must be ref/prompt or ref/resource");
 	const uniq = [...new Set(pool)];
