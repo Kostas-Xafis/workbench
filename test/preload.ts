@@ -10,7 +10,7 @@ rmSync(dir, { recursive: true, force: true });
 mkdirSync(dir, { recursive: true });
 process.env.WB_DB = join(dir, "workbench.db");
 process.env.WB_BACKUPS = join(dir, "backups");
-process.env.WB_PORT = "4401";
+process.env.WB_PORT = process.env.WB_TEST_PORT ?? "4401"; // WB_TEST_PORT: a free port when several runs share the computer
 process.env.WB_TEST_DIR = dir;
 process.env.XDG_RUNTIME_DIR = join(dir, "run");
 process.env.WB_SOURCES_KEY = join(dir, "sources.key");

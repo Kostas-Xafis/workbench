@@ -4,7 +4,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync } from "node:fs";
 import { join } from "node:path";
 
-const PORT = 4401;
+const PORT = Number(process.env.WB_PORT); // from the preload (WB_TEST_PORT, default 4401)
 const BASE = `http://127.0.0.1:${PORT}`;
 const dir = mkdtempSync(join(process.env.WB_TEST_DIR!, "server-"));
 let proc: ReturnType<typeof Bun.spawn>;
@@ -78,7 +78,7 @@ describe("server", () => {
 		const evil = await fetch(`${BASE}/api/settings/folders`, { headers: { host: "evil.example.com" } });
 		expect(evil.status).toBe(403);
 		expect(((await evil.json()) as { error: string }).error).toContain("localhost");
-		expect((await fetch(`${BASE}/api/settings/health`, { headers: { host: "evil.example.com:4401" } })).status).toBe(403);
+		expect((await fetch(`${BASE}/api/settings/health`, { headers: { host: `evil.example.com:${PORT}` } })).status).toBe(403);
 		// and one that says it's another site's request
 		expect((await fetch(`${BASE}/api/settings/folders`, { headers: { "sec-fetch-site": "cross-site" } })).status).toBe(403);
 	});
