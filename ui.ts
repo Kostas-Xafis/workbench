@@ -14,6 +14,8 @@ import coreJs from "./ui/core.js" with { type: "file" };
 import dialogsCss from "./ui/dialogs.css" with { type: "file" };
 import hooksJs from "./ui/hooks.js" with { type: "file" };
 import itemJs from "./ui/item.js" with { type: "file" };
+import linksCss from "./ui/links.css" with { type: "file" };
+import linksJs from "./ui/links.js" with { type: "file" };
 import notifyJs from "./ui/notify.js" with { type: "file" };
 import phoneCss from "./ui/phone.css" with { type: "file" };
 import projectsCss from "./ui/projects.css" with { type: "file" };
@@ -57,6 +59,8 @@ export const UI: Record<string, string> = {
 	"dialogs.css": dialogsCss,
 	"hooks.js": hooksJs,
 	"item.js": itemJs,
+	"links.css": linksCss,
+	"links.js": linksJs,
 	"notify.js": notifyJs,
 	"phone.css": phoneCss,
 	"projects.css": projectsCss,

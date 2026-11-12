@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, readdirSync, rmSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { createTables as createImageTables, itemImages, type ImageInfo } from "./images";
 import { staleOf, type Stale } from "./stale";
+import { blockersOf, clearLinks, createLinkTable, LINK_COUNTS, resumeWaiting, waitersOf, type LinkRef } from "./links";
 import { createSettingsTable, getSetting, getSettings, ownerFor } from "./settings";
 import { createTables as createTrackerTables } from "./trackers";
 
@@ -38,6 +39,9 @@ export type Item = {
 	image_count?: number;
 	/** Quiet for too long (see stale.ts), or null (listItems and getItem). */
 	stale?: Stale | null;
+	/** How many waiting items this open one holds up, and how many items it waits on (listItems and getItem; see links.ts). */
+	unblocks?: number;
+	waiting_on?: number;
 	created_at: string;
 	updated_at: string;
 	done_at: string | null;
@@ -194,6 +198,8 @@ export function open(path = DB_PATH) {
 		updated_at TEXT NOT NULL DEFAULT (datetime('now')),
 		PRIMARY KEY (project, name)
 	)`);
+	// Items waiting on other items (see links.ts).
+	createLinkTable(db);
 	// Screenshots on items (see images.ts).
 	createImageTables(db);
 	// Status trackers (see trackers.ts).
@@ -419,9 +425,10 @@ export function listItems(db: Db, f: ItemFilter = {}): Item[] {
 		args.q = `%${f.q}%`;
 		args.ref = f.q.trim().toLowerCase().replace(/^wb-/, "");
 	}
-	const sql = `SELECT *, (SELECT COUNT(*) FROM images WHERE images.item_id = items.id) AS image_count FROM items ${where.length ? "WHERE " + where.join(" AND ") : ""}
+	// Within a priority, what holds up the most waiting work comes first (for what waits on Kostas).
+	const sql = `SELECT *, (SELECT COUNT(*) FROM images WHERE images.item_id = items.id) AS image_count, ${LINK_COUNTS} FROM items ${where.length ? "WHERE " + where.join(" AND ") : ""}
 		ORDER BY CASE status WHEN 'doing' THEN 0 WHEN 'todo' THEN 1 WHEN 'waiting' THEN 2 ELSE 3 END,
-		priority, COALESCE(done_at, '') DESC, id`;
+		priority, CASE WHEN owner = 'kostas' THEN -unblocks ELSE 0 END, COALESCE(done_at, '') DESC, id`;
 	const items = db.query(sql).all(args) as Item[];
 	// One grouped query for every item's newest note, not one per item.
 	const last = new Map(
@@ -432,12 +439,16 @@ export function listItems(db: Db, f: ItemFilter = {}): Item[] {
 	return items;
 }
 
-export function getItem(db: Db, id: number): (Item & { notes: Note[]; images: ImageInfo[] }) | undefined {
-	const item = db.query("SELECT * FROM items WHERE id = ?").get(id) as Item | null;
+/** `waits_on`: what it waits on. `blocks`: what waits on it (see links.ts). */
+export function getItem(
+	db: Db,
+	id: number,
+): (Item & { notes: Note[]; images: ImageInfo[]; waits_on: LinkRef[]; blocks: LinkRef[] }) | undefined {
+	const item = db.query(`SELECT items.*, ${LINK_COUNTS} FROM items WHERE id = ?`).get(id) as Item | null;
 	if (!item) return undefined;
 	const notes = db.query("SELECT * FROM notes WHERE item_id = ? ORDER BY at, id").all(id) as Note[];
 	const images = itemImages(db, id);
-	return { ...item, notes, images, image_count: images.length, stale: staleOf(item, notes.at(-1)?.at) };
+	return { ...item, notes, images, image_count: images.length, stale: staleOf(item, notes.at(-1)?.at), waits_on: blockersOf(db, id), blocks: waitersOf(db, id) };
 }
 
 export function addItem(db: Db, item: ItemPatch & { title: string; project: string }, author = ""): number {
@@ -460,13 +471,21 @@ export function addItem(db: Db, item: ItemPatch & { title: string; project: stri
 	return id;
 }
 
-export function updateItem(db: Db, id: number, patch: ItemPatch, author = ""): void {
+/**
+ * `note` is a line for the history that goes in right after the change's own line, as when an item is finished with
+ * what changed: whoever waited on it is told about it. Answering, finishing and dropping all end here, so this is
+ * where whatever waited on the item carries on (resumeWaiting, links.ts).
+ */
+export function updateItem(db: Db, id: number, patch: ItemPatch, author = "", note = ""): void {
 	patch = normalize(patch);
 	validate(patch);
 	const before = getItem(db, id);
 	if (!before) throw new Error(`no item #${id}`);
 	const fields = EDITABLE.filter((k) => patch[k] !== undefined && patch[k] !== before[k]);
-	if (!fields.length) return;
+	if (!fields.length) {
+		if (note.trim()) addNote(db, id, note.trim(), author);
+		return;
+	}
 	const row = Object.fromEntries(fields.map((k) => [k, patch[k]])) as Record<string, string | number>;
 	let doneAt = "";
 	if (patch.status && patch.status !== before.status)
@@ -480,6 +499,11 @@ export function updateItem(db: Db, id: number, patch: ItemPatch, author = ""): v
 	if (fields.includes("body")) changes.push("body edited");
 	if (fields.includes("options")) changes.push(`options: ${itemOptions(patch as Item).join(" | ") || "—"}`);
 	addNote(db, id, changes.join(" · "), author);
+	if (note.trim()) addNote(db, id, note.trim(), author);
+	// An item that stops waiting waits on nothing; one that is answered, finished or dropped frees what waited on it.
+	if (patch.status && patch.status !== before.status && before.status === "waiting") clearLinks(db, id);
+	if (fields.includes("status") && (patch.status === "done" || patch.status === "dropped")) resumeWaiting(db, id);
+	else if (fields.includes("answer") && patch.answer?.trim()) resumeWaiting(db, id, "answered");
 }
 
 export function addNote(db: Db, itemId: number, text: string, author = "") {
@@ -1100,6 +1124,10 @@ export function exportAll(db: Db) {
 		all("SELECT item_id, caption, type, author, at, data FROM images ORDER BY id").map((m) => ({ ...m, data: Buffer.from(m.data as Uint8Array).toString("base64") })),
 		"item_id",
 	);
+	// Which items each waits on (wb-refs), see links.ts.
+	const waits = new Map<unknown, string[]>();
+	for (const l of all("SELECT l.item_id, b.ref FROM item_links l JOIN items b ON b.id = l.blocker_id ORDER BY l.created_at"))
+		waits.set(l.item_id, [...(waits.get(l.item_id) ?? []), `wb-${l.ref}`]);
 	const versions = byParent(all("SELECT report_id, n, at, author, html FROM report_versions ORDER BY report_id, n"), "report_id");
 	const history = byParent(
 		all("SELECT tracker_id, at, reading, author FROM tracker_history ORDER BY tracker_id, id").map((h) => ({ ...h, reading: parse(h.reading) })),
@@ -1109,7 +1137,7 @@ export function exportAll(db: Db) {
 		format: EXPORT_FORMAT,
 		exported_at: new Date().toISOString(),
 		projects: all("SELECT * FROM projects ORDER BY sort, name"),
-		items: all("SELECT * FROM items ORDER BY id").map((i) => ({ ...i, notes: notes.get(i.id) ?? [], images: images.get(i.id) ?? [] })),
+		items: all("SELECT * FROM items ORDER BY id").map((i) => ({ ...i, notes: notes.get(i.id) ?? [], images: images.get(i.id) ?? [], waits_on: waits.get(i.id) ?? [] })),
 		links: all("SELECT id, project, grp, label, url, icon_url, sort FROM links ORDER BY project, grp, sort, id"),
 		reports: all("SELECT * FROM reports ORDER BY project, name").map((r) => ({ ...r, versions: versions.get(r.id) ?? [] })),
 		report_state: all("SELECT project, name, json, updated_at FROM report_state ORDER BY project, name").map(({ json, ...r }) => ({

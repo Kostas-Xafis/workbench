@@ -61,6 +61,7 @@ const NOTIFY_KINDS = [
 	["needs", "Something new needs you", "An item handed to you: a decision, a check, a review or a setup step"],
 	["done", "An agent finished", "Work an agent marked done"],
 	["stuck", "An agent got stuck", "An agent is waiting on something"],
+	["resumed", "An agent can carry on", "Work that waited on an answer or another item is unblocked"],
 	["reports", "Reports", "A new report, or a new version of one"],
 	["trackers", "Status trackers", "One starts to warn, turns bad or stops reading"],
 ];
@@ -137,6 +138,7 @@ function summarise(held) {
 		n("needs") && (n("needs") === 1 ? "1 thing needs you" : `${n("needs")} things need you`),
 		n("done") && (n("done") === 1 ? "1 finished by an agent" : `${n("done")} finished by agents`),
 		n("stuck") && (n("stuck") === 1 ? "1 agent is waiting" : `${n("stuck")} agents are waiting`),
+		n("resumed") && (n("resumed") === 1 ? "1 agent can carry on" : `${n("resumed")} agents can carry on`),
 		n("reports") && `${n("reports")} report${s(n("reports"))} added or updated`,
 		n("trackers") && `${n("trackers")} tracker${s(n("trackers"))} to look at`,
 	].filter(Boolean);
@@ -158,6 +160,8 @@ async function notifyCheck() {
 			const where = projectName(i.project);
 			if (mine(i) && !mine(was)) ev("needs", `Needs you · ${where}`, `${i.kind}: ${i.title}`, `wb-${i.ref}`, { item: i.id });
 			else if (i.owner === "agent" && i.status === "done" && was && was.status !== "done") ev("done", `Done · ${where}`, i.title, `wb-${i.ref}`, { item: i.id });
+			// Back to todo from waiting on another item: the answer or the finished work it waited for came in (links.ts).
+			else if (i.owner === "agent" && i.status === "todo" && was && was.status === "waiting" && was.waiting_on > 0) ev("resumed", `Can carry on · ${where}`, i.title, `wb-${i.ref}`, { item: i.id });
 			else if (i.owner === "agent" && i.status === "waiting" && was && was.status !== "waiting") ev("stuck", `Agent waiting · ${where}`, i.title, `wb-${i.ref}`, { item: i.id });
 		}
 		// Day pages are made by the board itself every 30 min, so they don't ping.
