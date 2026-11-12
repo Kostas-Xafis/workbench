@@ -57,6 +57,7 @@ import {
 	updateRuling,
 	type Ruling,
 } from "./rulings";
+import { latestRun, listRuns, pollRuns, runLine, startRun, stopRun } from "./dispatch";
 import { applyDue, capRefusal, deadlineText, defaultText, itemRecommended, resolveAsk } from "./asks";
 import { integrationGuide } from "./integrate";
 import { staleLabel } from "./stale";
@@ -173,6 +174,10 @@ Items are named wb-xxxx (e.g. wb-k3f9); commands take that, the bare k3f9, or an
   wb project <slug> --archive      take a finished project off the board (--unarchive brings it back)
   wb serve [--lan]                 run the board on http://localhost:${PORT}; --lan also on your network, for
                                    phones paired in Settings → Privacy and security (plain http: a trusted network only)
+  wb run <ref>                     start a Claude Code agent on an agent's to-do, in its project's folder, as the
+                                   board's Run does (Settings → Agents: off until turned on there, with its limits)
+  wb runs [--all]                  agents the board started: running ones and the latest (--all: the last 100)
+  wb stop <run>                    stop one (its number from wb runs)
   wb devices                       phones paired with the board, and when each was last seen
   wb unpair <id|all>               remove a phone (or every one): it stops reaching the board at once
   wb open                          open the desktop app; without it, start the board and open the browser
@@ -406,6 +411,8 @@ function show(id: number) {
 	if (i.blocks.length) console.log(`\nblocks (waiting on this):\n${i.blocks.map(linkLine).join("\n")}`);
 	const rulings = itemRulings(db, i.id);
 	if (rulings.length) console.log(`\nrulings from it:\n${rulings.map((r) => `  ${rulingRow(r, false)}`).join("\n")}`);
+	const run = latestRun(db, i.id);
+	if (run) console.log(`\nlatest agent run (wb runs): ${runLine(run)}`);
 	console.log("\nhistory:");
 	for (const n of i.notes) console.log(`  ${n.at}  ${n.author ? n.author + ": " : ""}${n.text}`);
 }
@@ -1070,6 +1077,27 @@ try {
 			upsertProject(db, { slug, path: path.replace(/\/$/, ""), name: name ?? slug });
 			if (o.icon !== undefined) setProjectIcon(db, slug, o.icon);
 			console.log(`project ${slug} → ${path}`);
+			break;
+		}
+		case "run": {
+			// Agents don't start agents: a run's own process, or an agent's shell, gets told so.
+			if (process.env.WB_RUN || process.env.CLAUDECODE) die("agents don't start agents: leave it for the board (Run, or Answer & send)");
+			const r = await startRun(db, idArg(), { where: "cli", label: "wb run" });
+			console.log(`run #${r.id} started on wb-${r.ref} in ${projects(db).find((p) => p.slug === r.project)?.path}. wb runs shows how it goes; wb stop ${r.id} stops it`);
+			break;
+		}
+		case "runs": {
+			pollRuns(db);
+			const list = listRuns(db, { limit: o.all ? 100 : 15 });
+			if (!list.length) console.log("no agent runs yet (wb run <ref>, or Run on the board)");
+			for (const r of list) console.log(`wb-${r.ref}  ${r.title}\n  ${runLine(r)}`);
+			break;
+		}
+		case "stop": {
+			const n = Number(String(args[1] ?? "").replace(/^#/, ""));
+			if (!Number.isInteger(n) || n < 1) die("usage: wb stop <run> (its number from wb runs)");
+			const r = await stopRun(db, n);
+			console.log(`run #${r.id} on wb-${r.ref}: ${r.status}`);
 			break;
 		}
 		case "devices": {

@@ -98,6 +98,7 @@ import {
 	type TrackerPatch,
 } from "./trackers";
 import { briefText } from "./today";
+import { latestRun, runLine } from "./dispatch";
 
 const BOARD = `http://localhost:${Number(process.env.WB_PORT ?? 4321)}`;
 const MODERN = "2026-07-28";
@@ -362,6 +363,12 @@ const linkJson = (l: { ref: string; title: string; status: string; owner: string
 	answer: l.answer || undefined,
 });
 
+/** The latest agent run the board started on it (dispatch.ts), for get_item; undefined when none. */
+function runJson(db: Db, id: number) {
+	const r = latestRun(db, id);
+	return r ? { id: r.id, status: r.status, started_at: r.started_at, ended_at: r.ended_at ?? undefined, session: r.session || undefined, cost: r.cost ?? undefined, error: r.error || undefined, result: r.result ? r.result.slice(0, 500) : undefined } : undefined;
+}
+
 function itemText(c: Conn, i: NonNullable<ReturnType<typeof getItem>>) {
 	const lines = [
 		`wb-${i.ref}: ${i.title}`,
@@ -384,6 +391,8 @@ function itemText(c: Conn, i: NonNullable<ReturnType<typeof getItem>>) {
 	if (i.blocks.length) lines.push("", "blocks (waiting on this):", ...i.blocks.map((l) => `  ${linkLine(l)}`));
 	const rulings = itemRulings(c.db, i.id);
 	if (rulings.length) lines.push("", "rulings from it:", ...rulings.map((r) => `  ${rulingLine(r)}`));
+	const run = latestRun(c.db, i.id);
+	if (run) lines.push("", `latest agent run the board started: ${runLine(run)}`);
 	lines.push("", "history:", ...i.notes.map((n) => `  ${n.at} ${n.author ? `${n.author}: ` : ""}${n.text}`));
 	return lines.join("\n");
 }
@@ -847,7 +856,7 @@ const TOOLS: Tool[] = [
 		hints: RO,
 		run(a, c) {
 			const i = getItem(c.db, itemId(c, a.ref))!;
-			return { text: itemText(c, i), data: { item: { ...itemJson(i), body: i.body, sources: i.sources || undefined, images: i.images.length ? i.images.map(({ id, caption, width, height }) => ({ id, caption, width, height })) : undefined, notes: i.notes.map(({ at, author, text }) => ({ at, author, text })), waits_on: i.waits_on.length ? i.waits_on.map(linkJson) : undefined, blocks: i.blocks.length ? i.blocks.map(linkJson) : undefined } }, links: [itemLink(i)] };
+			return { text: itemText(c, i), data: { item: { ...itemJson(i), body: i.body, sources: i.sources || undefined, images: i.images.length ? i.images.map(({ id, caption, width, height }) => ({ id, caption, width, height })) : undefined, notes: i.notes.map(({ at, author, text }) => ({ at, author, text })), waits_on: i.waits_on.length ? i.waits_on.map(linkJson) : undefined, blocks: i.blocks.length ? i.blocks.map(linkJson) : undefined, run: runJson(c.db, i.id) } }, links: [itemLink(i)] };
 		},
 	},
 	{

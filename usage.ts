@@ -180,6 +180,34 @@ export async function refreshUsage(force = false) {
 	return scanning;
 }
 
+/** What one response cost at list prices ($); 0 for a model without a price. */
+function msgCost(m: Msg) {
+	const [, model, , , , , inp, w5, w1, cr, out, fast] = m;
+	const [pi, po, pr, pw5, pw1] = priceOf(model) ?? [0, 0, 0, 0, 0];
+	return ((inp * pi + out * po + cr * pr + w5 * pw5 + w1 * pw1) / 1e6) * (fast ? 2 : 1);
+}
+
+/**
+ * What these sessions cost from `since` (ms) on, as the Usage page counts it: $ per session id, subagents included.
+ * For the board's agent runs (dispatch.ts), whose session ids it knows.
+ */
+export async function sessionsCost(sessions: string[], since = 0): Promise<Map<string, number>> {
+	const want = new Set(sessions.filter(Boolean));
+	const out = new Map<string, number>();
+	if (!want.size) return out;
+	await refreshUsage();
+	// Once per message id, its fullest copy, as usageData counts them.
+	const msgs = new Map<string, Msg>();
+	for (const st of files.values())
+		for (const [k, m] of st.msgs) {
+			if (!want.has(m[3]) || m[0] < since) continue;
+			const prev = msgs.get(k);
+			if (!prev || m[10] > prev[10]) msgs.set(k, m);
+		}
+	for (const m of msgs.values()) out.set(m[3], (out.get(m[3]) ?? 0) + msgCost(m));
+	return out;
+}
+
 type Project = { slug: string; name: string; path: string };
 
 /** Which board project a folder belongs to (its own folder, or one inside it such as a worktree); else a label for it. */
@@ -255,12 +283,10 @@ export async function usageData(list: Project[]) {
 	const sessionInfo = new Map<number, { first: number; last: number; project: number; app: number }>();
 	const unpriced = new Set<string>();
 	for (const m of all.values()) {
-		const [ts, model, cwd, session, app, side, inp, w5, w1, cr, out, fast] = m;
+		const [ts, model, cwd, session, app, side, inp, w5, w1, cr, out] = m;
 		if (!ts) continue;
-		const price = priceOf(model);
-		if (!price) unpriced.add(model);
-		const [pi, po, pr, pw5, pw1] = price ?? [0, 0, 0, 0, 0];
-		const cost = ((inp * pi + out * po + cr * pr + w5 * pw5 + w1 * pw1) / 1e6) * (fast ? 2 : 1);
+		if (!priceOf(model)) unpriced.add(model);
+		const cost = msgCost(m);
 		const hour = Math.floor(ts / HOUR) * HOUR;
 		const mi = models.id(model), pj = projectOf(cwd), si = sessions.id(session), ai = apps.id(app);
 		const key = `${hour}|${mi}|${pj}|${si}|${ai}|${side}`;
