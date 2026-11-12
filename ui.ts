@@ -27,6 +27,8 @@ import phoneCss from "./ui/phone.css" with { type: "file" };
 import phonesCss from "./ui/phones.css" with { type: "file" };
 import projectsCss from "./ui/projects.css" with { type: "file" };
 import projectsJs from "./ui/projects.js" with { type: "file" };
+import queueCss from "./ui/queue.css" with { type: "file" };
+import queueJs from "./ui/queue.js" with { type: "file" };
 import railCss from "./ui/rail.css" with { type: "file" };
 import railJs from "./ui/rail.js" with { type: "file" };
 import reportCss from "./ui/report.css" with { type: "file" };
@@ -82,6 +84,8 @@ export const UI: Record<string, string> = {
 	"phones.css": phonesCss,
 	"projects.css": projectsCss,
 	"projects.js": projectsJs,
+	"queue.css": queueCss,
+	"queue.js": queueJs,
 	"rail.css": railCss,
 	"rail.js": railJs,
 	"report.css": reportCss,

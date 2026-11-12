@@ -292,6 +292,17 @@ const cosine = (a: Vec, b: Vec) => {
 };
 
 /**
+ * How alike two titles are, 0..1, each word weighed by how rare it is in the project, as similarRulings does: for
+ * putting similar asks one after another (queue.ts). The project's words are read once per matcher.
+ */
+export function titleMatcher(db: Db, project: string) {
+	const idf = idfOf(db, project);
+	const seen = new Map<string, Vec>();
+	const vec = (t: string) => seen.get(t) ?? seen.set(t, weigh(counts(words(t)), idf)).get(t)!;
+	return (a: string, b: string) => cosine(vec(a), vec(b));
+}
+
+/**
  * Above this, add_item warns that a new ask may repeat a ruling. Tuned on the real board (Nov 2026: 24 answered
  * decisions against 164 decisions and reviews in three projects): the four a person would call a repeat scored
  * 0.34 to 0.57; one related but different ask reached it (0.51); the closest unrelated pair scored 0.32, the rest

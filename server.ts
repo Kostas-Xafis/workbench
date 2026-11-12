@@ -61,6 +61,7 @@ import pkg from "./package.json";
 import { DB_PATH } from "./db";
 import { archivedDay, currentDay, publishDays } from "./day";
 import { todayData } from "./today";
+import { buildQueue, deferItem, giveBack } from "./queue";
 import { applyDue, resolveAsk } from "./asks";
 import { codeLinks, repoState, type CodeLinks } from "./git";
 import { candidateFolders, checkFolder, folderState, health, lanUrls } from "./health";
@@ -677,6 +678,31 @@ export function serve({ lan = false } = {}) {
 				const u = new URL(req.url).searchParams;
 				return json(todayData(db, u.get("project") || "", u.get("since")));
 			},
+			// Queue mode (queue.ts): what waits on you in the order to go through it, notices after; deferred ones apart.
+			"/api/queue": (req) => json(buildQueue(db, { project: new URL(req.url).searchParams.get("project") || "" })),
+			// Out of the queue until {until}: "tomorrow", a date, "in 3 days"; "none" brings it back.
+			"/api/items/:id/defer": {
+				POST: jsonOnly(async (req) => {
+					try {
+						const { until } = await req.json();
+						return json(deferItem(db, itemId(req.params.id), until ?? "tomorrow", "kostas"));
+					} catch (e) {
+						return fail(e);
+					}
+				}),
+			},
+			// Back to the agent with your line {text} ("You decide, with your recommendation" when empty).
+			"/api/items/:id/give-back": {
+				POST: jsonOnly(async (req) => {
+					try {
+						const { text } = await req.json();
+						return json(giveBack(db, itemId(req.params.id), String(text ?? ""), "kostas"));
+					} catch (e) {
+						return fail(e);
+					}
+				}),
+			},
+			// end: Queue routes
 			// Goals: routes (goals.ts). Every goal with its progress and what blocks it; changing them is open like items.
 			"/api/goals": {
 				GET: (req) => {
