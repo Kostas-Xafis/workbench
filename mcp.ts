@@ -51,6 +51,7 @@ import {
 } from "./db";
 import { BRIEF_RULES, checkBrief } from "./brief";
 import { integrationGuide } from "./integrate";
+import { removeLinks, topUnblockers, waitOn } from "./links";
 import { repoState } from "./git";
 import { addImage, imageBytes, imageData, imageInfo, imageSummary, prepareImage, removeImage, type Prepared } from "./images";
 import { PRESETS } from "./presets";
@@ -105,6 +106,7 @@ const INSTRUCTIONS = `The workbench is {{name}}'s local board of open work acros
 - Kinds: task and bug (code), check ({{name}} tries it on a device: write the steps), review (wording or design for {{name}}), decision (a question only {{name}} can answer: options plus your recommendation), setup (accounts, consoles, stores), idea. {{owner-defaults}} The owner value for {{name}} is kostas.
 - When you start work {{name}} gave you: find its item (list_items with q) and start_item it, or add_item one and start it. One item per piece of work {{name}} would recognise.
 - finish_item with a note on what changed and where (commit, branch). wait_item when blocked. Everything you leave for {{name}} is its own item.
+- When you're blocked on {{name}} (a decision, a check, a setup step), file that as its own item and wait on it: add_item with blocks: <your item> does both in one call, or wait_item with on: <that item>. The board then puts your item back to todo, with the answer in its history, the moment it's answered or finished: don't poll. Items that hold up the most waiting work show first for {{name}} (unblocks in list_items).
 - {{name}} doesn't open files. An item has to make sense by itself, in plain words: put the content in the body instead of pointing at docs/x.md or PLAN §3, say where things are in the app rather than in the code, and attach a screenshot (attach_image) for anything on screen. add_item has the details, and warns you about what it can see is missing: fix those with update_item.
 - Every report you publish gets its own icon in colour (publish_report's icon), so the sidebar reads at a glance.
 - Status trackers are live readings shown on the board, such as build quotas or CI minutes left. Check list_trackers before something that uses up a quota, refresh_trackers after.
@@ -323,9 +325,20 @@ function itemLine(c: Conn, i: Item, withProject: boolean) {
 		withProject ? `[${i.project}]` : "",
 		i.area ? `(${i.area})` : "",
 	].filter(Boolean);
-	const extra = [i.branch && `branch ${i.branch}`, i.answer && `answered: ${i.answer}`, i.image_count && `${i.image_count} image${i.image_count > 1 ? "s" : ""}`].filter(Boolean).join(" · ");
+	const extra = [i.branch && `branch ${i.branch}`, i.answer && `answered: ${i.answer}`, i.image_count && `${i.image_count} image${i.image_count > 1 ? "s" : ""}`, i.unblocks && `unblocks ${i.unblocks}`].filter(Boolean).join(" · ");
 	return `${bits.join(" ")}: ${i.title}${extra ? ` · ${extra}` : ""}`;
 }
+
+const linkLine = (l: { ref: string; title: string; status: string; answer: string }) =>
+	`wb-${l.ref} ${l.answer ? "answered" : l.status}: ${l.title}`;
+const linkJson = (l: { ref: string; title: string; status: string; owner: string; kind: string; answer: string }) => ({
+	ref: `wb-${l.ref}`,
+	title: l.title,
+	kind: l.kind,
+	owner: l.owner,
+	status: l.status,
+	answer: l.answer || undefined,
+});
 
 function itemText(c: Conn, i: NonNullable<ReturnType<typeof getItem>>) {
 	const lines = [
@@ -339,6 +352,8 @@ function itemText(c: Conn, i: NonNullable<ReturnType<typeof getItem>>) {
 	const options = itemOptions(i);
 	if (options.length) lines.push("", "options:", ...options.map((o, n) => `  ${n + 1}. ${o}`));
 	if (i.answer) lines.push("", `answer: ${i.answer}`);
+	if (i.waits_on.length) lines.push("", "waits on:", ...i.waits_on.map((l) => `  ${linkLine(l)}`));
+	if (i.blocks.length) lines.push("", "blocks (waiting on this):", ...i.blocks.map((l) => `  ${linkLine(l)}`));
 	lines.push("", "history:", ...i.notes.map((n) => `  ${n.at} ${n.author ? `${n.author}: ` : ""}${n.text}`));
 	return lines.join("\n");
 }
@@ -357,6 +372,7 @@ const itemJson = (i: Item) => ({
 	options: itemOptions(i).length ? itemOptions(i) : undefined,
 	answer: i.answer || undefined,
 	images: i.image_count || undefined,
+	unblocks: i.unblocks || undefined,
 	created_at: i.created_at,
 	updated_at: i.updated_at,
 	done_at: i.done_at ?? undefined,
@@ -385,6 +401,9 @@ async function overview(c: Conn, slug: string) {
 		const list = open.filter((i) => i.kind === kind);
 		if (list.length) out.push(`${kind}:`, ...list.map((i) => `- ${itemLine(c, i, false)}`));
 	}
+	const top = topUnblockers(c.db, slug);
+	if (top.length)
+		out.push("", `## What ${yourName(c.db)} can unblock (open items that waiting work depends on)`, ...top.map((t) => `- wb-${t.item.ref} ${t.item.kind}: ${t.item.title} · unblocks ${t.waiters.map((w) => `wb-${w.ref} (${w.title})`).join(", ")}`));
 	const trackers = listTrackers(c.db, slug);
 	out.push("", "## Trackers", ...(trackers.length ? trackers.map((t) => `- ${trackerBlock(t)}`) : ["none"]));
 	const g = p.path ? await repoState(p) : null;
@@ -577,7 +596,7 @@ const TOOLS: Tool[] = [
 		name: "list_items",
 		title: "List items",
 		description:
-			"Items of a project (default: open ones, the current project), most urgent first: doing, todo, waiting, then by priority. Filter by who acts, kind, status or words.",
+			"Items of a project (default: open ones, the current project), most urgent first: doing, todo, waiting, then by priority, and within that what holds up the most waiting work (unblocks). Filter by who acts, kind, status or words.",
 		input: obj({
 			project: str('Project slug, or "*" for every project. Default: the current project.'),
 			owner: { type: "string", enum: OWNERS, description: "Who has to act: kostas ({{name}}) or agent." },
@@ -606,12 +625,12 @@ const TOOLS: Tool[] = [
 	{
 		name: "get_item",
 		title: "Get an item",
-		description: "One item with its details, choices, answer and full history. When a prompt names an item, read it first: its body and notes are the brief.",
+		description: "One item with its details, choices, answer, what it waits on, what waits on it, and full history. When a prompt names an item, read it first: its body and notes are the brief.",
 		input: obj({ ref: REF }, ["ref"]),
 		hints: RO,
 		run(a, c) {
 			const i = getItem(c.db, itemId(c, a.ref))!;
-			return { text: itemText(c, i), data: { item: { ...itemJson(i), body: i.body, sources: i.sources || undefined, images: i.images.length ? i.images.map(({ id, caption, width, height }) => ({ id, caption, width, height })) : undefined, notes: i.notes.map(({ at, author, text }) => ({ at, author, text })) } }, links: [itemLink(i)] };
+			return { text: itemText(c, i), data: { item: { ...itemJson(i), body: i.body, sources: i.sources || undefined, images: i.images.length ? i.images.map(({ id, caption, width, height }) => ({ id, caption, width, height })) : undefined, notes: i.notes.map(({ at, author, text }) => ({ at, author, text })), waits_on: i.waits_on.length ? i.waits_on.map(linkJson) : undefined, blocks: i.blocks.length ? i.blocks.map(linkJson) : undefined } }, links: [itemLink(i)] };
 		},
 	},
 	{
@@ -638,6 +657,8 @@ const TOOLS: Tool[] = [
 				branch: str("The git branch the work is on."),
 				source: str('Where it came from, e.g. "src/app.ts:42".'),
 				status: { type: "string", enum: STATUSES, description: "Default todo." },
+				blocks: str("An item of yours that waits on this new one, e.g. wb-k3f9: it goes to waiting, and back to todo by itself when this is answered, finished or dropped. This is how you file a question or a check for {{name}} and wait on it in one call."),
+				waits_on: { type: "array", items: { type: "string", minLength: 1 }, maxItems: 12, description: "Items this new one waits on (wb-xxxx): it is filed as waiting, and goes to todo when they're all answered, finished or dropped." },
 			},
 			["title"],
 		),
@@ -650,6 +671,13 @@ const TOOLS: Tool[] = [
 			);
 			if (brief.refuse) throw new ToolError(brief.refuse);
 			const images = await readImages(a.images);
+			const waitsOn: number[] = (a.waits_on ?? []).map((r: string) => itemId(c, r));
+			const blocked: number | undefined = a.blocks ? itemId(c, a.blocks) : undefined;
+			if (blocked !== undefined) {
+				const b = getItem(c.db, blocked)!;
+				if (b.status === "done" || b.status === "dropped") throw new ToolError(`wb-${b.ref} is ${b.status}: it can't wait on anything`);
+				if (waitsOn.includes(blocked)) throw new ToolError("the new item can't both wait on wb-" + b.ref + " and block it");
+			}
 			const id = addItem(
 				c.db,
 				{
@@ -669,7 +697,13 @@ const TOOLS: Tool[] = [
 				"agent",
 			);
 			for (const m of images) addImage(c.db, id, m.image, m.caption, "agent");
-			return changed(c, id, "Added", brief.warnings);
+			try {
+				if (waitsOn.length) waitOn(c.db, id, waitsOn, "agent");
+				if (blocked !== undefined) waitOn(c.db, blocked, [id], "agent");
+			} catch (e) {
+				throw new ToolError(`${(e as Error).message}. The item is filed as wb-${getItem(c.db, id)!.ref}; wait_item links it.`);
+			}
+			return changed(c, id, blocked !== undefined ? `Added (wb-${getItem(c.db, blocked)!.ref} now waits on it)` : "Added", brief.warnings);
 		},
 	},
 	{
@@ -690,18 +724,21 @@ const TOOLS: Tool[] = [
 				branch: str("Git branch."),
 				project: str("Move it to this project (slug)."),
 				note: str("Also add this note to the history."),
+				waits_on: { type: "array", items: { type: "string", minLength: 1 }, maxItems: 12, description: "Items (wb-xxxx) it now also waits on: it becomes waiting, and goes back to todo when all of them are answered, finished or dropped." },
+				not_waiting_on: { type: "array", items: { type: "string", minLength: 1 }, maxItems: 12, description: "Items (wb-xxxx) it no longer waits on. Without any left it stays waiting until you change its status." },
 			},
 			["ref"],
 		),
 		hints: { ...WRITE, idempotentHint: true },
 		run(a, c) {
 			const id = itemId(c, a.ref);
+			if (a.waits_on?.length) waitOn(c.db, id, a.waits_on.map((r: string) => itemId(c, r)), "agent");
+			if (a.not_waiting_on?.length) removeLinks(c.db, id, a.not_waiting_on.map((r: string) => itemId(c, r)));
 			const patch: ItemPatch = {};
 			for (const k of ["title", "kind", "owner", "status", "priority", "area", "body", "options", "branch"] as const)
 				if (a[k] !== undefined) (patch as Json)[k] = a[k];
 			if (a.project !== undefined) patch.project = projectOf(c, a.project)!;
-			updateItem(c.db, id, patch, "agent");
-			if (a.note?.trim()) addNote(c.db, id, a.note.trim(), "agent");
+			updateItem(c.db, id, patch, "agent", a.note ?? "");
 			const i = getItem(c.db, id)!;
 			// A status change or a note says nothing new about the brief; rewording it does.
 			const reworded = a.title !== undefined || a.body !== undefined || a.kind !== undefined || a.owner !== undefined;
@@ -764,12 +801,21 @@ const TOOLS: Tool[] = [
 	{
 		name: "wait_item",
 		title: "Mark an item waiting",
-		description: "The work is blocked: says on what (a review, an answer, a deploy). It shows as waiting on the board.",
-		input: obj({ ref: REF, reason: str("What it waits on.", { minLength: 1 }) }, ["ref", "reason"]),
+		description:
+			"The work is blocked: says on what (a review, an answer, a deploy). It shows as waiting on the board. When it waits on another item (above all something {{name}} has to answer, check or review: file it with add_item, or use add_item's blocks to do both at once), pass it as on: the board puts this item back to todo by itself, with the answer in its history, when that item is answered, finished or dropped. Without on, nothing resumes it: {{name}} or you have to.",
+		input: obj(
+			{
+				ref: REF,
+				reason: str("What it waits on, in a few words.", { minLength: 1 }),
+				on: { type: "array", items: { type: "string", minLength: 1 }, minItems: 1, maxItems: 12, description: "The items it waits on (wb-xxxx). When there are several it resumes once all of them are dealt with." },
+			},
+			["ref", "reason"],
+		),
 		hints: WRITE,
 		run(a, c) {
 			const id = itemId(c, a.ref);
-			updateItem(c.db, id, { status: "waiting" }, "agent");
+			if (a.on?.length) waitOn(c.db, id, a.on.map((r: string) => itemId(c, r)), "agent");
+			else updateItem(c.db, id, { status: "waiting" }, "agent");
 			addNote(c.db, id, a.reason.trim(), "agent");
 			return changed(c, id, "Waiting:");
 		},
@@ -777,13 +823,12 @@ const TOOLS: Tool[] = [
 	{
 		name: "finish_item",
 		title: "Finish an item",
-		description: "Marks an item done. The note says what changed and where (commit, branch, PR). File anything left over as new items.",
+		description: "Marks an item done. The note says what changed and where (commit, branch, PR). File anything left over as new items. Whatever waited on this item goes back to todo, with this note in its history.",
 		input: obj({ ref: REF, note: str('What changed and where, e.g. "a1b2c3d on main: …".') }, ["ref"]),
 		hints: WRITE,
 		run(a, c) {
 			const id = itemId(c, a.ref);
-			updateItem(c.db, id, { status: "done" }, "agent");
-			if (a.note?.trim()) addNote(c.db, id, a.note.trim(), "agent");
+			updateItem(c.db, id, { status: "done" }, "agent", a.note ?? "");
 			return changed(c, id, "Done:");
 		},
 	},
@@ -795,8 +840,7 @@ const TOOLS: Tool[] = [
 		hints: WRITE,
 		run(a, c) {
 			const id = itemId(c, a.ref);
-			updateItem(c.db, id, { status: "dropped" }, "agent");
-			if (a.reason?.trim()) addNote(c.db, id, a.reason.trim(), "agent");
+			updateItem(c.db, id, { status: "dropped" }, "agent", a.reason ?? "");
 			return changed(c, id, "Dropped:");
 		},
 	},
@@ -1183,7 +1227,7 @@ type Prompt = {
 
 const TRACKING = `Track it on the workbench with this server's tools:
 - start_item now (it links this session to the item); add the branch once you have one.
-- add_note for what {{name}} should know along the way; wait_item when you're blocked, saying on what.
+- add_note for what {{name}} should know along the way; wait_item when you're blocked, saying on what. When it's something {{name}} has to answer or do, file it as its own item and wait on it (add_item with blocks: this item, or wait_item with on): the board resumes you when it's answered.
 - finish_item with a note on what changed and where (commit, branch, PR).
 - Anything you leave for {{name}} (a device check, a wording, a question) is its own item: add_item with kind check, review or decision. It has to make sense without opening anything else: the content in the body, a screenshot for anything on screen (attach_image).
 - This item's images, if it lists any, are part of the brief: read them with get_image.`;
@@ -1232,7 +1276,7 @@ const PROMPTS: Prompt[] = [
 		arguments: [{ name: "project", description: "Project slug (default: the current one)" }],
 		async get(a, c) {
 			const slug = projectOrRpc(c, a.project);
-			return `Write me a short status of ${slug}: what's in progress, what waits on me (decisions first), anything blocked, trackers that warn, and git loose ends. A few lines, no preamble.\n\n${await overview(c, slug)}`;
+			return `Write me a short status of ${slug}: what's in progress, what waits on me (decisions first, and which of them hold up the most waiting work), anything blocked, trackers that warn, and git loose ends. A few lines, no preamble.\n\n${await overview(c, slug)}`;
 		},
 	},
 ];

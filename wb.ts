@@ -44,6 +44,7 @@ import { addSource, KEY_PATH, listSources, removeSource } from "./sources";
 import { PRESETS } from "./presets";
 import { checkBrief, WRITING_GUIDE } from "./brief";
 import { integrationGuide } from "./integrate";
+import { removeLinks, waitOn } from "./links";
 import { addImage, imageBytes, imageData, imageInfo, imageSummary, prepareImage, removeImage } from "./images";
 import { dayStartHour, ownerDefaultsText, ownerFor, yourName } from "./settings";
 import {
@@ -75,7 +76,10 @@ Items are named wb-xxxx (e.g. wb-k3f9); commands take that, the bare k3f9, or an
   wb add "title" [options]         new item, prints its id
   wb start <ref> [--session S] [--branch B]   an agent picks it up (session defaults to the
                                    desktop app session it runs in, so the board links to it)
-  wb wait <ref> "why"               blocked on something
+  wb wait <ref> "why" [--on wb-xxxx ...]   blocked on something; --on names the item it waits on (repeat for
+                                   more): the board puts this one back to todo when that one is answered,
+                                   finished or dropped. When it's ${name}'s to answer, file it first:
+                                   wb add "..." --kind decision --blocks <this item> does both in one go
   wb done <ref> ["note"]            finished (the note says what changed / where)
   wb drop <ref> ["why"]             won't do
   wb note <ref> "text"              add to the history
@@ -146,6 +150,9 @@ Options for add/edit:
   --option "choice"          repeat for each choice of a decision; ${name} answers with one click
                              (--option alone makes the item a decision)
   --status todo|doing|waiting|done|dropped
+  --on wb-xxxx               the item waits on this one (repeat for more; it becomes waiting). On edit too
+  --blocks wb-xxxx           add only: that item waits on the new one (it becomes waiting)
+  --not-on wb-xxxx           edit only: it no longer waits on this one
 
 Kinds: task = code work · check = try it on a device · review = read wording/design ·
 decision = a question only ${name} can answer · setup = accounts, consoles, stores · bug · idea = later/maybe.`;
@@ -193,6 +200,9 @@ const { values: o, positionals: args } = parseArgs({
 		global: { type: "boolean" },
 		json: { type: "boolean" },
 		option: { type: "string", multiple: true },
+		on: { type: "string", multiple: true },
+		"not-on": { type: "string", multiple: true },
+		blocks: { type: "string" },
 		image: { type: "string", multiple: true },
 		caption: { type: "string", multiple: true },
 		help: { type: "boolean", short: "h" },
@@ -223,6 +233,11 @@ function currentProject(required = true) {
 	const p = projectForPath(db, process.cwd());
 	if (!p && required) die("not inside a known project; pass --project (wb projects)");
 	return p?.slug;
+}
+
+/** The ids of items named on the command line (--on, --not-on, --blocks). */
+function refIds(refs: string[] | undefined) {
+	return (refs ?? []).map((r) => resolveItem(db, r) ?? die(`no item "${r}"`));
 }
 
 function idArg() {
@@ -279,7 +294,7 @@ function row(i: Item, showProject: boolean) {
 		who,
 		KIND_MARK[i.kind].padEnd(6),
 		showProject ? i.project.padEnd(12) : "",
-		`${status}${i.title}${i.answer ? `  → ${i.answer}` : ""}`,
+		`${status}${i.title}${i.answer ? `  → ${i.answer}` : ""}${i.unblocks ? `  (unblocks ${i.unblocks})` : ""}`,
 		where ? ` ${where}` : "",
 	]
 		.filter(Boolean)
@@ -300,6 +315,9 @@ function show(id: number) {
 	const options = itemOptions(i);
 	if (options.length) console.log(`\noptions:\n${options.map((x, n) => `  ${n + 1}. ${x}`).join("\n")}`);
 	if (i.answer) console.log(`\nanswer: ${i.answer}`);
+	const linkLine = (l: { ref: string; title: string; status: string; answer: string }) => `  wb-${l.ref} ${l.answer ? "answered" : l.status}: ${l.title}`;
+	if (i.waits_on.length) console.log(`\nwaits on:\n${i.waits_on.map(linkLine).join("\n")}`);
+	if (i.blocks.length) console.log(`\nblocks (waiting on this):\n${i.blocks.map(linkLine).join("\n")}`);
 	console.log("\nhistory:");
 	for (const n of i.notes) console.log(`  ${n.at}  ${n.author ? n.author + ": " : ""}${n.text}`);
 }
@@ -469,6 +487,9 @@ try {
 			if ((o.image?.length ?? 0) !== (o.caption?.length ?? 0)) die('each --image needs its --caption: what it shows and what to look at');
 			const brief = briefOf({ title, body: patch.body ?? "", kind, owner: patch.owner ?? ownerFor(db, kind) }, o.image?.length ?? 0);
 			if (brief.refuse) die(brief.refuse);
+			const waitsOn = refIds(o.on);
+			const blocked = o.blocks ? refIds([o.blocks])[0] : undefined;
+			if (blocked !== undefined && waitsOn.includes(blocked)) die("the new item can't both wait on that item and block it");
 			const images = await Promise.all(
 				(o.image ?? []).map(async (path, n) => {
 					const { bytes, label } = imageBytes({ path });
@@ -486,6 +507,8 @@ try {
 				author,
 			);
 			for (const m of images) addImage(db, id, m.image, m.caption, author);
+			if (waitsOn.length) waitOn(db, id, waitsOn, author);
+			if (blocked !== undefined) waitOn(db, blocked, [id], author);
 			console.log(`wb-${getItem(db, id)!.ref}`);
 			warnAbout(brief.warnings);
 			break;
@@ -539,9 +562,18 @@ try {
 			const id = idArg();
 			const status = ({ wait: "waiting", done: "done", drop: "dropped" } as const)[cmd];
 			const note = args.slice(2).join(" ");
-			if (cmd === "wait" && !note) die('usage: wb wait <ref> "what it waits on"');
-			updateItem(db, id, { ...patchFromOptions(), status }, author);
-			if (note) addNote(db, id, note, author);
+			if (cmd === "wait" && !note) die('usage: wb wait <ref> "what it waits on" [--on wb-xxxx]');
+			const on = cmd === "wait" ? refIds(o.on) : [];
+			if (on.length) {
+				// Checked before anything changes, so a refused link leaves the item as it was.
+				const { status: _, ...rest } = patchFromOptions();
+				if (Object.keys(rest).length) updateItem(db, id, rest, author);
+				waitOn(db, id, on, author);
+				addNote(db, id, note, author);
+			} else if (cmd === "wait") {
+				updateItem(db, id, { ...patchFromOptions(), status }, author);
+				addNote(db, id, note, author);
+			} else updateItem(db, id, { ...patchFromOptions(), status }, author, note);
 			console.log(row(getItem(db, id)!, true));
 			break;
 		}
@@ -582,6 +614,9 @@ try {
 		case "edit": {
 			const id = idArg();
 			const patch = patchFromOptions();
+			const on = refIds(o.on);
+			if (on.length) waitOn(db, id, on, author);
+			removeLinks(db, id, refIds(o["not-on"]));
 			updateItem(db, id, patch, author);
 			show(id);
 			if (patch.title !== undefined || patch.body !== undefined) {
