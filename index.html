@@ -21,6 +21,8 @@
 <link rel="stylesheet" href="/ui/setup.css">
 <link rel="stylesheet" href="/ui/dialogs.css">
 <link rel="stylesheet" href="/ui/phone.css">
+<!-- features (after the core's styles) -->
+<!-- end: features -->
 </head>
 <body>
 <nav id="prail" aria-label="Projects"></nav>
@@ -256,8 +258,10 @@
 	<div class="row"><span class="spacer"></span><button type="button" class="ghost" id="rekey-cancel">Cancel</button><button type="submit" class="primary">Change</button></div>
 </form></dialog>
 
-<!-- Classic scripts, run in this order and sharing one global scope, like one long script. -->
+<!-- Classic scripts, run in this order and sharing one global scope, like one long script. A feature's own file goes
+     in the features block: after the core, before boot.js starts the board. -->
 <script src="/ui/core.js"></script>
+<script src="/ui/hooks.js"></script>
 <script src="/ui/projects.js"></script>
 <script src="/ui/rail.js"></script>
 <script src="/ui/trackers.js"></script>
@@ -278,6 +282,8 @@
 <script src="/ui/settings-projects.js"></script>
 <script src="/ui/copy.js"></script>
 <script src="/ui/updates.js"></script>
+<!-- features -->
+<!-- end: features -->
 <script src="/ui/boot.js"></script>
 </body>
 </html>

@@ -3,7 +3,8 @@
 const frame = $("#r-frame");
 
 function showView(name) {
-	for (const [id, v] of [["#board", "board"], ["#report-view", "report"], ["#vault-view", "vault"], ["#settings-view", "settings"], ["#welcome-view", "welcome"]]) $(id).hidden = v !== name;
+	for (const [id, v] of [["#board", "board"], ["#report-view", "report"], ["#vault-view", "vault"], ["#settings-view", "settings"], ["#welcome-view", "welcome"],
+		...views.map((x) => [x.el, x.name])]) $(id).hidden = v !== name;
 	$("#vault-btn").setAttribute("aria-pressed", name === "vault");
 	renderProjects();
 	if (name !== "vault") lockVault();
@@ -17,6 +18,13 @@ function showView(name) {
 function route() {
 	const m = location.hash.match(/^#report\/(\d+)(?:\/v(\d+))?$/);
 	if (m) return showReport(Number(m[1]), m[2] ? Number(m[2]) : null);
+	const own = views.find((x) => x.match(location.hash));
+	if (own) {
+		showView(own.name);
+		document.title = own.title ?? "Workbench";
+		renderRail();
+		return own.open?.(location.hash);
+	}
 	const view = location.hash === "#vault" ? "vault" : inSettings() ? "settings" : inWelcome() ? "welcome" : "board";
 	showView(view);
 	document.title = { vault: "Vault · Workbench", settings: "Settings · Workbench", welcome: "Set up · Workbench", board: "Workbench" }[view];

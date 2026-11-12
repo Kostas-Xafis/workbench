@@ -12,6 +12,7 @@ import bootJs from "./ui/boot.js" with { type: "file" };
 import copyJs from "./ui/copy.js" with { type: "file" };
 import coreJs from "./ui/core.js" with { type: "file" };
 import dialogsCss from "./ui/dialogs.css" with { type: "file" };
+import hooksJs from "./ui/hooks.js" with { type: "file" };
 import itemJs from "./ui/item.js" with { type: "file" };
 import notifyJs from "./ui/notify.js" with { type: "file" };
 import phoneCss from "./ui/phone.css" with { type: "file" };
@@ -50,6 +51,7 @@ export const UI: Record<string, string> = {
 	"copy.js": copyJs,
 	"core.js": coreJs,
 	"dialogs.css": dialogsCss,
+	"hooks.js": hooksJs,
 	"item.js": itemJs,
 	"notify.js": notifyJs,
 	"phone.css": phoneCss,

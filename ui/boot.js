@@ -14,6 +14,7 @@ async function start() {
 	notifyCheck().catch(() => {});
 	updLoad().catch(() => {});
 	maybeWelcome();
+	hookRun(hooks.start);
 }
 start();
 // Agents write through the `wb` CLI, so the page polls; it pauses while a dialog is open.
@@ -31,4 +32,5 @@ setInterval(() => {
 	refreshReport();
 	// The setup guide's checks, while something shows them (the guide polls faster by itself on the steps that wait).
 	if (setupCardShown() || (Date.now() - setup.at > 30e3 && $("#sections .empty-card"))) setupLoad();
+	hookRun(hooks.refresh);
 }, 10000);

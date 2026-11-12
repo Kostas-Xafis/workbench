@@ -73,7 +73,7 @@ function renderRail() {
 	const links = railLinks();
 	let html;
 	if (state.collapsed) {
-		html = `<div class="rail-head">${toggle}</div>` + railTrackers(true) +
+		html = `<div class="rail-head">${toggle}</div>` + railTrackers(true) + hookHtml(hooks.rail, true) +
 			// The first few of each group, and the report on screen if it's further down.
 			[...reports.flatMap((g) => g.reports.filter((r, i) => i < GROUP_SHOWN || isCurrent(r))), ...archivedDays().filter(isCurrent)]
 				.map((r) => `<a class="ritem" href="${reportHref(r)}" title="${esc(r.title)}" aria-current="${isCurrent(r)}"><span class="tile">${reportMark(r) || esc(tileText(r))}</span></a>`).join("") +
@@ -124,7 +124,7 @@ function renderRail() {
 			${editingLinks ? `<button class="icon-btn" id="link-refresh" title="Look up every site's icon again" aria-label="Refresh icons"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor"><g stroke-width="1.5"><path d="M13 8a5 5 0 1 1-1.6-3.7M13 2.5v2.8h-2.8"/></g></svg></button>` : ""}</span>`;
 		const trkNew = `<button class="icon-btn" id="trk-new" title="Add a status tracker" aria-label="Add a status tracker">${TRK_ADD}</button>`;
 		html = `<div class="rail-head"><b>${esc(state.project ? projectName(state.project) : "All projects")}</b>${trkNew}${toggle}</div>
-			${railTrackers(false)}
+			${railTrackers(false)}${hookHtml(hooks.rail, false)}
 			<details class="rsec fold" data-key="rail-reports"${isOpen("rail-reports", true)}><summary>Reports <span class="count">${nReports || ""}</span>${reportTools}</summary>
 				${reportList + archive || `<div class="rail-empty">None yet. Agents publish pages here, such as a status, a plan or release notes (<code>wb report page.html</code>), and each day with activity gets a page of what moved.</div>`}</details>
 			<details class="rsec fold" data-key="rail-links"${isOpen("rail-links", true)}><summary>Links ${tools}</summary>

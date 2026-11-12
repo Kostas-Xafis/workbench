@@ -40,6 +40,7 @@ const SHORTCUTS = () => [
 	[[["Enter"]], "In an item: send your own answer, or add the note"],
 	[[[MOD, "Enter"]], "In a tracker: record the reading"],
 	...(app ? [[[[MOD, "+"], [MOD, "−"]], "Zoom in or out (or hold " + MOD + " and scroll)"], [[[MOD, "0"]], "Back to 100%"]] : []),
+	...hooks.shortcuts,
 ];
 const kbdKeys = (alts) => alts.map((combo) => combo.map((k) => `<kbd>${esc(k)}</kbd>`).join(`<span class="lk-plus">+</span>`)).join(`<span class="lk-or">or</span>`);
 function lookSectionRows() {

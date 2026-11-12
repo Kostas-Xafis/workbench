@@ -50,6 +50,7 @@ function openItem(item) {
 	$("#history").hidden = isNew;
 	renderHistory();
 	$("#note").value = "";
+	hookRun(hooks.itemOpen, item, isNew);
 	if (!dlg.open) dlg.showModal();
 	if (isNew) form.title.focus();
 }

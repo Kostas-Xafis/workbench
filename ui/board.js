@@ -25,6 +25,7 @@ function card(i, { tick = i.owner === "kostas" && OPEN.includes(i.status), kind 
 		i.answer ? `<span class="answered" title="Your answer">→ ${esc(i.answer)}</span>` : "",
 		i.image_count ? `<span class="img-tag" title="${i.image_count} image${i.image_count > 1 ? "s" : ""}">${glyph("image")}${i.image_count}</span>` : "",
 		codeMeta(i),
+		hookHtml(hooks.cardMeta, i),
 		closed && i.done_at ? `<span>${ago(i.done_at)}</span>` : "",
 	].join("");
 	return `<article class="card ${i.status} ${closed ? "closed" : ""}" data-id="${i.id}">
@@ -80,6 +81,7 @@ function renderBoard() {
 			cards(list.filter((i) => i.priority < 3)) +
 			(later.length ? `<details class="later fold" data-key="later-${kind}"${isOpen(`later-${kind}`)}><summary>${later.length} later</summary>${cards(later)}</details>` : ""));
 	}).join("") || boardEmpty(open.length);
+	html = hookHtml(hooks.boardTop, shown) + html + hookHtml(hooks.boardEnd, shown);
 
 	const cutoff = Date.now() - 14 * 86400e3;
 	const done = state.items.filter((i) => !OPEN.includes(i.status) && mineOnly(i) && i.done_at && parseTime(i.done_at) > cutoff)
