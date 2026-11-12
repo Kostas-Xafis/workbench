@@ -9,6 +9,7 @@
 	#search { padding-right: 10px; }
 	#board, #vault-view { padding: 10px 12px 48px; }
 	.vault-btn span { display: none; }
+	#usage-btn { display: none; } /* Usage opens only on this computer; the room goes to search */
 	.secret { grid-template-columns: minmax(0, 1fr) auto; }
 	.s-val { grid-column: 1 / -1; grid-row: 2; }
 }
