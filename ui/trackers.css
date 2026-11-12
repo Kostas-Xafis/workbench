@@ -1,0 +1,59 @@
+/* Status trackers: a quiet strip under the project name, not a section. Bars stay grey until a level needs you. */
+.trackers { padding: 0 6px 8px; margin-bottom: 4px; border-bottom: 1px solid var(--line); display: flex; flex-direction: column; gap: 1px; }
+.trk { display: block; width: 100%; border: 0; background: transparent; text-align: left; padding: 5px 8px 6px 10px; border-radius: 7px; color: var(--ink); font-size: 12.5px; }
+.trk:hover { background: var(--hover); }
+.trk-top { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.trk-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+.trk-top small { color: var(--muted); font-size: 11px; white-space: nowrap; }
+.trk .mv { font-variant-numeric: tabular-nums; white-space: nowrap; font-size: 12px; }
+.trk .mv small { color: var(--muted); font-size: 11px; }
+.trk .mt { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.trk-ms { display: grid; grid-template-columns: auto minmax(28px, 1fr) auto; gap: 3px 8px; align-items: center; margin-top: 4px; }
+.trk-m { display: contents; }
+.trk-m .ml { color: var(--muted); font-size: 11.5px; max-width: 92px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.trk-m .mt { grid-column: span 2; text-align: right; }
+.bar { display: block; height: 4px; border-radius: 2px; background: var(--line); overflow: hidden; }
+.bar > i { display: block; height: 100%; border-radius: 2px; background: color-mix(in srgb, var(--ink) 38%, transparent); max-width: 100%; }
+.trk > .bar { margin-top: 5px; }
+.lv-warn .bar > i { background: var(--review); } .lv-bad .bar > i { background: var(--bug); }
+.lv-warn .mv > b { color: var(--review); } .lv-bad .mv > b { color: var(--bug); }
+.mv > b { font-weight: 600; }
+.trk.stale .mv, .trk.stale .bar { opacity: .5; }
+.trk-flag { flex: none; width: 15px; height: 15px; border-radius: 50%; display: inline-grid; place-items: center; font-size: 10px; font-weight: 700; background: color-mix(in srgb, var(--bug) 16%, transparent); color: var(--bug); align-self: center; }
+/* Folded rail: a ring per tracker; pointing at one fades in the tracker as the open rail draws it (#trk-pop). */
+.rail-collapsed .trackers { padding: 0 0 6px; align-items: center; gap: 2px; }
+.trk-mini { border: 0; background: transparent; padding: 0; width: 38px; height: 32px; border-radius: 8px; display: grid; place-items: center; flex: none; }
+.trk-mini:hover, .trk-mini:focus-visible { background: var(--hover); }
+.trk-mini:focus-visible { outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent); outline-offset: -2px; }
+.trk-mini.stale .trk-ring { opacity: .45; }
+.trk-ring { width: 22px; height: 22px; border-radius: 50%; background: conic-gradient(var(--c, var(--muted)) calc(var(--p) * 1%), var(--line) 0);
+	-webkit-mask: radial-gradient(circle, transparent 7.5px, #000 8px); mask: radial-gradient(circle, transparent 7.5px, #000 8px); }
+#trk-pop { position: fixed; z-index: 30; width: 244px; padding: 4px; background: var(--card); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow);
+	pointer-events: none; opacity: 0; visibility: hidden; translate: -6px 0; transition: opacity .16s ease, translate .16s ease, visibility 0s linear .16s; }
+#trk-pop.show { opacity: 1; visibility: visible; translate: 0; transition-delay: 0s; }
+@media (prefers-reduced-motion: reduce) { #trk-pop { translate: none; } }
+#trk-new { width: 24px; height: 24px; }
+
+/* Tracker dialog */
+dialog.mid { width: min(560px, calc(100vw - 32px)); }
+.tv-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.tv-head b { font-size: 17px; }
+.tv-head small { color: var(--muted); font-size: 12px; }
+.tv-meters { display: grid; grid-template-columns: auto minmax(60px, 1fr) auto; gap: 10px 12px; align-items: center; }
+.tv-meters .ml { font-size: 13px; }
+.tv-meters .bar { height: 8px; border-radius: 4px; }
+.tv-meters .bar > i { border-radius: 4px; }
+.tv-meters .mv { font-variant-numeric: tabular-nums; font-size: 13px; white-space: nowrap; text-align: right; }
+.tv-meters .mv small { color: var(--muted); }
+.tv-meters .mt { grid-column: span 2; font-size: 13px; text-align: left; color: var(--ink); white-space: normal; }
+.tv-info { font-size: 12.5px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 4px 12px; }
+.tv-chart svg { width: 100%; height: auto; display: block; overflow: visible; }
+.tv-chart .ax { fill: var(--muted); font-size: 10px; font-family: inherit; }
+.tv-legend { display: flex; flex-wrap: wrap; gap: 2px 12px; font-size: 11.5px; color: var(--muted); margin-top: 4px; }
+.tv-legend i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; vertical-align: 0; }
+.tv-record { display: flex; gap: 8px; align-items: flex-start; }
+#tv-reading { flex: 1; min-height: 0; height: auto; resize: vertical; font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.tv-error { color: var(--bug); background: color-mix(in srgb, var(--bug) 8%, transparent); border-radius: 8px; padding: 6px 9px; font-size: 12.5px; overflow-wrap: anywhere; }
+.te-more > summary { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 7px; margin-bottom: 8px; }
+#trk-form textarea[name="command"] { min-height: 64px; }
+#te-params:empty { display: none; }

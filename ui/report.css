@@ -1,0 +1,9 @@
+/* Report viewer */
+#report-view { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.rbar { display: flex; align-items: center; gap: 10px; padding: 7px 14px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.rbar .r-title { min-width: 0; display: flex; align-items: baseline; gap: 8px; }
+.rbar .r-title b { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rbar .r-title small { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.rbar select { border: 1px solid var(--line); background: var(--card); border-radius: 7px; padding: 2px 6px; font-size: 12.5px; }
+.pill { background: var(--accent); color: var(--accent-ink); border: 0; border-radius: 999px; padding: 2px 10px; font-size: 12px; font-weight: 600; }
+#r-frame { flex: 1; width: 100%; border: 0; display: block; }
