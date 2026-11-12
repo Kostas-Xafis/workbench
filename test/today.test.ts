@@ -96,3 +96,9 @@ describe("briefText", () => {
 		expect(text).toContain("Needs a key (waiting)");
 	});
 });
+
+import { firstLine as plainFirstLine } from "../today";
+test("a finishing note's first line drops markdown marks", () => {
+	expect(plainFirstLine(["Merged. Then **Run** on a `to-do`."])).toBe("Merged. Then Run on a to-do.");
+	expect(plainFirstLine(["- **Notices:** a new kind\n- more"])).toBe("Notices: a new kind");
+});

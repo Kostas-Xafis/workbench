@@ -25,7 +25,11 @@ const AUTO_NOTE = /^[a-z_]+: .+ → .+$/;
 /** The first line of a finishing note: the newest note that a person or agent wrote (not "created", not a field change). */
 export function firstLine(notes: string[]) {
 	for (const text of notes) {
-		const line = text.split("\n").map((l) => l.trim()).find(Boolean);
+		// One line of plain text: markdown's marks (**bold**, `code`, a list's "- ") would show as they are.
+		const line = text
+			.split("\n")
+			.map((l) => l.trim().replace(/^([-*]|\d+\.)\s+/, "").replace(/\*\*|__|`/g, ""))
+			.find(Boolean);
 		if (!line || line === "created" || (AUTO_NOTE.test(line) && !text.includes("\n"))) continue;
 		return line.length > 200 ? `${line.slice(0, 199)}…` : line;
 	}
