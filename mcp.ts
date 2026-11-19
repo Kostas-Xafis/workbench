@@ -13,7 +13,8 @@
  * Results are shaped for the revision they answer: `resultType`, caching hints and serverInfo in `_meta` for
  * 2026-07-28; titles, structured content and resource links only where that revision has them.
  *
- * The vault, data source secrets and deletions of items or reports are not here: those stay with Kostas. An image
+ * The vault is reached only through Kostas: vault_list and vault_get open a password window on this computer for
+ * every request (vaultask.ts). Data source secrets and deletions of items or reports are not here. An image
  * can be removed: it's an agent's way to replace a picture it got wrong, and the item's history keeps the line.
  */
 import { readFileSync } from "node:fs";
@@ -100,6 +101,7 @@ import {
 } from "./trackers";
 import { briefText } from "./today";
 import { latestRun, runLine } from "./dispatch";
+import { FILE_MINUTES, getForAgent, listForAgent, type Delivery } from "./vaultask";
 
 const BOARD = `http://localhost:${Number(process.env.WB_PORT ?? 4321)}`;
 const MODERN = "2026-07-28";
@@ -134,6 +136,7 @@ const INSTRUCTIONS = `The workbench is {{name}}'s local board of open work acros
 - Every report you publish gets its own icon in colour (publish_report's icon), so the sidebar reads at a glance.
 - Status trackers are live readings shown on the board, such as build quotas or CI minutes left. Check list_trackers before something that uses up a quota, refresh_trackers after.
 - A goal says what a project's work is for (a release, a milestone), with a target date and the items that serve it. list_goals and project_overview show each goal's progress and what blocks it. Give the items you file the goal they serve (add_item's goal), and prefer work on the active goal. Don't create goals for {{name}} unless they ask: when you think the project needs one, file a decision item proposing it.
+- Secrets (API keys, tokens): never ask {{name}} to paste one into the chat. vault_get asks them in a password window on their computer and hands you a private .env file; vault_list shows the names. When they say no, don't ask again unless they tell you to.
 - Tools default to the project of the folder this server runs in; pass project (a slug from list_projects) to work elsewhere.`;
 
 /**
@@ -1328,6 +1331,58 @@ const TOOLS: Tool[] = [
 			const project = a.project === "*" ? "" : projectOf(c, a.project)!;
 			const id = addLink(c.db, { label: a.label, url: a.url, project, grp: a.group });
 			return { text: `link #${id} added to ${project || "every project"}${a.group ? ` (${a.group})` : ""}: ${a.label}`, data: { id } };
+		},
+	},
+	{
+		name: "vault_list",
+		title: "List vault secrets",
+		description:
+			"The names and notes of the secrets in {{name}}'s vault that a project may use (its own and those for every project), never a value. {{name}} has to allow it: a window on their computer shows your reason and asks for the vault password, and this call waits for the answer (up to 2 minutes). Use it to learn a secret's exact name for vault_get, once per session at most. When {{name}} says no, don't ask again unless they tell you to.",
+		input: obj(
+			{
+				reason: str('Why you need them, in one sentence {{name}} reads in the window, e.g. "to find the Cloudflare token for the deploy".', { minLength: 3, maxLength: 300 }),
+				project: str('Project slug, or "*" for every project\'s secrets. Default: the current project.'),
+			},
+			["reason"],
+		),
+		hints: RO,
+		async run(a, c) {
+			const project = projectOf(c, a.project, false);
+			const list = await listForAgent({ db: c.db, project, session: c.session }, a.reason);
+			const scope = (p: string) => (p ? p : "every project");
+			return {
+				text: list.length
+					? `${list.length} secret${list.length === 1 ? "" : "s"} ${project ? `for ${project} (and every project)` : "in the vault"}:\n${list.map((s) => `- ${s.name} (${scope(s.project)})${s.note ? `: ${s.note}` : ""}`).join("\n")}\n\nvault_get gives the values, after {{name}} allows it again.`
+					: `No secrets ${project ? `for ${project} or every project ` : ""}in the vault.`,
+				data: { secrets: list },
+			};
+		},
+	},
+	{
+		name: "vault_get",
+		title: "Get vault secrets",
+		description:
+			"Secrets from {{name}}'s vault, by name (vault_list shows the names), after {{name}} allows it: a window on their computer lists the names you ask for and your reason, and asks for the vault password. This call waits for the answer (up to 2 minutes). Ask for everything one task needs in one call: each call is a new window.\n\nBy default (deliver \"file\") the values go into a private .env file, readable only by this user and deleted after 15 minutes, and you get its path, not the values, so they stay out of this conversation: use it as `set -a; . <path>; set +a` before a command, or a tool's --env-file. Never print, echo, cat or copy the values into files, commits or messages. deliver \"text\" returns the values in the reply instead: only when you must put a value somewhere yourself, and {{name}} sees that in the window.\n\nNever ask {{name}} to paste a secret into the chat: use this. When they say no, don't ask again unless they tell you to.",
+		input: obj(
+			{
+				names: { type: "array", items: str("A secret's name, e.g. CLOUDFLARE_API_TOKEN.", { minLength: 1, maxLength: 200 }), minItems: 1, maxItems: 20, description: "The secrets you need, by name." },
+				reason: str('Why you need them, in one sentence {{name}} reads in the window, e.g. "to deploy the worker with wrangler".', { minLength: 3, maxLength: 300 }),
+				deliver: { type: "string", enum: ["file", "text"], description: 'file (default): a private .env file, deleted after 15 minutes; you get its path. text: the values in the reply.' },
+				project: str('Project slug, or "*" to look in every project. Default: the current project (its own secrets win over those for every project).'),
+			},
+			["names", "reason"],
+		),
+		hints: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+		async run(a, c) {
+			const project = projectOf(c, a.project, false);
+			const deliver: Delivery = a.deliver ?? "file";
+			const r = await getForAgent({ db: c.db, project, session: c.session }, a.names, a.reason, deliver);
+			const missing = r.missing.length ? `\nNot found: ${r.missing.join(", ")} (vault_list shows the names).` : "";
+			if (!r.given.length) return { text: `None of those are in the vault.${missing}`, data: { given: [], missing: r.missing } };
+			const text = r.file
+				? `${r.given.length} secret${r.given.length === 1 ? "" : "s"} written to ${r.file} (deleted in ${FILE_MINUTES} minutes), as ${r.given.map((g) => g.env).join(", ")}.\nUse: set -a; . ${r.file}; set +a; <command>. Don't print the values.${missing}`
+				: `${r.given.map((g) => `${g.env}=${g.value}`).join("\n")}\n\nKeep these out of files, commits and messages.${missing}`;
+			return { text, data: { given: r.given, missing: r.missing, ...(r.file ? { file: r.file, expires_minutes: FILE_MINUTES } : {}) } };
 		},
 	},
 	{

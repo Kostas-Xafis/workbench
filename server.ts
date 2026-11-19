@@ -21,6 +21,7 @@ import {
 	setupVault,
 	updateSecret,
 	vaultAuthOk,
+	vaultAccessLog,
 	vaultInfo,
 	getReport,
 	open,
@@ -1011,6 +1012,10 @@ export function serve({ lan = false } = {}) {
 						return fail(e);
 					}
 				}),
+			},
+			// What agents asked of the vault (vaultask.ts): secrets by id, which the unlocked page names.
+			"/api/vault/access": {
+				GET: async (req, srv) => (await vaultGate(req, srv)) ?? json(vaultAccessLog(db)),
 			},
 			"/api/secrets": {
 				GET: async (req, srv) => (await vaultGate(req, srv)) ?? json(listSecrets(db)),

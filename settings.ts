@@ -141,6 +141,8 @@ const PRIVACY: Defs = {
 	// Used by the vault in the page (index.html), read whenever one of its timers starts.
 	"vault.lock-minutes": { about: "Vault locks after this many idle minutes", default: 5, check: int(1, 60) },
 	"vault.show-seconds": { about: "A shown secret hides after this many seconds", default: 20, check: int(5, 120) },
+	// vaultask.ts: whether agents may ask (each request still needs the vault password in a popup on this computer).
+	"vault.agents": { about: "Agents may ask for secrets", default: true, check: bool },
 	// share.ts. The start length is capped by the most at the moment of use, so the two never disagree.
 	"share.default-hours": { about: "Share links start at this many hours", default: 1, check: oneOf(...SHARE_HOURS) },
 	"share.max-hours": { about: "A share link runs at most this many hours", default: 8, check: oneOf(...SHARE_HOURS) },

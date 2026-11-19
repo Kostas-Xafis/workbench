@@ -213,6 +213,19 @@ export function open(path = DB_PATH) {
 		created_at TEXT NOT NULL DEFAULT (datetime('now')),
 		updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 	)`);
+	// What agents asked of the vault (vaultask.ts), for the vault's own list. Secrets by id only: their names are
+	// encrypted, and what an agent asked for by name is never kept in the clear.
+	db.run(`CREATE TABLE IF NOT EXISTS vault_access (
+		id INTEGER PRIMARY KEY,
+		at TEXT NOT NULL DEFAULT (datetime('now')),
+		project TEXT NOT NULL DEFAULT '',
+		session TEXT NOT NULL DEFAULT '',
+		what TEXT NOT NULL,
+		asked INTEGER NOT NULL DEFAULT 0,
+		secrets TEXT NOT NULL DEFAULT '[]',
+		delivery TEXT NOT NULL DEFAULT '',
+		outcome TEXT NOT NULL
+	)`);
 	// Data sources a report can call through the board (see sources.ts). `headers` is sealed with a key
 	// that lives outside the database, so this table and its backups hold no usable secret.
 	db.run(`CREATE TABLE IF NOT EXISTS sources (
@@ -1007,8 +1020,39 @@ export function resetVault(db: Db): number {
 	return db.transaction(() => {
 		const n = db.query("DELETE FROM secrets").run().changes;
 		db.run("DELETE FROM vault");
+		db.run("DELETE FROM vault_access");
 		return n;
 	})();
+}
+
+/** One agent request to the vault: names (vault_list) or values (vault_get), and how it ended. */
+export type VaultAccess = {
+	id: number;
+	at: string;
+	project: string;
+	session: string;
+	what: "names" | "values";
+	/** How many secrets the agent asked for (values). */
+	asked: number;
+	/** The ids it was given. */
+	secrets: number[];
+	delivery: "" | "file" | "text";
+	outcome: "given" | "denied" | "wrong-password" | "no-answer" | "failed" | "off";
+};
+const ACCESS_KEPT = 500;
+
+export function logVaultAccess(db: Db, a: Omit<VaultAccess, "id" | "at">) {
+	db.query(
+		"INSERT INTO vault_access (project, session, what, asked, secrets, delivery, outcome) VALUES (?, ?, ?, ?, ?, ?, ?)",
+	).run(a.project, a.session, a.what, a.asked, JSON.stringify(a.secrets), a.delivery, a.outcome);
+	db.query(`DELETE FROM vault_access WHERE id NOT IN (SELECT id FROM vault_access ORDER BY id DESC LIMIT ${ACCESS_KEPT})`).run();
+}
+
+/** The latest agent requests, newest first. */
+export function vaultAccessLog(db: Db, limit = 50): VaultAccess[] {
+	return (db.query("SELECT * FROM vault_access ORDER BY id DESC LIMIT ?").all(limit) as (VaultAccess & { secrets: string })[]).map(
+		(r) => ({ ...r, secrets: JSON.parse(r.secrets) as number[] }),
+	);
 }
 
 /**

@@ -53,6 +53,12 @@ function pvVault(info) {
 			control: ctlNumber({ setting: "vault.lock-minutes" }, { min: 1, max: 60, unit: "idle minutes", label: "Lock the vault after this many idle minutes (1 to 60)" }),
 		}),
 		optRow({
+			label: "Agents may ask for secrets",
+			hint: "An agent names the secrets it needs and why; a window on this computer asks you for the vault password each time. Off: every request is refused.",
+			bind: { setting: "vault.agents" },
+			control: ctlToggle({ setting: "vault.agents" }, { label: "Agents may ask for secrets" }),
+		}),
+		optRow({
 			label: "Hide a shown value after",
 			hint: `A value you show stays on screen ${show} seconds, then hides again.`,
 			bind: { setting: "vault.show-seconds" },

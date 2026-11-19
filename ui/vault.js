@@ -11,7 +11,7 @@ const te = new TextEncoder(), td = new TextDecoder();
 const b64 = (bytes) => btoa(Array.from(new Uint8Array(bytes), (b) => String.fromCharCode(b)).join(""));
 const unb64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
 // `then` is what to do right after unlocking ("rekey" when Settings → Privacy and security sent you here).
-const vault = { info: undefined, error: "", key: null, auth: null, secrets: [], shown: new Map(), idle: 0, then: null };
+const vault = { info: undefined, error: "", key: null, auth: null, secrets: [], access: [], shown: new Map(), idle: 0, then: null };
 // WebCrypto exists only in a secure context: localhost, not the LAN address of `wb serve --lan`.
 const canVault = () => window.isSecureContext && !!crypto.subtle;
 const ICON = {
@@ -47,6 +47,21 @@ const newSalt = () => b64(crypto.getRandomValues(new Uint8Array(16)));
 async function loadSecrets() {
 	const rows = await vaultApi("/api/secrets", vault.auth);
 	vault.secrets = await Promise.all(rows.map(async (r) => ({ ...r, ...(await unseal(vault.key, r.meta)) })));
+	await loadAccess(vault.auth);
+}
+// What agents asked for through the password window (vaultask.ts); a list that fails to load just doesn't show.
+async function loadAccess(auth) {
+	try { vault.access = await vaultApi("/api/vault/access", auth); } catch { vault.access = []; }
+}
+const ACCESS_END = { "denied": "you said no", "wrong-password": "wrong password 3 times", "no-answer": "nobody answered", "failed": "the window didn't open", "off": "refused: agent requests are off" };
+function accessRow(a) {
+	const names = a.secrets.map((id) => vault.secrets.find((s) => s.id === id)?.name ?? "a deleted secret");
+	const asked = a.what === "names" ? "the names" : `${a.asked} secret${a.asked === 1 ? "" : "s"}`;
+	const what = a.outcome !== "given" ? `asked for ${asked} · ${ACCESS_END[a.outcome] ?? a.outcome}`
+		: a.what === "names" ? "saw the names"
+		: names.length ? `got <code>${names.map(esc).join("</code>, <code>")}</code> · ${a.delivery === "text" ? "in its conversation" : "in a private file"}`
+		: `asked for ${asked} · none found`;
+	return `<div class="v-access${a.outcome === "given" ? "" : " no"}"><span>${esc(ago(a.at))}</span><b>${esc(a.project ? projectName(a.project) : "No project")}</b><span>${what}</span></div>`;
 }
 
 function lockVault() {
@@ -57,6 +72,7 @@ function lockVault() {
 	if (!vault.key) return;
 	vault.key = vault.auth = null;
 	vault.secrets = [];
+	vault.access = [];
 	closePassword(); closeSecret(); closeRekey(); closeEnv();
 	if (!$("#vault-view").hidden) renderVault();
 }
@@ -134,7 +150,18 @@ function renderVault() {
 		<button class="ghost sm" data-act="rekey">Change password</button>
 		<button class="ghost sm" data-act="lock">${icon("lock")} Lock</button></div>
 		<div class="vault-body">${groups || `<div class="empty">No secrets ${state.project ? "for this project " : ""}yet.</div>`}
+		${vaultAccessBlock()}
 		<p class="hint">${esc(vaultTimesText())} <a href="#settings/privacy">Change</a></p></div>`;
+}
+
+function vaultAccessBlock() {
+	const list = vault.access.filter((a) => !state.project || !a.project || a.project === state.project).slice(0, 12);
+	const on = setting("vault.agents") ?? true;
+	const lead = on
+		? "An agent can ask for secrets by name: a window on this computer shows what and why, and gives them only when you type the vault password there."
+		: "Agents can't ask for secrets: it's turned off.";
+	return `<div class="v-group">Agent requests</div><p class="hint v-agents">${esc(lead)} <a href="#settings/privacy">${on ? "Turn off" : "Turn on"}</a></p>
+		${list.map(accessRow).join("")}`;
 }
 
 // Asks for the vault password again; resolves to the derived key and token, or null if cancelled.
@@ -308,6 +335,7 @@ vaultView.addEventListener("submit", async (e) => {
 			const rows = await vaultApi("/api/secrets", d.auth);
 			Object.assign(vault, d);
 			vault.secrets = await Promise.all(rows.map(async (r) => ({ ...r, ...(await unseal(d.key, r.meta)) })));
+			await loadAccess(d.auth);
 		}
 		touchVault();
 		renderVault();
