@@ -70,6 +70,14 @@ document.addEventListener("toggle", (e) => {
 	localSet("folds", JSON.stringify(folds));
 }, true);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+/** A progress ring, p 0–100 filled clockwise from the top, `size` px across with a `width` px band. Drawn as SVG strokes,
+ *  which are anti-aliased: a CSS conic gradient cut out by a mask has jagged edges (worst in the app's WebKitGTK).
+ *  Colours come from CSS: `.ring-track` and `.ring-fill` take `stroke`. */
+function ringSvg(p, size, width) {
+	const c = size / 2, r = c - width / 2, fill = Math.max(0, Math.min(100, Number(p) || 0));
+	const circle = (cls, more = "") => `<circle class="${cls}" cx="${c}" cy="${c}" r="${r}" pathLength="100" fill="none" stroke-width="${width}"${more}/>`;
+	return `<svg class="ring" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" aria-hidden="true">${circle("ring-track")}${fill ? circle("ring-fill", ` stroke-dasharray="${fill} 100" transform="rotate(-90 ${c} ${c})"`) : ""}</svg>`;
+}
 // Only touches the DOM when the markup changed, so polling doesn't reload icons or reset scroll.
 function paint(el, html) {
 	if (el._html === html) return;

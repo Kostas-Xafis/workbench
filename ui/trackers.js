@@ -69,7 +69,7 @@ function railTrackers(collapsed) {
 	if (collapsed) return `<div class="trackers">${list.map((t) => {
 		const ps = (t.reading?.meters ?? []).map(pctOf).filter((p) => p != null);
 		const c = t.error ? "var(--bug)" : t.level === "bad" ? "var(--bug)" : t.level === "warn" ? "var(--review)" : "var(--muted)";
-		return `<button type="button" class="trk-mini${t.stale ? " stale" : ""}" data-tracker="${t.id}" aria-label="${esc(trkTip(t))}"><span class="trk-ring" style="--p:${ps.length ? Math.max(...ps) : 100};--c:${c}"></span></button>`;
+		return `<button type="button" class="trk-mini${t.stale ? " stale" : ""}" data-tracker="${t.id}" aria-label="${esc(trkTip(t))}"><span class="trk-ring" style="--c:${c}">${ringSvg(ps.length ? Math.max(...ps) : 100, 22, 3.5)}</span></button>`;
 	}).join("")}</div>`;
 	return `<div class="trackers">${list.map((t) => trackerRow(t)).join("")}</div>`;
 }

@@ -26,8 +26,10 @@
 .trk-mini:hover, .trk-mini:focus-visible { background: var(--hover); }
 .trk-mini:focus-visible { outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent); outline-offset: -2px; }
 .trk-mini.stale .trk-ring { opacity: .45; }
-.trk-ring { width: 22px; height: 22px; border-radius: 50%; background: conic-gradient(var(--c, var(--muted)) calc(var(--p) * 1%), var(--line) 0);
-	-webkit-mask: radial-gradient(circle, transparent 7.5px, #000 8px); mask: radial-gradient(circle, transparent 7.5px, #000 8px); }
+.trk-ring { width: 22px; height: 22px; display: block; }
+.trk-ring .ring { display: block; }
+.trk-ring .ring-track { stroke: var(--line); }
+.trk-ring .ring-fill { stroke: var(--c, var(--muted)); }
 #trk-pop { position: fixed; z-index: 30; width: 244px; padding: 4px; background: var(--card); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow);
 	pointer-events: none; opacity: 0; visibility: hidden; translate: -6px 0; transition: opacity .16s ease, translate .16s ease, visibility 0s linear .16s; }
 #trk-pop.show { opacity: 1; visibility: visible; translate: 0; transition-delay: 0s; }

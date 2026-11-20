@@ -357,7 +357,7 @@ function renderSetupCard() {
 		const st = wlStatus(s.key);
 		return `<a href="#welcome/${s.key}" class="${st}" title="${esc(s.title)}: ${st === "done" ? "done" : st === "skipped" ? "skipped" : esc(wlCheck(s.key).text)}">${esc(s.short)}</a>`;
 	}).join("");
-	paint(el, `<div class="setup-card" role="region" aria-label="Finish setting up"><span class="setup-ring" style="--p:${Math.round((n / WL_STEPS.length) * 100)}" aria-hidden="true">${n}/${WL_STEPS.length}</span>
+	paint(el, `<div class="setup-card" role="region" aria-label="Finish setting up"><span class="setup-ring" aria-hidden="true">${ringSvg((n / WL_STEPS.length) * 100, 34, 4.5)}<span>${n}/${WL_STEPS.length}</span></span>
 		<b>Finish setting up</b><div class="setup-chips">${chips}</div>
 		<div class="tools"><button type="button" class="primary" data-setup="go">Continue</button><button type="button" class="icon-btn" data-setup="dismiss" title="Hide this checklist (Settings → Getting started keeps it)" aria-label="Hide the checklist">${svg16('<path d="m4.5 4.5 7 7M11.5 4.5l-7 7"/>')}</button></div></div>`);
 }
