@@ -1,12 +1,12 @@
 // The attention round's pieces working together: an answer (clicked or gone ahead by default) resumes the work that
 // waits on it and drafts a ruling; notices never count as waiting on Kostas, in goals or stale flags.
 import { describe, expect, test } from "bun:test";
-import { addItem, answerItem, getItem, updateItem } from "../db";
-import { applyDue, resolveAsk, sqlTime } from "../asks";
-import { waitOn } from "../links";
-import { listRulings } from "../rulings";
-import { addGoal, goalStats } from "../goals";
-import { staleOf } from "../stale";
+import { addItem, answerItem, getItem, updateItem } from "../src/db";
+import { applyDue, resolveAsk, sqlTime } from "../src/asks";
+import { waitOn } from "../src/links";
+import { listRulings } from "../src/rulings";
+import { addGoal, goalStats } from "../src/goals";
+import { staleOf } from "../src/stale";
 import { freshDb } from "./helpers";
 
 const BRIEF = "Which way should the export go? Each option is described here, with what it changes for you.";

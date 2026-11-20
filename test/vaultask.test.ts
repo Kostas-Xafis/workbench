@@ -1,10 +1,10 @@
 // Agents and the vault (vaultask.ts) through the MCP tools, with a real vault and the password window scripted.
 import { beforeEach, describe, expect, test } from "bun:test";
 import { readFileSync, statSync } from "node:fs";
-import { addProject, addSecret, setupVault, vaultAccessLog } from "../db";
-import { mcpHttp } from "../mcp";
-import { updateSettings } from "../settings";
-import { deriveVault, dialog, envValue, resetCooldown, zenityText, type Answer, type Ask } from "../vaultask";
+import { addProject, addSecret, setupVault, vaultAccessLog } from "../src/db";
+import { mcpHttp } from "../src/mcp";
+import { updateSettings } from "../src/settings";
+import { deriveVault, dialog, envValue, resetCooldown, zenityText, type Answer, type Ask } from "../src/vaultask";
 import { freshDb } from "./helpers";
 
 const db = freshDb();

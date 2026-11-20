@@ -2,8 +2,8 @@ import { describe, expect, test } from "bun:test";
 import {
 	addItem, addNote, addProject, answerItem, getItem, getProject, itemOptions, listItems, listReports, getReport,
 	projects, publishReport, reportHtml, resolveItem, search, updateItem, updateProject,
-} from "../db";
-import { getSetting, getSettings, updateSettings } from "../settings";
+} from "../src/db";
+import { getSetting, getSettings, updateSettings } from "../src/settings";
 import { freshDb } from "./helpers";
 
 const db = freshDb();

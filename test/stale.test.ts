@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { addItem, addNote, getItem, listItems } from "../db";
-import { staleLabel, staleOf } from "../stale";
+import { addItem, addNote, getItem, listItems } from "../src/db";
+import { staleLabel, staleOf } from "../src/stale";
 import { freshDb } from "./helpers";
 
 const NOW = Date.parse("2026-11-20T12:00:00Z");

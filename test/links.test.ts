@@ -1,9 +1,9 @@
 // Waiting on another item (links.ts): links, cycles, resuming when the blocker is dealt with, the unblocks count and
 // order, and the MCP tools that say it.
 import { describe, expect, test } from "bun:test";
-import { addItem, answerItem, getItem, listItems, updateItem } from "../db";
-import { addLinks, blockersOf, removeLinks, resumeWaiting, topUnblockers, unblocks, waitOn, waitersOf } from "../links";
-import { mcpHttp } from "../mcp";
+import { addItem, answerItem, getItem, listItems, updateItem } from "../src/db";
+import { addLinks, blockersOf, removeLinks, resumeWaiting, topUnblockers, unblocks, waitOn, waitersOf } from "../src/links";
+import { mcpHttp } from "../src/mcp";
 import { freshDb } from "./helpers";
 
 const db = freshDb();

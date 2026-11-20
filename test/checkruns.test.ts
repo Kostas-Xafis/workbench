@@ -1,10 +1,10 @@
 // Running a check on a device (checkruns.ts): cutting a brief into steps, saving and resuming a run, finishing
 // with everything passed, and finishing with failures (bugs with the photos, the check waiting on them).
 import { describe, expect, test } from "bun:test";
-import { addItem, getItem, updateItem } from "../db";
-import { addStepPhoto, finishRun, parseCheck, removeStepPhoto, runState, runText, saveStep, startOver } from "../checkruns";
-import { itemImages } from "../images";
-import { mcpHttp } from "../mcp";
+import { addItem, getItem, updateItem } from "../src/db";
+import { addStepPhoto, finishRun, parseCheck, removeStepPhoto, runState, runText, saveStep, startOver } from "../src/checkruns";
+import { itemImages } from "../src/images";
+import { mcpHttp } from "../src/mcp";
 import { freshDb } from "./helpers";
 
 const db = freshDb();

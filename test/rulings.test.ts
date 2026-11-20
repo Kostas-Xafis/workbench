@@ -1,7 +1,7 @@
 // Rulings: drafted from answers, backfilled once, retired, and the warning when a new ask repeats one.
 import { describe, expect, test } from "bun:test";
-import { addItem, addProject, answerItem, getItem, open } from "../db";
-import { mcpHttp } from "../mcp";
+import { addItem, addProject, answerItem, getItem, open } from "../src/db";
+import { mcpHttp } from "../src/mcp";
 import {
 	addRuling,
 	backfillRulings,
@@ -13,7 +13,7 @@ import {
 	THRESHOLD,
 	updateRuling,
 	words,
-} from "../rulings";
+} from "../src/rulings";
 import { freshDb } from "./helpers";
 
 const decide = (db: ReturnType<typeof freshDb>, title: string, body = "", project = "demo") =>

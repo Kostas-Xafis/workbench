@@ -3,7 +3,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync } from "node:fs";
 import { join } from "node:path";
-import { addItem, addProject, exportAll, getItem, listItems, removeProject, search, updateItem } from "../db";
+import { addItem, addProject, exportAll, getItem, listItems, removeProject, search, updateItem } from "../src/db";
 import {
 	activeGoal,
 	addGoal,
@@ -19,8 +19,8 @@ import {
 	needGoal,
 	resolveGoal,
 	updateGoal,
-} from "../goals";
-import { mcpHttp } from "../mcp";
+} from "../src/goals";
+import { mcpHttp } from "../src/mcp";
 import { freshDb } from "./helpers";
 
 describe("goals", () => {
@@ -330,7 +330,7 @@ describe("wb", () => {
 	const dir = mkdtempSync(join(process.env.WB_TEST_DIR!, "cli-"));
 	const env = { ...process.env, WB_DB: join(dir, "workbench.db"), WB_BACKUPS: join(dir, "backups"), WB_AUTHOR: "kostas", XDG_RUNTIME_DIR: join(dir, "run") };
 	const wb = async (...args: string[]) => {
-		const p = Bun.spawn(["bun", join(import.meta.dir, "..", "wb.ts"), ...args], { cwd: dir, env, stdout: "pipe", stderr: "pipe" });
+		const p = Bun.spawn(["bun", join(import.meta.dir, "..", "src", "wb.ts"), ...args], { cwd: dir, env, stdout: "pipe", stderr: "pipe" });
 		const [out, err, code] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]);
 		return { out: out.trim(), err: err.trim(), code };
 	};
@@ -379,7 +379,7 @@ describe("HTTP", () => {
 	beforeAll(async () => {
 		mkdirSync(join(dir, "home"));
 		mkdirSync(join(dir, "run"));
-		proc = Bun.spawn(["bun", join(import.meta.dir, "..", "server.ts")], {
+		proc = Bun.spawn(["bun", join(import.meta.dir, "..", "src", "server.ts")], {
 			cwd: dir,
 			env: { ...process.env, WB_DB: join(dir, "workbench.db"), WB_BACKUPS: join(dir, "backups"), WB_PORT: String(PORT), HOME: join(dir, "home"), XDG_RUNTIME_DIR: join(dir, "run"), XDG_CONFIG_HOME: join(dir, "config") },
 			stdout: "ignore",
@@ -394,7 +394,7 @@ describe("HTTP", () => {
 			await Bun.sleep(100);
 		}
 		// A project to put goals in (the API's own project route is for the app only).
-		const p = Bun.spawn(["bun", join(import.meta.dir, "..", "wb.ts"), "project", "demo", dir, "Demo"], { env: { ...process.env, WB_DB: join(dir, "workbench.db"), XDG_RUNTIME_DIR: join(dir, "run") }, stdout: "ignore", stderr: "ignore" });
+		const p = Bun.spawn(["bun", join(import.meta.dir, "..", "src", "wb.ts"), "project", "demo", dir, "Demo"], { env: { ...process.env, WB_DB: join(dir, "workbench.db"), XDG_RUNTIME_DIR: join(dir, "run") }, stdout: "ignore", stderr: "ignore" });
 		await p.exited;
 	});
 	afterAll(() => proc?.kill());

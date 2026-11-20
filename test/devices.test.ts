@@ -5,7 +5,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync } from "node:fs";
 import net from "node:net";
 import { join } from "node:path";
-import { addItem, getItem, open, publishReport } from "../db";
+import { addItem, getItem, open, publishReport } from "../src/db";
 import {
 	addDevice,
 	deviceByToken,
@@ -16,7 +16,7 @@ import {
 	removeDevice,
 	TRIES_PER_ADDRESS,
 	TRIES_PER_CODE,
-} from "../devices";
+} from "../src/devices";
 import { freshDb } from "./helpers";
 
 describe("pairing codes", () => {
@@ -183,7 +183,7 @@ beforeAll(async () => {
 	item = `wb-${getItem(db, id)!.ref}`;
 	report = publishReport(db, { project: "demo", name: "status", html: "<h1>Status</h1>" }).id;
 	db.close();
-	proc = Bun.spawn(["bun", join(import.meta.dir, "..", "server.ts"), "--lan"], {
+	proc = Bun.spawn(["bun", join(import.meta.dir, "..", "src", "server.ts"), "--lan"], {
 		cwd: dir,
 		env: {
 			...process.env,

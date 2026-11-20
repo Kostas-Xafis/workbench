@@ -18,7 +18,7 @@
  * can be removed: it's an agent's way to replace a picture it got wrong, and the item's history keeps the line.
  */
 import { readFileSync } from "node:fs";
-import iconPath from "./icon.svg" with { type: "file" };
+import iconPath from "../ui/icon.svg" with { type: "file" };
 import {
 	addItem,
 	addLink,

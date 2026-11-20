@@ -1,6 +1,6 @@
 # Workbench
 
-One board for every project: tasks agents are doing or will do, and the checks, reviews, decisions and setup steps that wait on Kostas. The board is a Bun server with SQLite and no runtime dependencies; the desktop app (below) is optional.
+One board for every project: tasks agents are doing or will do, and the checks, reviews, decisions and setup steps that wait on Kostas. The board is a Bun server with SQLite and no runtime dependencies; the desktop app is optional.
 
 ```bash
 wb open        # start the board if needed and open http://localhost:4321
@@ -8,357 +8,52 @@ wb ls --mine   # what waits on me, in the project of the current folder
 wb help        # everything else
 ```
 
-- **Setting up:** a new board opens the setup guide by itself (`#welcome`): your name, your first projects, Claude Code's MCP server with a check that an agent really reached the board, the prompt that sets each project up for agents, notifications and start on login, and how the board works. Every step can be skipped. Until each is done or skipped, "Finish setting up" sits at the top of the board; Settings → Getting started brings the guide back any time. A board already in use is never sent there. Empty boards and projects say what goes there and how to get it there.
-- **Items** are named `wb-xxxx` (e.g. `wb-k3f9`); click one on the board to copy it into a prompt ("Do wb-k3f9"). Commands also take the bare `k3f9` and the old numbers.
-- **Data:** `workbench.db` next to this file (gitignored). The board copies it to `backups/` once a day and keeps the newest 14 (Settings → Data → Backups kept); `wb backup` makes one now and `wb backups` lists them. `wb export > file.json` writes everything as JSON. To restore, Settings → Data → Restore gives the exact commands for this computer (in short: stop the board, copy a backup over `workbench.db`, remove `workbench.db-wal`/`-shm`, start it). Vault secrets stay encrypted in backups.
-- **Projects:** add one in Settings (at the bottom of the projects strip on the left), or `wb project <slug> <path> "Name"`. Items added from inside that path belong to it; the board shows each project's git state (uncommitted files, unpushed commits, unmerged branches, worktrees). A finished project can be archived (see Settings below).
-- **Layout:** projects down the left edge (each shows its logo, found in the repo: `icon`, `logo`, `app-icon` or `favicon` files, else its initials; the badge counts what waits on you). Next to it, a foldable sidebar with the project's reports and links. Search sits at the top (Ctrl K or `/`): items with their notes, goals, reports' text and links of the selected project, or of everything under "All". The board itself is one section per kind (decisions, setup, checks, …), then "Done lately" and the repository state; every section folds and stays as you left it. "Everything / Needs you / With agents" narrows it to who has to act.
-- **Logos:** if the one found is wrong, `wb project <slug> --icon path/in/repo.svg` (`--icon ""` to look again).
-- **Bookmarks:** the "Links" part of the sidebar, folded by group. "+" adds one (for one project or every project, optionally in a group), the pencil then a click edits or deletes. The server fetches each site's favicon once and keeps it in the database; paste an icon address in the dialog when the site's own is wrong, or use "Refresh icons" in edit mode. From a terminal: `wb links`, `wb link "Label" <url> [--project P | --all] [--group G] [--icon <url>]`, `wb relink <id> …`, `wb unlink <id>`.
-- **Goals** say what a project's work is for (a release, a launch): a title, a short description, an optional target date, and the items that serve it. With a project selected, its open goals sit above the board: progress (done of all), the target date, how many items wait on you, and what blocks it (open items for you, and agent items that are waiting). Click a goal to show only its items (the address says `#goal/3`, so a reload keeps the filter) and see everything holding it back; click it again to go back. The pencil on a goal, or "+", opens a small dialog: title, date, description, "The active goal" (agents pick its work first; with none marked, the first goal is), Earlier/Later to reorder, Mark done, Drop. Under All, one line per project with an active goal. An item's dialog has a Goal picker, and a card names its goal when its project has more than one open. Agents have `list_goals`, `add_goal`, `update_goal` and a `goal` on `add_item`, `update_item` and `list_items` (its number or exact title); `project_overview` lists goals with progress and blockers, and `/mcp__wb__next` prefers work on the active goal. Agents are told not to create goals for you: they propose one as a decision. From a terminal: `wb goals`, `wb goal add "First release" --due 2026-12-01`, `wb goal 3 --done` (or `--drop`, `--active`, `--title`, `--due`), `wb add "…" --goal 3`, `wb edit <ref> --goal none`, `wb ls --goal 3`. Search finds goals, and day pages show an item's goal. The queue of what waits on you can order by goal: `GET /api/goals/items` gives each item's goal and its rank (1 = the active goal), `itemGoals` in goals.ts the same in code.
-- **Pictures on items:** agents attach screenshots to show what they mean (`attach_image` over MCP, or `wb image add <ref> shot.png "What to look at"`; `--image`/`--caption` on `wb add`). You add your own in the item's dialog: **Add image** next to Details, or paste one (a screenshot straight from the clipboard) or drop files anywhere on the dialog. A new item holds them until you save it. They show under the details with their captions, which you edit in place (Enter keeps one), a click opens one full size, and a card shows how many it has. Remove takes one off. An agent reads one with `get_image` or `wb image save <id> <file>`. Only PNG, JPEG, WebP and GIF get in, checked by the file's contents, at most 20 MB. They live in the database, so anything over 500 KB is shrunk to 2000 px on its longer side first, to keep backups small.
-- **Details and notes** are markdown: `-` and `1.` lists (indent to nest; a blank line between items is fine), `**bold**`, `#` headings, `>` quotes, `` `code` ``, ``` blocks and links. A note only counts as markdown when it has more than one line.
-- **Items you can follow:** every item for you has to make sense without opening anything else. The rules are in the MCP server's instructions and `add_item`, and in `wb guide` for agents on the command line. When an agent files something for you with no real body, it's refused. When it points at a .md file or PLAN section, uses internal codes or source paths, or talks about something on screen with no picture, the item is saved and the agent is told what to fix. These are guesses, so nothing but an empty brief is refused, and items you file yourself are never checked.
-- **Decisions with choices:** `wb add "Sync strategy" --option "CRDT" --option "Last write wins"` files a decision for Kostas with those choices as buttons on its card. One click answers it and hands it back to the agent; `wb show` prints the answer, and `wb ls` shows it after the title. The item's dialog also takes an answer in your own words; `wb answer <ref> "choice"` (or its number) answers from a terminal.
-- **Stale work:** an item is flagged when it's doing with no note or update for 2 days ("stalled"), waiting for 7 days, or on you for 14 days ("sitting"). The card shows an amber badge ("stalled 3 d"), each kind's header counts them ("2 stale"), `wb ls` marks them ⚠, and `project_overview` and the `status` prompt list them. Every item the API and the MCP tools return has `stale`: `null` or `{ why, since }`. The rule and its thresholds are in `stale.ts`.
-- **Waiting on another item:** an item that's blocked says what it waits on, so answering that item lets the work carry on by itself. `wb wait <ref> "why" --on wb-xxxx` (repeat `--on` for more; `wait_item` takes `on`) marks it waiting and links it; when an agent needs something from you, `wb add "…" --kind decision --blocks <its item>` (or `add_item` with `blocks`) files your item and makes its own wait on it in one go. When the item waited on is answered (a decision), finished or dropped, whatever waited only on it goes back to **todo** with a note in its history ("Unblocked: wb-k3f9 was answered: Last write wins"); one that waits on several carries on when all are dealt with, and is told about each meanwhile. An item that leaves waiting by any other way (an agent picks it up, you change its status) waits on nothing. The dialog shows "Waits on" and "Blocks" (click a ref to open it), a card for you says "unblocks N", and what unblocks the most comes first within a priority in your lists, `list_items` (`unblocks`), `wb ls`, `project_overview` and `/mcp__wb__status`. `wb edit <ref> --on wb-xxxx` / `--not-on wb-xxxx` and `update_item`'s `waits_on` / `not_waiting_on` add and remove links, `get_item` and `wb show` list both ends. An item can't wait on itself, on something already dealt with, or round a circle. It's one table (`item_links`) and the code is `links.ts`; a notification "An agent can carry on" (Settings → Notifications) says when it happens.
-- **Running a check on the phone:** a check is something you try on a device, so it runs here one step at a time. **Run it** on a check's card, or in its dialog, opens `#check/<ref>`: the brief's numbered list becomes the steps (nested bullets stay with their step; a brief with several lists, like "Setup" and "What to check", is all of them, each step under its heading; no list is one step, the whole brief), and "What right looks like" / "What wrong looks like" show above the steps and with the last one. Each step has big **Pass** / **Fail** buttons at the bottom, a few words (needed on Fail, unless there's a photo), and **Add photo** (the phone's camera or gallery; shrunk before it's sent, captioned "Step 3: Try a date… — failed: your words" and kept on the item). Every answer is saved on the server as you give it, so you can start on the phone and finish at the desk; **Start over** clears the run and its photos. **Finish** when every step has an answer: all passed → the check is done, with a note ("All 6 steps passed on Safari on iPhone"); any failed → a **bug** for an agent per failed step in the same project ("<check>: step 2 fails", with the step, what should happen, your words and the photos copied on), and the check **waits on those bugs** (see above), so it comes back to your to-do by itself when they're finished, to run again (a new run starts then). `get_item` and `wb show` give agents the latest run's results per step. The tables are `check_runs` and `check_run_log`; the code is `checkruns.ts` and `ui/checkrun.js`; `openCheckRun(ref)` opens a check for running from anywhere in the page. API: `GET /api/items/<id>/check`, `PUT …/check/steps/<n> {result, words}`, `POST …/check/steps/<n>/photos {data}`, `DELETE …/photos/<image>`, `POST …/check/finish`, `POST …/check/reset`.
-- **Rulings:** what you already decided, one line each ("Traditional is the default melisma style"), so agents read it instead of asking again. Answering a decision drafts one from its question and answer, marked "draft"; the next agent that picks the item up rewrites it as one clear line. They're in the "Rulings" part of the sidebar (folded, like Links) and in their own view: search, Edit, Retire (it no longer holds; Retired brings it back), Add a ruling. The item's dialog shows the ruling its answer made, and search finds them, accents or not. Agents read them in `project_overview`, `/mcp__wb__work-on` (the ones that bear on the item), `list_rulings` and `wb://rulings/{slug}`, and write them with `add_ruling`, `update_ruling`, `retire_ruling`. When an agent files a decision or review that looks like one already ruled on, it's saved, and the agent gets the ruling and its item back: "Kostas already ruled: … (wb-xxxx, 25 Oct). If this is answered by that, drop the item." The match is by shared words (accents and case don't matter, so Greek works), tuned on the board's own decisions to fire rarely. From a terminal: `wb rulings`, `wb rule "text" [--item <ref>]`, `wb rule <id> "text"`, `wb unrule <id>`. Answers given before rulings existed got their drafts once, when the board first opened with them.
-- **Asks that don't block.** Agents ask faster than anyone answers, so most of what they leave for you doesn't stop their work:
-  - **Notices** (kind `notice`): "here's what changed, object if you want". They're yours by default but never count as waiting on you: not in the badges, "Needs you", the app's tray count, notifications or `wb ls --mine` (which counts them after the list). They have their own section on the board with **Got it** (closes it) and **Object…** (opens the item: write a line, and it goes back to the agent as a to-do with your words in its history). `wb seen <ref>` and `wb object <ref> "why"` do the same from a terminal; a review's dialog has them too (No objections, Object).
-  - **A default and a deadline** on decisions, reviews and notices: what happens if you say nothing (`--default`, MCP `default`; for a decision with options, one of them), and by when (`--decide-by 2026-11-14` or `"in 3 days"`; one with a default and no date gets Settings → You and your day's wait, 3 days). The card says "Goes ahead with X on Fri, Nov 14", highlighted within a day; the item's dialog changes the date or removes it. When it passes, the default goes ahead exactly as if you had clicked it: a decision is answered with it and handed back, a review closes with no objections, a notice closes as seen, and the history says "No answer by Fri 14 Nov: went ahead with X". The board does it every minute, and `wb` and the MCP server do it before they read anything, so it happens with the board off too. Without a default nothing ever goes ahead by itself.
-  - **Pick several:** a decision with `--pick many` is answered with ticks and one Answer button (`wb answer <ref> 1 3`, or `none`); the agent's `--recommend` options start ticked. `answer` stays readable text ("Change password; Signed-out message") and `picks` keeps the list. A one-pick decision can mark its recommended option too, on its button.
-  - **A cap:** a project takes at most 20 open asks (decisions, reviews, checks, setup) that agents filed for you; past it, an agent's `add_item` or `wb add` is refused with what to do instead (bundle into one pick-many decision, send a notice, decide with a default, or drop one). Notices, priority 1 and your own items always go on. Settings → You and your day changes the number (0: no cap).
-- **Code on items:** commits whose message mentions `wb-xxxx`, and pull requests whose title, body or branch name does, show on the item: a count and the newest PR's state on the card, the list with review and checks in its dialog. Put the ref in commit messages and PR titles. Pull requests come from `gh`, asked at most every 90 s per project.
-- **Notifications:** the bell above the board turns on desktop notifications for this browser: something new needs you, an agent finished, got stuck or can carry on, a report was added or updated. They show only while the board isn't the window in front, and never for changes made in that same tab. Settings → Notifications picks which, and quiet hours.
-- **Status trackers** sit under the project's name in the sidebar: quotas and states that change on their own, like EAS builds used this month or GitHub Actions minutes left (see below). With the sidebar folded each is a ring; point at one to see it in full.
-- **Today** (the button next to Usage, `#today`, or the T key): a one-screen brief for the project you're on or all of them, since your last visit (kept in this browser; a new visit starts after an hour away, the first one counts the last 24 hours; "Start from now" resets it). **Needs you**: how many wait on you and how many are new, the ones that unblock agent work (when an item has `unblocks`), the newest and the oldest. **Done by agents**: what finished, by project, with the finishing note's first line and the commit count. **Stuck**: agent items that are waiting or stale (when an item has `stale`). **Coming up**: open items whose deadline (`decide_by`, when items have one) is within three days. **Reports updated**, day pages left out. Empty sections aren't drawn; when nothing happened it says so in one line. Every line opens the item or report. The quiet-hours summary notification ("While you were away") opens it. `GET /api/today?project=&since=` gives the finished items and the updated reports (`today.ts`); the rest comes from the open items.
-- **One at a time** (queue mode, `#queue`): **Go through them one by one** on the board's Needs you and in Today's Needs you, or the Q key, for the project you're on or all of them. One item fills the screen: its kind, project, how long it has waited, its goal, "unblocks N", and what goes ahead by itself and when; then the brief's opening (its first paragraph, cut at a sentence) and **Read all** (R) for the whole brief, its pictures and the latest notes. A check lists its steps. Then one key or tap each: a choice (1–9; on a pick-many decision 1–9 tick and Enter answers the ticked ones, the recommended ones ticked to start), Enter or A for the recommended answer, No objections, Got it, It works or Done; O for your own answer, an objection, "Didn't work" or a problem (back to the agent with your line); D to **defer** (tomorrow, in 3 days, next week or a day you pick: it leaves the queue on the phone and the desk alike until that day, still counts as waiting on you, and the card says "deferred to …"); G to **give back** to the agent with a line ("You decide, with your recommendation" when empty: owner agent, to do, the line in its history, its deadline cleared); X to drop; → or S to skip, ← back, Esc to leave. Each says what it did and can be undone (U) until the next one: it's sent when you act again, leave, put the phone away, or after 10 seconds. The order: priority 1 first, then what unblocks the most, then the active goal's items, then deadlines in the next three days, then P2 before P3, then the oldest; similar asks come one after another and say so ("3 more like this next · same area: sync"): same project and area, or titles alike (rulings' word matcher), at most 8 together. Notices come after the asks, for a quick Got it or objection. "12 cleared · 30 to go" and a thin bar show how far you are; at the end, "Nothing waits on you" (or how many are deferred until when) and what this pass cleared. On a phone it's full screen with the buttons at the bottom; swipe the card right for the big button's action, left to skip. `GET /api/queue?project=` gives the order (`queue.ts`); `POST /api/items/:id/defer {until}` and `/give-back {text}` are the two new actions; deferring and giving back are lines in the item's history, so agents need nothing new.
-- **Usage** (the button next to Vault, or `/usage`): what Claude has used, for the project you're on or all of them: cost at Claude API list prices, tokens by type, a chart split by project, model or app, when in the week you work, and a breakdown by project, session, model, day or app. It reads Claude Code's transcripts in `~/.claude/projects` (the desktop app, the CLI and the Agent SDK all write there), counts each response once, and opens only on this computer. Folders that aren't a board project are listed under "Other folders"; a worktree counts with its project.
-- **Reports** are HTML pages that open inside the board (see below).
-- **Secrets** live in the vault (the lock button at the top; see below).
-- **Agents** use the same `wb` command, or the workbench's MCP server (see below); the rules they follow are a standard block in each project's AGENTS.md or CLAUDE.md, and how to write an item is in the MCP server's instructions and `wb guide`.
-- **Answer & send:** the board can start a Claude Code agent on an item itself: Run on an agent's to-do, Answer & send on a decision. Off until turned on in Settings → Agents, with limits; each run costs what a session costs (see below).
-- **Helping agents use the workbench:** Settings → Health has a short prompt to paste into a session in any project. The agent runs `wb integrate` (or the MCP tool `integration_guide`), which says what's set up and what's left: the project on the board, the board's rules in its AGENTS.md or CLAUDE.md, and Claude Code's MCP server and permissions, asking you before adding the project, changing settings or moving to-do lists into items. The rules sit between markers that carry a version (`<!-- workbench rules v1 … -->` … `<!-- /workbench rules -->`), so running it again replaces them, and a project's own notes go outside the markers. Settings → Projects shows each project's rules as up to date, out of date, written by hand or missing, with a button that copies the prompt for that folder. When the rules change (`RULES_VERSION` in integrate.ts), every project shows as out of date until it's run there. `wb start` records the desktop-app session, and the item's dialog links back to it.
-- **From the phone:** `wb serve --lan` (or the app's tray item Phone access) listens on your network too, and only phones you pair get in. Settings → Privacy and security → Phones → **Pair a phone** shows a QR code and a code (`XXXX-XXXX`) that work once, for 10 minutes. Scan it with the phone's camera, or open the board's address on the phone and type the code; name the phone (it suggests one, like "Safari on iPhone") and it stays paired. The phone keeps a random token in a cookie its pages can't read (HttpOnly, SameSite=Strict, for 400 days, renewed each time it opens the board); the board keeps only the token's hash. Anything else on the network gets the pairing page and the app's name and icons, nothing more: not the page's scripts, the API, reports or pictures. Wrong codes: after 5 from one address it has to wait 10 minutes, and after 10 in all the code stops working. A paired phone uses the board like this computer does (answers, notes, new items, pictures), except what answers only this computer: the vault, data sources, changing settings, shares, usage and MCP. This computer (localhost) needs no pairing. Settings lists the paired phones (name, when paired, last seen, from which address) with **Remove**, which shuts one out at once, and **Remove all**; `wb devices` and `wb unpair <id|all>` do the same from a terminal.
-- **Plain http on your network:** the token, and everything the phone reads and sends, cross the network without encryption, so use `--lan` only on a network you trust. That's also why the vault never opens from the phone.
-- **As an app on the phone:** "Add to Home Screen" (the share menu in Safari, the menu in Chrome) puts the board on the home screen with its own icon, from a web app manifest and the iOS tags. Over plain http, browsers allow no service worker and no install prompt (they need https or localhost), so it doesn't work offline, Chrome on Android may make it a plain shortcut that opens in Chrome, and there are no notifications. An iPhone's home-screen app can keep its own cookies apart from Safari: if it opens on the pairing page, pair it there once more.
-- **Other web pages can't change the board:** every write to its API must be JSON, and a browser won't send that from another site (or from a report page) without asking the board first, which it never allows. Anything else gets 415.
-- **Start on login** (optional): a user service. Settings → Health says whether it's set up, and gives the commands below with this computer's paths filled in.
+## Install
 
-```ini
-# ~/.config/systemd/user/workbench.service
-[Unit]
-Description=Workbench board
+**The desktop app:** download the `.deb` or the AppImage from [Releases](https://github.com/Kostas-Xafis/workbench/releases) (`sudo apt install ./Workbench_<version>_amd64.deb`). It runs the board itself and updates itself ([desktop-app.md](docs/desktop-app.md)).
 
-[Service]
-ExecStart=/home/kostas/.bun/bin/bun /home/kostas/Projects/workbench/server.ts
-Restart=on-failure
-
-[Install]
-WantedBy=default.target
-```
-
-Then `systemctl --user enable --now workbench`.
-
-## Desktop app
-
-The board in its own window, instead of a browser tab. It is the same board: nothing changes in how it works, and the browser keeps working too.
+**From source**, with [Bun](https://bun.sh):
 
 ```bash
-sudo apt install ./Workbench_<version>_amd64.deb # install a .deb from https://github.com/Kostas-Xafis/workbench/releases
-sudo apt remove workbench                        # remove
-bun install && bun run app:build                 # build from source: the .deb and an AppImage, in src-tauri/target/release/bundle/
+git clone https://github.com/Kostas-Xafis/workbench ~/Projects/workbench
+cd ~/Projects/workbench && bun install
 ```
 
-Building needs Rust and the usual Tauri libraries (WebKitGTK 4.1, libayatana-appindicator, librsvg, libxdo, libssl; see `src-tauri/README.md`). `bun run app:build` compiles the server into the app first. `wb open` starts the app when it's installed, and otherwise opens the browser as before.
-
-- **What it adds:** its own window; a tray icon showing how many items wait on you (the red number), with a menu: Open board, Start on login, Phone access, Quit; system notifications (the board's bell works in the app, and clicking a notification brings the window back on that item, report or tracker); links to other sites open in your browser; downloads (backups, exports, `.env` files) land in `~/Downloads`. Closing the window hides it to the tray; Quit in the tray menu stops the app. **Zoom** works as in a browser: Ctrl + / Ctrl − / Ctrl 0 and Ctrl + scroll (also inside a report), from 50% to 200%, or Settings → Appearance → Zoom; the app keeps the level for the next run.
-- **How it finds the board:** it looks for a running board on port 4321 (the systemd service, say) and uses that one. If nothing answers, it starts its own server from inside the app, on `~/Projects/workbench/workbench.db` if that exists. It never takes the port from the service: if something else holds 4321, the window says so, and if the service stops, the window waits for it to come back (with a button to start the app's own). The app stops a server only when it started it.
-- **Start on login:** in the tray menu (the app opens hidden in the tray, and Open shows the window), or the systemd service above. The service keeps the board running with no app open, and survives closing it. The tray item starts the app, and the app starts a board only if none is there. Use the service if you also want the board for agents and the browser all day. With both, the service wins the port and the app attaches to it.
-- **Phone access:** the tray item "Phone access (on my network)" turns on `--lan`; phones then pair in Settings → Privacy and security (see "From the phone" above). It's available only when the app started the board itself; with the service running, use `wb serve --lan` or the service as before.
-- **Where things are:** the app's settings in `~/.config/io.github.kostas-xafis.workbench/app.json`, the window's own browser data in `~/.local/share/io.github.kostas-xafis.workbench`, and the server's log (the one to read when the window says the board stopped) in `~/.local/share/io.github.kostas-xafis.workbench/logs/server.log`. Because the app's window has its own browser storage, "This browser" settings (bell, theme, folded sections) start fresh there.
-- **Updates:** the app checks GitHub for a new release when it starts and every 6 hours (Settings → Updates turns that off), and never installs one without asking. When there is one, the board bar shows "Update available: 0.2.0" and the tray menu "Update to 0.2.0…". Either opens the release notes with **Update now**, **Later** (hidden from the board bar for a day) and **Skip this version** (until a newer one comes). Update now downloads it with a progress bar, installs it and restarts the app; a board server the app started is stopped first and comes back with the new version. An AppImage is replaced in place; a .deb install asks for your password in the system's own window, and if it can't install that way it offers the .deb to download with the one `sudo apt install` line. The first launch of the new version shows "Updated to 0.2.0" with what's new. When the app shows a board it didn't start (the systemd service, run from source) and that board is older or newer than the app, the board bar says so, with what to do (`git pull`, then restart the service).
-- **On Wayland (GNOME):** the window's position isn't remembered (only its size), and clicking the tray icon itself does nothing: use its menu. GNOME may only flash the window instead of raising it from another desktop.
-- **Development:** `bun run app:dev` builds the server and opens the app on the board at `http://localhost:4321`. `WB_APP_URL=http://localhost:4399` points it at a test board instead; `WB_APP_DB=<file>` is the database the app's own server uses (always set it for tests).
-
-## Nightly: try a build before releasing it
-
-`bun run nightly` builds what's in the folder you run it in (any branch or worktree, uncommitted changes too) as a second app, **Workbench Nightly**, and starts it next to the installed one. Try the change in it, and release once it's right.
+Put `wb` on your PATH with a small launcher, then give Claude Code the board's MCP server:
 
 ```bash
-bun run nightly                 # build, install, (re)start Workbench Nightly
-bun run nightly --fresh-data    # … with a fresh copy of the real board's data
-bun run nightly --no-launch     # build and install only
+mkdir -p ~/.local/bin && printf '#!/bin/sh\nexec bun %s/src/wb.ts "$@"\n' "$PWD" > ~/.local/bin/wb && chmod +x ~/.local/bin/wb
 ```
-
-- **Apart from the real app:** its own name and orange icon in the launcher and the tray, its own window and settings, and its own board on port 4322 (the real app keeps 4321). Both run at once.
-- **Its own data:** a copy of the real board in `~/.local/share/workbench-nightly/`, made the first time and again with `--fresh-data`. What you do in the nightly never reaches the real board; `wb` and the agents keep using the real one. Its trackers and day pages run on the copy too.
-- **Version:** the next patch plus the build time and commit, e.g. `0.2.2-nightly.202611112130+5d45c20` (`.dirty` when built with uncommitted changes); Settings → Updates shows it. A nightly has no update check: the next build is the next `bun run nightly`, which stops the running one and starts the new one.
-- **Where it goes:** the AppImage at `~/Applications/Workbench-Nightly.AppImage`, its launcher entry in `~/.local/share/applications/workbench-nightly.desktop`. To remove it: delete those two and `~/.local/share/workbench-nightly/`.
-- **Faster, for the page alone:** `WB_PORT=4399 WB_DB=<copy> bun server.ts` and a browser at `localhost:4399` show a page or server change in seconds, without building the app (see "Development" above).
-
-## Tests
 
 ```bash
-bun test                       # everything, in a second or two
-bun test test/mcp.test.ts      # one area
-bun test -t "round trip"       # tests whose name matches
+claude mcp add -s user wb -- wb mcp
 ```
 
-`test/` has one file per area: `db` (projects, items, decisions, search, reports, settings), `trackers` (the reading parser and levels), `mcp` (a client's JSON-RPC against the same entry the board serves at `/mcp`), `asks` (notices, defaults at their deadline, several picks, the cap) and `server` (the HTTP write guard and the localhost-only routes, on a real server on port 4401). `bun run typecheck` covers them too.
+A new board opens the setup guide by itself: your name, your first projects, the agents' rules for each project, notifications and start on login.
 
-- **A fresh board per file:** `bunfig.toml` runs `test/preload.ts` before every file. It points `WB_DB`, `WB_BACKUPS`, `WB_PORT` (4401) and `XDG_RUNTIME_DIR` at a temp folder (`wb-test` in the system temp folder, emptied each run), and stops with an error if the database would be `workbench.db` or anywhere outside the temp folder, so a test can't touch the real board. (They are set there because `db.ts`, `server.ts` and `mcp.ts` read them when imported.)
-- **Adding a test:** make `test/<area>.test.ts`, `import { freshDb } from "./helpers"` and call it at the top: it gives a new database with one project, `demo`, that no other file shares. Call the functions in `db.ts` and friends directly, or an MCP tool through `mcpHttp` (see `test/mcp.test.ts`). A test that needs the server starts `server.ts` as a subprocess with its own `WB_DB` and `HOME` (see `test/server.test.ts`) and stops it in `afterAll`.
-- **Not covered by `bun test`:** the board's page, and anything that runs a shell command or `gh` (tracker refresh, git). Look at those in a browser or by hand.
+## Documentation
 
-## Releases
+| Page | What's in it |
+| --- | --- |
+| [Using the board](docs/board.md) | Items, layout, asks that don't block, goals, rulings, checks on the phone, Today, one at a time, phones, your data, start on login |
+| [Settings](docs/settings.md) | Every Settings tab and where each setting is kept |
+| [Agents](docs/agents.md) | Setting a project up for agents, the MCP server, agents the board starts |
+| [Reports](docs/reports.md) | Report pages, the `wb` object they get, sharing a link, data sources |
+| [Status trackers](docs/trackers.md) | Live readings in the sidebar: by hand, from a command, built in |
+| [Secrets vault](docs/vault.md) | The vault, and how agents ask for secrets |
+| [Desktop app](docs/desktop-app.md) | The app's window, tray, updates and where it keeps things |
+| [Development](docs/development.md) | The folders, the board's page, tests, nightly builds, releases |
 
-A version tag builds and publishes a release on GitHub (Actions → Release): the desktop app as a `.deb` and an AppImage, the server alone as one executable (`workbench-server_<version>_linux_x86_64`, for running the board without the app, e.g. as the systemd service above), `SHA256SUMS`, and the signed files the app's update check reads (`*.sig`, `latest.json`). The notes are the commit subjects since the previous tag.
+## Folders
 
-```bash
-bun run release 0.2.0 --dry-run   # show the version fields it would change
-bun run release 0.2.0             # bump package.json, Cargo.toml and Cargo.lock, commit "Release 0.2.0", tag v0.2.0
-git push --atomic origin master v0.2.0   # publish: the tag starts the release build
-bun run release 0.2.0 --push      # the same, in one go
+```
+src/         the server, the wb command and the MCP server (TypeScript, run by Bun)
+ui/          the board's page: index.html plus one .css and .js per part, no build step
+test/        bun test
+scripts/     nightly builds and releases
+src-tauri/   the desktop app (Rust)
+examples/    report pages to start from
+docs/        the pages above
 ```
 
-- **Versions:** `package.json` is the one the server reports (`/api/ping`) and the app shows (tauri.conf.json reads it); `src-tauri/Cargo.toml` and `Cargo.lock` carry the same number. Always bump them with `bun run release`: the build refuses a tag that doesn't match all three. It runs from a clean `master` (`--any-branch` to tag elsewhere) and never pushes unless `--push` is given.
-- **Pre-releases:** `bun run release 0.2.0-rc.1` makes a GitHub pre-release. Installed apps don't see it (their update check reads `releases/latest`), so it's the way to try a build before everyone gets it.
-- **Signing:** update files are signed with a private key that lives only in the repository's secrets (`TAURI_SIGNING_PRIVATE_KEY`, `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`) and in `~/.tauri/workbench.key` on Kostas's machine; the app carries its public half (`plugins.updater.pubkey` in `src-tauri/tauri.conf.json`) and refuses an update not signed with it. Losing the key means installed apps can't update any more: they'd need a new version installed by hand.
-- **Building a release locally:** `bun run app:build:release` with both variables set builds the same signed files; `bun scripts/release-assets.ts <version>` gathers them into `dist/` with `latest.json` and `SHA256SUMS` (`--unsigned` after a plain `bun run app:build`).
-- **The standalone server** needs `WB_DB` (the database's path); `WB_PORT` and `WB_BACKUPS` as for `bun server.ts`. For the service: `ExecStart=/path/to/workbench-server_<version>_linux_x86_64` with `Environment=WB_DB=/home/kostas/Projects/workbench/workbench.db`.
-- **CI:** every push and pull request to master runs the typecheck and `bun test`, compiles the server and checks it answers, and runs `cargo check`, `clippy` (warnings fail) and `cargo test` on the app (Actions → CI).
-
-## The board's page
-
-`index.html` is the markup. Its styles and scripts are files in `ui/`, one per part of the board, which the server sends as they are: no build step, no framework.
-
-- **Which file:** `core.js` (constants, `state`, `$`, `esc`, `md`, `api()`, `pref()`), `hooks.js` (below), `projects.js` (the strip on the left), `rail.js` (the sidebar: reports, links, the link dialog), `trackers.js`, `board.js` (sections and cards), `item.js` (the item dialog), `search.js`, `report.js` (the report viewer, and the routes: `showView`, `route`, `goBoard`), `share.js`, `vault.js` (also the Usage button and the toast), `notify.js` (also the app's zoom keys), `settings.js` (the tabs, their controls, Projects and Health), `settings-<tab>.js` for each other tab (`settings-projects.js` is the project dialog), `setup.js` (`#welcome` and its checklist), `copy.js` (copying refs), `updates.js`, and `boot.js`, last, which starts the board and polls every 10 s. The styles go the same way (`base.css` has the colours, light and dark), with `phone.css` last among them.
-- **How it loads:** style sheets in `<head>`, then plain scripts (not modules) at the end of `<body>`, in the order index.html lists them. They share one global scope like one long script: what one file declares at its top level, every other file can use. One difference: a file's functions exist only once it has run, so code that runs while a file loads (not inside a function called later) can use only what earlier files declare.
-- **Adding a feature:** its own `ui/<feature>.js` (and `.css`), each named in index.html's `features` blocks and in `ui.ts` (an import and a `UI` entry, in alphabetical order). It plugs in through `hooks.js`: sections at the top or end of the board, more on a card's meta line, its part of the item dialog, a block in the sidebar, work on every poll or once at start, entries in the shortcut list, a view of its own (`views`, with its hash route) and a Settings tab (`addSettingsTab`). Its markup comes from its own script (a dialog appended to `<body>`, a view to `#content`) rather than from index.html, and a hook that throws is logged without stopping the board.
-- **Served:** `GET /ui/<name>` sends only the files named in `ui.ts`, with `no-cache` like the page, so a new version shows on the next load; under `--lan`, to paired phones only. The imports in `ui.ts` (`with { type: "file" }`) are what put the files inside the compiled server. The server's log says when index.html and `ui.ts` don't name the same files.
-
-## Settings
-
-Settings, at the bottom of the projects strip on the left (or `#settings`, and `#settings/<tab>` for one tab), opens the workbench's settings, one tab per section. Each setting says where it's kept:
-
-- **This board:** in the workbench's database, the same in every browser and for `wb` and agents. These change only from the board on this computer, at localhost (`GET /api/settings` reads them, `PATCH /api/settings` changes them).
-- **This browser:** in this browser only, so your phone and your computer can differ.
-
-A changed setting shows **Default**, which puts it back. Under `wb serve --lan` the phone opens Notifications and Appearance, and gets a note for the tabs that change the board or look at this computer.
-
-**Getting started** (on this computer only): the setup guide's steps, each with what its check finds right now, a button into the guide at that step, and whether "Finish setting up" shows on the board.
-
-- **Checked, not assumed:** your name counts once it's saved; projects once there's one; agents once an MCP client has called the board (both `wb mcp` and the board's `/mcp` note the last call, per transport, at most once a minute), not merely when Claude Code has the server; each project's rules as Settings → Projects reads them; notifications and the app's start on login on the device you're on. "How the board works" counts once read.
-- **When it opens by itself:** once, on a board with no projects or fewer than 10 items. What it remembers (when it was first shown, skipped steps, the checklist hidden or finished) is the board setting `setup`.
-
-**Projects:** every project in the order they sit down the left edge.
-
-- **Add project:** a folder, a name and a slug. Git repositories next to the projects you have (and in `~/Projects`) that aren't on the board yet are offered with one click. The folder must exist.
-- **Edit** (the pencil): name, folder (when a repo moves) and logo (a file in the repo; empty = look for one). The slug can't change, because items, reports and links point at it.
-- **Order:** the arrows on each row move it up or down the left edge.
-- **Archive:** a finished project leaves the left edge and "All" (its items, reports, links and repository), and its trackers stop reading by themselves. Search still finds its items and reports, and its secrets stay in the vault. It waits under "Archived", where Unarchive brings it back; so does any new open item for it (from `wb add`, an agent or the board), so new work never goes somewhere nobody looks. From a terminal: `wb project <slug> --archive` / `--unarchive`.
-- **Remove:** only for a project nothing points at (no items, reports, links, secrets, trackers or data sources), e.g. one added by mistake. Its folder isn't touched.
-
-Adding, editing, reordering and removing projects are accepted only from the board's own page on this computer, like data sources: a project's folder decides where git and tracker commands run.
-
-**Health:** checked when Settings opens and with "Check again". Each line says what the board uses it for, whether it works, and the command that fixes it when it doesn't:
-
-- **git** (repository state, commits on items), **GitHub CLI** (pull requests on items; signed in, and the `user` scope when there's a GitHub Actions tracker), **cloudflared** (sharing a report; the install steps for this system when it's missing), **EAS CLI** (only when there's an EAS builds tracker or `eas` is installed).
-- **Backups** (the newest one's age), **status trackers** that can't read (with a button to open each), **project folders** that are gone or aren't git repositories, and the **data sources key** when there are data sources.
-- **Agents (MCP):** whether Claude Code has the workbench's MCP server (user scope, from `~/.claude.json`), and both `claude mcp add` commands to copy.
-- **Phone:** whether the board listens on the network; when it does, its addresses, how many phones are paired and **Pair a phone** (it opens Privacy and security with a code showing). When it doesn't, how to turn it on (for the user service: add `--lan` to its `ExecStart`).
-- **Start on login:** whether the user service is installed, enabled and running; the unit and the commands to install it when it isn't, and the restart command when it is.
-- **This board:** port, how long it's been running, Bun's version, where the database and backups are.
-
-Tools are looked up on your shell's PATH (like tracker commands), so the board finds what your terminal finds even when it runs as a service. Pull requests on items are read with that PATH too.
-
-**You and your day** (on this computer only).
-
-- **Your name** (default Kostas): what the board, `wb help` and `wb show`, the MCP server's instructions and tool texts, and day pages call you. Items for you are still `kostas` in commands and the API (`--owner kostas`, `owner: "kostas"`).
-- **A work day starts at** (default 05:00): when "today" turns over for day pages and `wb day`; work before that hour counts as the day before. It applies from the next day page on; pages already made keep their hours.
-- **Who gets new items:** for each kind, whether a new item goes to you or to an agent when nobody says: on the New button, from agents (`add_item`) and from `wb add`/`wb import`. By default decisions, setup, checks, reviews and notices go to you, and bugs, tasks and ideas to agents. Items already on the board stay with whoever has them.
-- **Asks that don't block:** how many days a default waits before it goes ahead, when the agent gives no date (default 3; 0: only on a date the agent gives), and how many open asks from agents a project takes (default 20; 0: no cap). See "Asks that don't block" above.
-
-**Agents** (on this computer only): whether the board may start Claude Code agents (off by default), from a paired phone too (off), what happens when an agent's work is unblocked (tell me, or send it), how many at once (1), per day (5) and a day's cost cap (none), the command with Test the command and what the agent is told, and the recent runs with Stop. See "Agents the board starts" below.
-
-**Notifications** (this browser; works from the phone too). The switch is the bell above the board. It shows whether the browser allows notifications and, when it doesn't, how to change that; over plain http, as from a phone on your network, browsers don't offer them at all (they need localhost or https).
-
-- **What to tell you about:** a switch each for something new that needs you, an agent finished, an agent got stuck (waiting), an agent can carry on (what it waited on was answered or finished), reports added or updated, and status trackers that start to warn, turn bad or stop reading. "Everything" and "Only what needs me" (needs you and stuck agents) set them in one click.
-- **Quiet hours:** from and until (22:00 to 08:00 by default; an end earlier than the start means the next morning), and optionally all weekend. Nothing pops up meanwhile; when quiet hours end, one notification sums up what happened ("While you were away: 3 things need you · 1 finished by an agent"), unless you're already looking at the board.
-- **Send a test notification** shows one right away.
-
-**Data** (on this computer only).
-
-- **Backups:** every backup, newest first, with its date, age and size, the total and the folder, and how many to keep (1–90, default 14: the nightly backup, "Back up now" and `wb backup` all keep that many). **Download** saves one. The board can't swap its own database while it runs, so **Restore** shows the commands for this computer: stop the board (the user service, if that's how it runs), keep the current database next to it, copy the backup over it, remove the WAL files, start it again. Anything changed since that backup is lost from the board.
-- **Export everything:** one JSON file (`workbench-export-YYYY-MM-DD.json`, the same as `wb export`): projects, items with notes and images, links, reports with every version, saved report inputs, trackers with history, board settings, and data sources by name, base URL and header names. Left out: the vault and its secrets, header values, and link icons.
-- **Database:** its size on disk, the counts that explain it (items, notes, images, report versions, tracker readings, link icons), and **Compact**, which gives back the room removed things left behind (the board waits while it runs).
-- **Keeping things tidy:** report versions kept per report (0 = all, the default; the latest always stays), readings kept per tracker (100–10000, default 2000), and done or dropped items removed with their notes N days after they close (0 = never, the default; else 30–3650). Each row says what it would remove right now. They're applied every night right after the backup, and as soon as you change one, after asking and making a backup first.
-
-**Privacy and security** (on this computer only).
-
-- **Vault:** whether it's set up, how many secrets it holds and when the password was last set. **Agents may ask for secrets** (on by default) lets agents ask through the password window; off, every request is refused. **Change password** unlocks the vault, then asks for the new password and encrypts every secret again. **Lock after** (1–60 idle minutes, default 5) and **Hide a shown value after** (5–120 seconds, default 20) take effect at the vault's next timer. For a forgotten password, `wb vault reset --yes` deletes the vault and every secret in it.
-- **Sharing:** **Longest a link can run** (1, 2, 4, 8, 12 or 24 hours, counting extensions; default 8) and **New links start at** (what the share dialog picks first, never more than the longest; default 1). Lowering the longest doesn't cut a running link short; it just can't be extended past it. **Live links** lists every report shared right now: project, version, the link (Copy, Open), when it ends, **Extend by 1 hour** (off at the limit) and **Stop**, plus **Stop all**.
-- **Phones:** **Pair a phone** shows the QR code, the code, until when it works, the board's address for typing it in, **New code** and **Cancel**; when a phone pairs, it says so and the phone joins the list. The paired phones, each with when it paired, when it was last seen and from which address, **Remove** and **Remove all**. With the board off the network, how to turn it on.
-- **Who can reach what:** whether the board listens on your network (`--lan`, for paired phones only) or only this computer, and what answers only this computer (the vault, data sources, changing settings, starting shares), that reports run sandboxed, and that other websites can't change the board.
-- **Data sources:** every project's sources (name, project, base URL, read-only or read and write, the header names but never their values) and whether the key file exists. Remove one with `wb unsource <name> --project <slug>`.
-
-**Updates** (on this computer only).
-
-- **In the app:** the app's version and how it's installed (AppImage, .deb, built from source), when it last checked and what it found, **Check now**, **Check automatically** (at launch and every 6 hours; kept by the app), the skipped version with **Stop skipping**, and the board server's version, saying when it's older or newer than the app and how to update it.
-- **In a browser:** this board's version and how it runs (from source in a folder, the service, the standalone server), **Check now**, and **Check for new releases once a day** (This board, off by default: the board doesn't go online by itself unless you turn it on). A newer release shows in the board bar as in the app, with its notes, **Later**, **Skip this version**, and the commands that update this board: `git pull` in its folder and a restart, or the new standalone server from the release page. The newest release is read from the same `latest.json` the app uses; the last answer is kept in `update-check.json` next to the database.
-
-**Appearance** (this browser; works from the phone too).
-
-- **Theme:** Light, Dark or System. Reports and day pages opened on the board follow it; share links and reports opened on their own follow the system.
-- **Density:** Comfortable or Compact (tighter cards, section headers and side lists).
-- **Board:** the filter the board opens on ("Where I left it", Everything, Needs you, With agents), and the order of the kind sections (arrows; Default puts it back). Each section still remembers by itself whether it's folded.
-- **Keyboard shortcuts:** the board's shortcuts (Ctrl K, or ⌘ K on a Mac, /, Esc and the rest), for reference.
-
-## Reports
-
-A report is one self-contained HTML page, published to a project and opened from the sidebar in place of the board ("New tab ↗" opens it on its own).
-
-```bash
-wb report status.html                     # project from the current folder; title from <title>
-wb report status.html --group Release     # a heading in the sidebar
-wb report status.html --icon 📈           # its own icon in the sidebar (an emoji, or a file.svg)
-wb report-icon <id> logo.svg              # change the icon without a new version (none removes it)
-wb reports                                # list, with versions
-wb unreport <id>
-```
-
-**Icons:** every report has its own icon in the sidebar, in colour, in place of the page glyph; the folded sidebar and search show it too. Agents have to give one: `publish_report`, and `wb report` run by an agent, refuse a report that would be left without, and `set_report_icon` changes it but won't remove it. Day pages keep their date. It's one emoji or a small SVG (up to 8 KB, with a viewBox, in its own colours rather than `currentColor`: the board draws it as a picture, so it can't take the theme's).
-
-**Order of the groups:** the pencil in the Reports heading (with a project selected and at least two groups) puts arrows on each heading, to move Days, Release and the rest up and down. The order is kept per project, for every device. A new group starts at the bottom; reports without a group stay below the groups. Under "All", each project's groups follow its own order, the projects in their order down the left edge.
-
-**Day reports:** every project gets a page per work day in its sidebar's "Days": every item of that project that moved that day (added, started, noted, waiting, finished or dropped) grouped by where it ended up, each with that day's history, plus the project's commits and report versions, in a by-item view and a timeline. The board makes them by itself: today's page is brought up to date every 30 minutes, and once a day is over its page gets a last version (also for days it missed while it or the computer was off, up to a week back). A new version is only added when something changed, and only for projects that had something that day; they don't send notifications. In the sidebar, each report group shows 2 (Days its newest) and folds the rest under "Older days" or "N more"; the folded sidebar shows the same 2 per group, a day page as its day of the month. Once 7 days have passed a day page is archived: it leaves "Days" and the count for "Archived days" at the bottom of Reports, where it can still be opened, and search still finds it. Nothing is deleted. A work day runs 05:00 to 05:00 (Settings → You and your day), so a late night counts as the day before. `wb day [YYYY-MM-DD]` does the same by hand (`--project P` for one), and `--out file.html` writes one page of every project without publishing.
-
-Publishing a file with the same name again adds a version; the viewer has a version picker and offers a newer version instead of reloading what you're looking at. `--name` publishes under another name than the file's.
-
-A page can use any HTML, CSS and JS, including libraries from a CDN. It runs sandboxed (its own opaque origin, so no cookies or `localStorage`, and no direct calls to the board's API), and gets a `wb` object instead, read-only apart from its own saved state:
-
-```js
-await wb.items()                                    // this project's items, all statuses
-await wb.items({ status: "open", kind: "check" })   // also owner, q, status: [..], project: slug | "*"
-await wb.item("wb-k3f9")                             // one item with its notes
-await wb.git()                                       // branch, uncommitted, unpushed, unmerged, worktrees
-await wb.links(); await wb.reports(); await wb.projects()
-wb.open("wb-k3f9")                                   // open the item's dialog on the board
-await wb.trackers()                                  // this project's status trackers and the global ones ("*": all)
-wb.onRefresh(redraw)                                 // the board refreshes every 10 s
-wb.report                                            // { id, project, name, title, version }
-await wb.state.set({ rate: 3.5 })                    // save this report's inputs (replaces; JSON object/array, ≤ 256 KB)
-await wb.state.get()                                 // what was saved, or null; wb.state.clear() forgets it
-await wb.fetch("api", "/feedback", { query: { status: "new" } })   // a data source of this project (below)
-```
-
-`wb.state` is the one thing a page can write: its own saved object, kept in `workbench.db` by project + report name, so it survives refreshes and new versions; `wb unreport` deletes it. It needs the board around the page (sidebar or "New tab ↗"); on a bare `/r/<id>` page `get` gives `null` and `set` gives `false`.
-
-**Sharing with a link:** "Share" in the report's bar opens a Cloudflare quick tunnel: a random `https://….trycloudflare.com` address, no Cloudflare account needed, that you can paste into a meeting chat. First it checks that `cloudflared` is installed and runs. When it isn't, it shows how to install it on this system first (the package for Debian/Ubuntu, Fedora/RHEL/openSUSE or Arch, Homebrew on macOS, winget on Windows, each with a no-admin way too) and the commands for every other system under "Other systems", and that no `~/.cloudflared/config.yml` is in the way. The link reaches a separate read-only server for that one report, pinned to the version you're viewing. Its `wb` calls get this project's items, notes, git state and its own trackers' readings only (no bookmarks, no other projects, no global trackers), `wb.state.set` changes nothing, `wb.open` refuses, and `wb.fetch` answers `{ ok: false, error }`: data sources are off on a link. The board, its API and the vault are never on the link. The dialog shows the link and a QR code to scan from a phone. A share runs for 1 to 24 hours, as Settings → Privacy and security allows (picked before it starts); "Extend by 1 hour" pushes the end back, up to the longest a link may run (8 hours unless changed). It also stops from "Stop sharing", and at no other time: cloudflared runs outside the board (in its own systemd scope), and the shares are kept in a state file under `$XDG_RUNTIME_DIR`, so a board restart or crash keeps the same link (it shows Cloudflare's error page until the board is back) and the board picks it up again on start. Expiry goes by the clock, checked on every request and every 15 s, so a link whose time ran out while the computer slept closes as soon as it wakes, and one that ran out while the board was down is closed when the board starts. A reboot ends every share. Only offered on localhost.
-
-To match the board's look, use `var(--wb-bg)`, `--wb-card`, `--wb-ink`, `--wb-muted`, `--wb-line`, `--wb-accent`, `--wb-good`, `--wb-warn`, `--wb-bad`, `--wb-font` and `--wb-mono` (they follow light/dark). [examples/overview.html](examples/overview.html) is a live project overview built this way.
-
-### Data sources
-
-A report can read (and, when allowed, write to) an API that needs a secret, without the secret being in the page: you name the API once as a data source of the project, and the board adds its headers when the page calls it.
-
-```bash
-# The value comes from an env var or stdin, so it isn't in your shell history; it is never printed back.
-ISO_ADMIN_TOKEN=… wb source add feedback https://worker.example.com/admin --header 'Authorization: Bearer {env:ISO_ADMIN_TOKEN}'
-wb source add feedback https://worker.example.com/admin --write --header 'Authorization: Bearer {stdin}'   # asked, hidden
-wb sources                       # names, base URLs, read/write, header names (never values)
-wb unsource feedback
-```
-
-- `--project P` as everywhere (default: the project of the current folder). `--header` repeats; a value may mix text and `{env:VAR}` / `{stdin}` (one hidden prompt each, or one line each from a pipe). Adding the same name again replaces it, e.g. for a new token.
-- GET only, unless added with `--write` (then also POST, PUT, PATCH, DELETE). The base URL must be https, plain http only for localhost.
-- In the page:
-
-```js
-const r = await wb.fetch("feedback", "/feedback", { query: { status: "new", limit: 50 } });
-// → { ok: true, status: 200, type: "application/json", json: [...] }   (text: "…" when it isn't JSON)
-await wb.fetch("feedback", "/feedback/42", { method: "PATCH", body: { status: "done" } });
-// failures are values, never thrown: { ok: false, status: 0, error: "…is read-only (GET)…" }
-```
-
-  `wb.fetch(name, path = "", { method = "GET", body, query })`. Only the report's own project's sources. `path` is joined onto the base URL and can't leave it: no URLs, no `.`/`..` segments, no encoded `/`. `body` is sent as JSON (a string as text/plain), at most 1 MB. A non-2xx answer comes back with `ok: false` and its status and body. Redirects aren't followed (the headers could go elsewhere): you get the 3xx and its `location`. 20 s timeout, 5 MB answer cap.
-- **Where the secret lives:** the headers are sealed (AES-256-GCM) with a key in `~/.config/workbench/sources.key` (made 0600 on the first `wb source add`; `WB_SOURCES_KEY` points elsewhere), so `workbench.db` and its backups hold only ciphertext. Lose the key file and the sources need adding again. Unlike the vault, the board can open them by itself, which is the point; anyone who can read your home directory can too.
-- **Who can call them:** the board's own page on this computer only. The server refuses calls from another address (so not from the phone under `wb serve --lan`), from another site, or with a non-localhost Host; share links refuse `wb.fetch`. The sidebar's "Data sources" lists the project's sources (hover for the base URL and header names).
-- [examples/data-source.html](examples/data-source.html) reads and ticks to-dos from a public test API through one.
-
-## Status trackers
-
-A tracker is a live reading shown under the project's name in the sidebar: one or more meters, each a number against an allowance (Android 1/15) or a state in words (In review). A tracker belongs to one project, or to every project (global, like a GitHub account's allowance). Bars stay grey and turn amber (warn) or red (bad) as a meter fills. Click one for its dialog: the meters, when it resets, the trend of its readings, the last error, and Refresh, Record, Edit or Delete. The gauge button next to the project's name adds one.
-
-It gets its reading one of three ways:
-
-- **By hand:** you record it in the dialog, with `wb track`, or an agent does (`record_tracker`).
-- **A shell command** the board runs on the tracker's interval, in the project's folder (home for a global one), with your shell's PATH. What it prints is the reading: `12/15` · one meter per line (`Android 12/15`, `iOS: 3 of 15 builds`, `1,240 / 2,000 min`) · a state (`Status: In review`) · or JSON: a number, `{ value, max, unit, label, text, level }` (`used`/`total`/`limit`/`left` work too), a list of those, or `{ meters: [...], note, resets_at, url }`. A non-zero exit or 60 s without an answer counts as a failed read; the last good reading stays and the error shows next to it. Don't put secrets in the command: use the tool's own login (gh, eas) or an env var your shell sets.
-- **Built in:** `eas-builds` (EAS builds used this billing period against the Expo plan, Android and iOS, from `eas account:usage`; needs `eas login`) and `github-actions` (the month's free Actions compute on your GitHub account, as Linux-minute equivalents of the $12 that GitHub Free includes; private repos only, since public ones are free; needs gh's `user` scope: `gh auth refresh -h github.com -s user`).
-
-```bash
-wb tracker add eas-builds --preset eas-builds                     # in the project's folder, or --project isokratis
-wb tracker add gh-actions --global --preset github-actions --every 6h
-wb tracker add play-review "Play review" --url https://play.google.com/console   # by hand
-wb track play-review "Status: In review" --note "submitted Nov 4"
-wb tracker add disk "Disk" --global --command "df -BG --output=used,size / | tail -1 | tr -d G | awk '{print \$1 \"/\" \$2}'" --unit GB
-wb trackers                      # this project's and the global ones, with readings
-wb tracker eas-builds            # one, how it reads, its history; --json for scripts
-wb tracker edit eas-builds --every 15m --warn 60% --bad 90%
-wb tracker refresh               # read every self-reading one here now (or name one)
-wb untrack disk                  # delete it and its history
-```
-
-- **Refresh interval:** `--every 15m|1h|6h|1d|off` (default 1 hour, at least 1 minute; `off` reads only when asked). The board checks every 30 s which ones are due; the dialog's Refresh, `wb tracker refresh` and agents read one at once. Two readers never run the same tracker together.
-- **Levels:** a meter with a max warns at 75% and is bad at 90% unless `--warn`/`--bad` say otherwise: a share of max (`80%`) or a number (`14`). When low is bad (minutes left, coverage), put bad below warn (`--warn 20% --bad 10%`) or prefix `<`. A command's JSON can set a meter's `level` itself. `--max` and `--unit` fill in what a reading leaves out.
-- **Names:** lowercase with dashes, unique in the project. Commands and agents take `name` (the current project's first, then the global one) or `project/name`.
-- **History:** every reading that differs from the one before is kept (the last 2,000), for the trend in the dialog. Desktop notifications (the bell) also say when a tracker starts to warn, turns bad, or stops reading.
-- **Who can set a command:** a command runs on this computer, so the board accepts one only from its own page here (like data sources), never from the phone under `--lan`; `wb tracker` and the MCP server run as you anyway.
-
-## Agents the board starts
-
-Answering a decision hands it back to the agent, but nothing runs until someone opens a session and types "Do wb-xxxx". The board knows the project's folder and the item, so it can start the agent itself. **It's off until you turn it on** in Settings → Agents, and every agent it starts is a Claude Code session on your account: **it costs what any session costs.**
-
-- **Run** on an agent's to-do (on its card, and in its dialog): the board starts `claude -p` headless in the project's folder, told to read the item with `get_item`, `start_item` it, do it by the project's own rules, and `finish_item` it or file what it needs from you and wait. Nobody watches it, so it puts questions on the board.
-- **Answer & send:** on a decision's card, the Answer & send button makes your next click on an option answer it and start the agent; in the dialog, tick Answer & send under the answers (it works for your own words and for ticked options too). A review or notice has **Object & send** next to Object. Nothing is answered when the agent can't start (off, a limit, no folder): you get the reason instead.
-- **While it runs**, its card says "agent running · 4 min" and its dialog shows the output as it comes (what the agent says, the tools it calls, what was refused), with **Stop** (the agent and everything it started). Afterwards: done, failed or stopped, how long, what it cost, what it said at the end, and `claude --resume <session>` to carry on in Claude Code in that folder. The item's history gets a line when it starts and when it ends.
-- **When an agent's work is unblocked** (Settings → Agents): **Tell me** (the default) is the notification "An agent can carry on" and Run on its card; **Send it** starts the agent on it by itself, whoever answered (the board, `wb answer`, an agent), within the limits. What a limit holds back goes when the limit allows, the same day.
-- **Limits:** at most 1 at once and 5 a day unless changed, and optionally a day's cost: no new agent once today's runs cost that much, counted from their sessions the way the Usage page counts (or what the agent reported, if more). A run already going isn't stopped. A day starts at Settings → You and your day's hour.
-- **Only this computer starts agents.** A paired phone can answer, but starting needs "From a paired phone too" in Settings → Agents; Settings itself changes only here. Agents never start agents: there's no MCP tool for it, and `wb run` refuses inside an agent.
-- **The command** is a setting: `claude -p "$WB_PROMPT" --output-format stream-json --verbose --permission-mode dontAsk --allowedTools mcp__wb --session-id "$WB_SESSION" --name "$WB_TITLE"`, run with bash and your shell's PATH. `dontAsk` means the agent may do only what your Claude Code settings already allow (the `permissions.allow` rules in `~/.claude/settings.json` and the project's `.claude/settings.json`) plus the board's own tools; anything else is refused, never asked, and no permission check is skipped. Add flags to let it do more (`--allowedTools "Edit" "Bash(git *)"`, `--permission-mode acceptEdits`) or to cap one run (`--max-budget-usd 5`). **Test the command** asks the program for its version and its flags only: no agent starts. Settings → Agents shows what the agent is told.
-- **It outlives the board:** a run is its own process (in its own systemd scope where there is one), writing to a log in the runtime folder; the board reads it every 2 s. A board restarted meanwhile picks the run up again; one whose process is gone (the computer restarted, it was killed) is closed as failed. Runs are the `runs` table, the code is `dispatch.ts` and `ui/dispatch.js`.
-- **From a terminal:** `wb run <ref>`, `wb runs` (also closes runs that ended while the board was off), `wb stop <run>`. `wb show` and `get_item` show the item's latest run.
-
-## MCP server
-
-The workbench is also an MCP server, so agents can work the board with tools instead of shelling out to `wb`. It runs two ways, with the same tools:
-
-```bash
-claude mcp add -s user wb -- wb mcp                               # stdio: Claude Code starts `wb mcp` itself
-claude mcp add -s user --transport http wb http://localhost:4321/mcp   # or through the running board
-```
-
-- **stdio** (`wb mcp`) works without the board running. Its default project is the one whose folder the client starts it in (`WB_PROJECT=slug` to pin one); `start_item` links the desktop-app session it runs in.
-- **HTTP** is `POST /mcp` on the board, for this computer only: it refuses other addresses (so not the phone under `--lan`), a Host other than localhost, and any web page's Origin. `?project=slug` sets the default project.
-- **Tools:** `list_projects`, `project_overview` (goals, open items, rulings, trackers, git state, reports, links and data sources of a project), `search`, `list_goals`, `add_goal`, `update_goal`, `list_items`, `get_item`, `add_item`, `update_item`, `attach_image`, `get_image`, `remove_image`, `start_item`, `wait_item` (with `on`: the items it waits on), `finish_item`, `drop_item`, `add_note`, `answer_decision` (only with an answer you gave in the conversation), `list_rulings`, `add_ruling`, `update_ruling`, `retire_ruling`, `list_reports`, `read_report`, `publish_report`, `set_report_icon`, `add_link`, `vault_list`, `vault_get` (both only after you type the vault password in a window on this computer; see the vault below), `list_trackers`, `get_tracker`, `record_tracker`, `refresh_trackers`, `define_tracker`, `remove_tracker`. Read-only tools are marked as such, so a client can let them run without asking.
-- **Resources:** `wb://projects`, `wb://project/{slug}`, `wb://item/{wb-xxxx}`, `wb://report/{id}`, `wb://rulings/{slug}`, `wb://trackers` and `wb://trackers/{slug}`; open items and reports are listed, so `@` in Claude Code can attach one.
-- **Prompts** (slash commands in Claude Code): `/mcp__wb__work-on wb-k3f9` (the item's brief and how to track it), `/mcp__wb__next` (pick the next agent task) and `/mcp__wb__status` (a short status of the project) and `/mcp__wb__today` (the Today brief as text, for all projects or one, since a time you give or the last 24 hours). Item refs and project slugs complete as you type.
-- **Not on MCP:** reading the vault without you (see Agents below), data sources' secrets, deleting items, reports or links, and starting agents (agents don't start agents). (`remove_image` is there so an agent can replace a picture it got wrong; the item's history keeps a line.)
-- **Protocol:** MCP 2026-07-28 (stateless, `server/discover`) and the earlier revisions down to 2024-11-05 (the `initialize` handshake), on both transports, written by hand like the rest of the board.
-
-## Secrets vault
-
-The **Vault** button at the top opens the secrets of the selected project, plus those shared with every project. The first time, it asks for a vault password.
-
-- **Two gates:** the password unlocks the vault and shows the names only. Showing, copying or editing a value asks for the password again. A shown value hides after 20 seconds and the vault locks after 5 idle minutes, unless changed in Settings → Privacy and security; it always locks when you leave it.
-- **Encrypted in the browser:** the page derives a key from the password (PBKDF2-SHA256, 600,000 rounds) and encrypts each name, note and value with AES-GCM. The server and `workbench.db` hold only ciphertext, plus a hash of an auth token derived next to the key. The password itself is never stored or sent.
-- **This computer only:** the vault answers only requests from localhost. Under `wb serve --lan` the phone sees the board but not the vault, because over plain HTTP the browser offers no encryption and the token would cross the network in the clear.
-- **Export as .env:** pick secrets, enter the password once, and the `.env` block is copied (or downloaded). Names that aren't valid variable names become `UPPER_SNAKE`; notes become comments.
-- **No recovery:** forget the password and the secrets are gone. `wb vault` says whether a vault exists. `wb vault reset --yes` deletes it, with every secret, so you can start over. "Change password" in the vault re-encrypts everything under a new one.
-- **Agents ask, you type the password:** an agent asks through MCP, never in the chat. `vault_list` (names and notes, for its project and those shared with every project) and `vault_get` (named secrets) each open a window on this computer (zenity, from `/usr/bin` only) that says which project's agent asks, which secrets by name, its reason, and where the values go. Typing the vault password there gives them; **Deny** refuses, and further requests from that agent's server are refused for a minute. The password goes from that window to the workbench process, never through the agent, decrypts just what was asked and is forgotten: every request needs it again. Three wrong passwords, or no answer in 2 minutes, and the request fails.
-- **Values out of the conversation:** by default `vault_get` writes the values to a private `.env` file (0600, in `$XDG_RUNTIME_DIR/workbench-vault`, deleted after 15 minutes) and gives the agent only its path, to use as `set -a; . <path>; set +a`. With `deliver: "text"` they come back in the reply, which the window says, and then they stay in Claude's saved transcript.
-- **Seen in the vault:** the unlocked vault lists **Agent requests**: when, which project, which secrets were given (or that you said no). Settings → Privacy and security → Vault → **Agents may ask for secrets** turns requests off.
-- **What it can't stop:** an agent that rewrites the workbench, or draws a look-alike window to catch the password. Type it only when an agent just asked for what the window names.
-- **Not for reports:** the `wb` CLI can't read secrets, and report pages can't reach the vault. For a report that needs an API token, use a data source (above).
+The board's data is `workbench.db` at the top of this folder, with daily copies in `backups/`. Both are kept out of git.

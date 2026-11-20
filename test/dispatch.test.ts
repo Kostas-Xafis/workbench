@@ -3,9 +3,9 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { addItem, addProject, getItem, updateItem } from "../db";
-import { resolveAsk } from "../asks";
-import { waitOn } from "../links";
+import { addItem, addProject, getItem, updateItem } from "../src/db";
+import { resolveAsk } from "../src/asks";
+import { waitOn } from "../src/links";
 import {
 	costs,
 	forgetRuns,
@@ -24,8 +24,8 @@ import {
 	testCommand,
 	type From,
 	type Run,
-} from "../dispatch";
-import { updateSettings } from "../settings";
+} from "../src/dispatch";
+import { updateSettings } from "../src/settings";
 import { freshDb } from "./helpers";
 
 const dir = mkdtempSync(join(process.env.WB_TEST_DIR!, "dispatch-"));
@@ -349,7 +349,7 @@ describe("dispatch", () => {
 	});
 
 	test("agents don't start agents: wb run refuses inside a run", async () => {
-		const p = Bun.spawn(["bun", join(import.meta.dir, "..", "wb.ts"), "run", "wb-zzzz"], {
+		const p = Bun.spawn(["bun", join(import.meta.dir, "..", "src", "wb.ts"), "run", "wb-zzzz"], {
 			env: { ...process.env, WB_DB: db.filename, WB_RUN: "1" },
 			stderr: "pipe",
 			stdout: "ignore",

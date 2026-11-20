@@ -32,7 +32,7 @@ jobs:
       - run: bun run typecheck
       - run: bun test
       - name: Compile the server into one binary
-        run: bun build --compile --minify --bytecode --sourcemap server.ts --outfile workbench-server
+        run: bun build --compile --minify --bytecode --sourcemap src/server.ts --outfile workbench-server
       - name: The binary starts and answers /api/ping
         run: |
           dir=$(mktemp -d)

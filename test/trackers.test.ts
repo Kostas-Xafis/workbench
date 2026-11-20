@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
 	addTracker, checkThresholds, formatEvery, getTracker, meterLevel, meterText, parseEvery, parseReading,
 	recordReading, trackerHistory, trackerText, worst, type Meter,
-} from "../trackers";
+} from "../src/trackers";
 import { freshDb } from "./helpers";
 
 const m = (out: string) => parseReading(out).meters;

@@ -1,5 +1,5 @@
 /**
- * Answer & send: the board starts a Claude Code agent on an item (README → "Agents the board starts").
+ * Answer & send: the board starts a Claude Code agent on an item (docs/agents.md, "Agents the board starts").
  *
  * A run is one agent started headless (`claude -p`, Settings → Agents has the command) in the project's folder, on
  * one item: Run on an agent's to-do, Answer & send on a decision (or an objection to a review or notice), `wb run`,

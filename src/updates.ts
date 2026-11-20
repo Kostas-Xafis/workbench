@@ -12,7 +12,7 @@
  */
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import pkg from "./package.json";
+import pkg from "../package.json";
 import { DB_PATH, type Db } from "./db";
 import { getSetting } from "./settings";
 
@@ -120,7 +120,7 @@ export function updateInfo(db: Db, compiled: boolean) {
 		version: pkg.version,
 		how: howRun(compiled),
 		// The folder to `git pull` in, for a server run from source; the file to replace, for the standalone binary.
-		folder: compiled ? null : import.meta.dir,
+		folder: compiled ? null : join(import.meta.dir, ".."),
 		exe: compiled ? process.execPath : null,
 		// Run by the workbench user service, so "restart" means systemctl.
 		service: UNDER_SERVICE,

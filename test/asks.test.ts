@@ -1,9 +1,9 @@
 // Asks that don't block (asks.ts): notices, defaults with a deadline, several picks, the cap on open asks.
 import { describe, expect, test } from "bun:test";
-import { addItem, answerItem, getItem, open, projectsWithCounts, updateItem } from "../db";
-import { applyDue, capRefusal, deadlineText, needsKostas, parseDecideBy, resolveAsk, sqlTime } from "../asks";
-import { mcpHttp } from "../mcp";
-import { updateSettings } from "../settings";
+import { addItem, answerItem, getItem, open, projectsWithCounts, updateItem } from "../src/db";
+import { applyDue, capRefusal, deadlineText, needsKostas, parseDecideBy, resolveAsk, sqlTime } from "../src/asks";
+import { mcpHttp } from "../src/mcp";
+import { updateSettings } from "../src/settings";
 import { freshDb } from "./helpers";
 
 const BRIEF = "This is what changed on the board, and why: say if you'd rather it stayed as it was before.";
@@ -112,7 +112,7 @@ describe("defaults and deadlines", () => {
 		const id = addItem(db, { title: "Pick", project: "demo", kind: "decision", options: ["Red", "Blue"], default_answer: "Red", body: BRIEF }, "agent");
 		past(db, id);
 		const file = (db.query("PRAGMA database_list").get() as { file: string }).file;
-		const run = Bun.spawnSync(["bun", `${import.meta.dir}/../wb.ts`, "show", `wb-${getItem(db, id)!.ref}`], {
+		const run = Bun.spawnSync(["bun", `${import.meta.dir}/../src/wb.ts`, "show", `wb-${getItem(db, id)!.ref}`], {
 			env: { ...process.env, WB_DB: file, CLAUDECODE: "" },
 		});
 		expect(run.exitCode).toBe(0);

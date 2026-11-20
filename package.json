@@ -3,9 +3,9 @@
 	"version": "0.3.0",
 	"private": true,
 	"type": "module",
-	"bin": { "wb": "./wb.ts" },
+	"bin": { "wb": "./src/wb.ts" },
 	"scripts": {
-		"serve": "bun server.ts",
+		"serve": "bun src/server.ts",
 		"typecheck": "bunx tsc --noEmit",
 		"test": "bun test",
 		"app:dev": "tauri dev",
@@ -13,7 +13,7 @@
 		"app:build:release": "tauri build --config src-tauri/tauri.release.conf.json",
 		"nightly": "bun scripts/nightly.ts",
 		"release": "bun scripts/release.ts",
-		"build:server": "bun build --compile --minify --bytecode --sourcemap server.ts --outfile src-tauri/binaries/workbench-server-$(rustc --print host-tuple)"
+		"build:server": "bun build --compile --minify --bytecode --sourcemap src/server.ts --outfile src-tauri/binaries/workbench-server-$(rustc --print host-tuple)"
 	},
 	"devDependencies": {
 		"@tauri-apps/cli": "^2.12.4",

@@ -1,7 +1,7 @@
 // The Today brief: what agents finished (with the finishing note), reports updated, and the brief as text.
 import { describe, expect, test } from "bun:test";
-import { addItem, addNote, addProject, publishReport, updateItem } from "../db";
-import { briefText, firstLine, sinceTime, todayData } from "../today";
+import { addItem, addNote, addProject, publishReport, updateItem } from "../src/db";
+import { briefText, firstLine, sinceTime, todayData } from "../src/today";
 import { freshDb } from "./helpers";
 
 const ago = (h: number) => new Date(Date.now() - h * 3600e3).toISOString();
@@ -97,7 +97,7 @@ describe("briefText", () => {
 	});
 });
 
-import { firstLine as plainFirstLine } from "../today";
+import { firstLine as plainFirstLine } from "../src/today";
 test("a finishing note's first line drops markdown marks", () => {
 	expect(plainFirstLine(["Merged. Then **Run** on a `to-do`."])).toBe("Merged. Then Run on a to-do.");
 	expect(plainFirstLine(["- **Notices:** a new kind\n- more"])).toBe("Notices: a new kind");

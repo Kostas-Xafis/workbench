@@ -12,7 +12,7 @@ let proc: ReturnType<typeof Bun.spawn>;
 beforeAll(async () => {
 	mkdirSync(join(dir, "home"));
 	mkdirSync(join(dir, "run"));
-	proc = Bun.spawn(["bun", join(import.meta.dir, "..", "server.ts")], {
+	proc = Bun.spawn(["bun", join(import.meta.dir, "..", "src", "server.ts")], {
 		cwd: dir,
 		env: {
 			...process.env,

@@ -48,17 +48,17 @@ import {
 } from "./db";
 import type { Server } from "bun";
 // Embedded when compiled (bun build --compile), plain file paths under `bun server.ts`. (bun's types call an .html import a bundle.)
-import pagePath from "./index.html" with { type: "file" };
-import usagePath from "./usage.html" with { type: "file" };
-import iconPath from "./icon.svg" with { type: "file" };
+import pagePath from "../ui/index.html" with { type: "file" };
+import usagePath from "../ui/usage.html" with { type: "file" };
+import iconPath from "../ui/icon.svg" with { type: "file" };
 // Pairing a phone (devices.ts): its page, and the app icons a phone puts on its home screen.
-import pairPath from "./pair.html" with { type: "file" };
-import icon256Path from "./src-tauri/icons/256x256.png" with { type: "file" };
-import icon512Path from "./src-tauri/icons/icon.png" with { type: "file" };
+import pairPath from "../ui/pair.html" with { type: "file" };
+import icon256Path from "../src-tauri/icons/256x256.png" with { type: "file" };
+import icon512Path from "../src-tauri/icons/icon.png" with { type: "file" };
 import { addDevice, CODE_MINUTES, deviceCookie, deviceName, listDevices, Pairing, phoneGate, removeAllDevices, removeDevice } from "./devices";
 import { qrSvg } from "./qr";
 import { checkUi, uiFile } from "./ui";
-import pkg from "./package.json";
+import pkg from "../package.json";
 import { DB_PATH } from "./db";
 import { archivedDay, currentDay, publishDays } from "./day";
 import { todayData } from "./today";

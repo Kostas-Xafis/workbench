@@ -82,7 +82,7 @@ export type Project = {
 	report_order: string;
 };
 
-export const DB_PATH = process.env.WB_DB ?? join(import.meta.dir, "workbench.db");
+export const DB_PATH = process.env.WB_DB ?? join(import.meta.dir, "..", "workbench.db");
 
 export function open(path = DB_PATH) {
 	const db = new Database(path, { create: true, strict: true });

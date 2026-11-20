@@ -1,10 +1,10 @@
 // Queue mode (queue.ts): the order, similar asks together, notices last, deferring, giving back, the summary.
 import { describe, expect, test } from "bun:test";
-import { addItem, getItem, updateItem } from "../db";
-import { needsKostas, sqlTime } from "../asks";
-import { addGoal } from "../goals";
-import { waitOn } from "../links";
-import { briefOpening, buildQueue, checkSteps, deferItem, GIVE_BACK, giveBack, MAX_GROUP, parseDeferUntil } from "../queue";
+import { addItem, getItem, updateItem } from "../src/db";
+import { needsKostas, sqlTime } from "../src/asks";
+import { addGoal } from "../src/goals";
+import { waitOn } from "../src/links";
+import { briefOpening, buildQueue, checkSteps, deferItem, GIVE_BACK, giveBack, MAX_GROUP, parseDeferUntil } from "../src/queue";
 import { freshDb } from "./helpers";
 
 type Db = ReturnType<typeof freshDb>;

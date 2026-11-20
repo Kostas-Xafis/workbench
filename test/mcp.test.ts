@@ -1,7 +1,7 @@
 // Drives the MCP server like a client does: JSON-RPC over the same HTTP entry the board serves at /mcp.
 import { describe, expect, test } from "bun:test";
-import { getItem, resolveItem } from "../db";
-import { mcpHttp } from "../mcp";
+import { getItem, resolveItem } from "../src/db";
+import { mcpHttp } from "../src/mcp";
 import { freshDb } from "./helpers";
 
 const db = freshDb();

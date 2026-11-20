@@ -14,7 +14,7 @@ CLI is a devDependency (`bun install`).
 bun run app:dev                                # tauri dev: builds the server (beforeDevCommand), then src-tauri, opens the window on :4321
 WB_APP_URL=http://localhost:4399 bun run app:dev   # against a test board instead
 cd src-tauri && cargo build && cargo clippy    # plain cargo works too; the binary is target/debug/workbench-app
-bun run app:build                              # tauri build (.deb, AppImage); beforeBuildCommand runs `bun run build:server` (compiles server.ts into src-tauri/binaries/, one Bun binary with the page embedded)
+bun run app:build                              # tauri build (.deb, AppImage); beforeBuildCommand runs `bun run build:server` (compiles src/server.ts into src-tauri/binaries/, one Bun binary with the page embedded)
 ```
 
 `cargo build` needs `binaries/workbench-server-x86_64-unknown-linux-gnu` (gitignored; `bun run build:server`):
@@ -24,7 +24,7 @@ sets `WB_APP_DB` (below). Never point a test run at the real board's database; u
 
 ```bash
 mkdir -p /tmp/wb-phase1 && cp backups/<latest>.db /tmp/wb-phase1/workbench.db
-WB_PORT=4399 WB_DB=/tmp/wb-phase1/workbench.db WB_BACKUPS=/tmp/wb-phase1/backups bun server.ts
+WB_PORT=4399 WB_DB=/tmp/wb-phase1/workbench.db WB_BACKUPS=/tmp/wb-phase1/backups bun src/server.ts
 ```
 
 Debug builds have devtools (right click → Inspect, or `WB_APP_DEVTOOLS=1` to open them at start). The app's
@@ -209,8 +209,8 @@ Settled in phase 2 (server.rs):
 - **Test hook** (debug builds only): `WB_APP_TEST_CTL=<fifo>`, one command per line: `text`, `eval <js>`,
   `lan on|off`, `info`, `exit` (as tray Quit). Output lines start with `WBTEST`. See the end of server.rs.
 
-The server reads `index.html` and `icon.svg` next to itself (`new URL("./index.html", import.meta.url)`); a
-`bun build --compile` binary has to embed them (inferred, not tried).
+The server imports `ui/index.html`, `ui/icon.svg` and the rest of `ui/` `with { type: "file" }` (src/server.ts, src/ui.ts),
+so a `bun build --compile` binary embeds them.
 
 ### Page ↔ app (exact names)
 
@@ -365,6 +365,6 @@ WB_APP_URL=http://localhost:4399 WB_APP_PROBE=1 ./target/debug/workbench-app | g
 
 `bun run app:build` makes `target/release/bundle/deb/Workbench_<v>_amd64.deb` and `…/appimage/Workbench_<v>_amd64.AppImage`.
 The binary is `workbench-app` (its Wayland app id, which the .desktop `StartupWMClass` matches), the sidecar
-`workbench-server` sits next to it (`/usr/bin`). Icons are all from the repo's `icon.svg` (`bunx @tauri-apps/cli@^2 icon icon.svg`;
+`workbench-server` sits next to it (`/usr/bin`). Icons are all from the repo's `ui/icon.svg` (`bunx @tauri-apps/cli@^2 icon ui/icon.svg`;
 only the five sizes the bundle uses are committed; the 256 one is named `256x256.png` because Tauri turns `128x128@2x.png` into an
 invalid hicolor folder `256x256@2`).

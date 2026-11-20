@@ -1,5 +1,5 @@
 /**
- * Phones paired with the board (README → "From the phone"). Under `wb serve --lan` the board answers the network, and
+ * Phones paired with the board (docs/board.md, "From the phone"). Under `wb serve --lan` the board answers the network, and
  * every request that doesn't come from this computer needs a device token: a random secret the phone gets once, from a
  * short-lived one-time pairing code made in Settings → Privacy and security on this computer, and then sends as an
  * HttpOnly, SameSite=Strict cookie. The board keeps only the token's hash. Removing a device stops it at once: the gate
