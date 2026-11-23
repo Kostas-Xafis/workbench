@@ -29,6 +29,7 @@ import { addDevice, deviceName, Pairing, phoneGate, type OpenCode } from "../../
 import { boardRoutes, PAIR_OPEN, type BoardFile, type BoardHost } from "../../src/routes";
 import { readRows, SYNC_FORMAT, tableInfo, tableNames, wipe, writeRows, type Cell } from "../../src/sync";
 import { SqliteDb } from "./sqlite";
+import { runCloudCli } from "./cloudcli";
 import { compile, dispatch } from "./router";
 import { Helpers } from "./helper";
 
@@ -316,6 +317,8 @@ export class Board extends DurableObject<Env> {
 				const columns = (url.searchParams.get("columns") ?? "").split(",").filter((c) => mine.has(c));
 				return json(readRows(db, table, columns.length ? columns : [...mine], Number(url.searchParams.get("after")) || 0));
 			}
+			// `wb` over the network: the board's own command code runs here (cloudcli.ts).
+			if (what === "cli" && req.method === "POST") return await runCloudCli(db, req, url.origin);
 			return json({ error: "no such sync call" }, 404);
 		} catch (e) {
 			return json({ error: (e as Error).message }, 400);

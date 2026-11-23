@@ -6,14 +6,18 @@
  * - `wb mcp`: relays the MCP server's stdio to the cloud board's /mcp (relay.ts), so agents keep their tools.
  * - `wb open`: the desktop app when it's installed (it opens the cloud board itself), else the browser, paired.
  * - `wb serve`, `wb run`, `wb runs`, `wb stop`, `wb helper`: the computer helper (helper.ts) and agents on the cloud board.
- * - Anything else says the board is in the cloud and what to use instead: the commands that work on the board's
- *   data over the network are the next step (docs/cloud.md).
+ * - The commands that read and change the board's data (`wb ls`, `wb add`, `wb done`, `wb report`, …) run on the cloud
+ *   board by the same code as here (cli.ts): they send the args, the folder `wb` runs in and the files they name, and
+ *   print what comes back, so they print what they would on this computer.
+ * - The few that need this computer (backups, `wb day`, `wb integrate`, …) say so and what to use instead.
  */
 import { existsSync } from "node:fs";
+import { CLI_BODY_MAX, filesNamed, needsComputer, type CliReply, type CliRequest, type Opts } from "./cliargs";
+import { imageBytes } from "./images";
 import { cloudFetch, cloudLogin, cloudPairing, readSync, syncOff, syncOn, type SyncConfig } from "./sync";
 import { DB_PATH } from "./db";
 
-type Options = { key?: string; code?: string; name?: string; replace?: boolean; "keep-local"?: boolean; json?: boolean; all?: boolean };
+type Options = Opts;
 
 export const SYNC_HELP = `wb sync on <url> --key <owner key>     this computer uses the cloud board at <url>; an empty one gets this board
          [--name "This laptop"] [--replace]   --replace: send this board up even when the cloud one has items
@@ -60,6 +64,54 @@ async function openBoard(cfg: SyncConfig) {
 		url = await cloudLogin(cfg);
 	} catch {}
 	Bun.spawn(["xdg-open", url], quiet).unref();
+}
+
+/**
+ * What each command that needs this computer says while the board is in the cloud (they're listed in cliargs.ts):
+ * why, and what to use instead.
+ */
+const COMPUTER_ONLY_SAYS: Record<string, string> = {
+	backup: "the cloud board keeps 30 days of every change instead of backup files (Cloudflare's point-in-time recovery)",
+	backups: "the cloud board keeps 30 days of every change instead of backup files (Cloudflare's point-in-time recovery)",
+	day: "wb day reads each project's git history on this computer: the board publishes each day's page by itself, or run it after wb sync off",
+	integrate: "wb integrate looks at the project's folder on this computer: run it after wb sync off, or follow wb guide and `claude mcp add -s user wb -- wb mcp` by hand",
+	source: "a data source's headers are sealed with a key on a computer: add one after wb sync off",
+};
+
+/** Runs one board command on the cloud board and prints what it printed, as it would here. Returns its exit code. */
+async function runOnCloud(cfg: SyncConfig, args: string[], o: Options): Promise<number> {
+	const files: CliRequest["files"] = {};
+	for (const f of filesNamed(args, o)) {
+		if (f.path in files) continue;
+		if (f.as === "image") {
+			// images.ts reads it with its own limits and words: what it refuses, the board says.
+			try {
+				const { bytes, label } = imageBytes({ path: f.path });
+				files[f.path] = { b64: Buffer.from(bytes).toString("base64"), label };
+			} catch (e) {
+				files[f.path] = { error: (e as Error).message };
+			}
+		} else {
+			const file = Bun.file(f.path);
+			if (await file.exists()) files[f.path] = { b64: Buffer.from(await file.arrayBuffer()).toString("base64") };
+		}
+	}
+	const request: CliRequest = {
+		args,
+		options: o,
+		cwd: process.cwd(),
+		author: process.env.WB_AUTHOR ?? (process.env.CLAUDECODE ? "agent" : "kostas"),
+		session: process.env.CLAUDE_CODE_HOST_SESSION_ID,
+		tty: !!process.stdout.isTTY,
+		port: Number(process.env.WB_PORT) || 4400,
+		files,
+	};
+	const body = JSON.stringify(request);
+	if (body.length > CLI_BODY_MAX) throw new Error(`the request is over ${CLI_BODY_MAX / 1024 / 1024} MB: the files it sends are too large`);
+	const reply = (await (await cloudFetch(cfg, "/api/sync/cli", { method: "POST", body })).json()) as CliReply;
+	for (const [stream, line] of reply.lines) (stream === "err" ? console.error : console.log)(line);
+	for (const [path, b64] of Object.entries(reply.writes ?? {})) await Bun.write(path, Buffer.from(b64, "base64"));
+	return reply.code;
 }
 
 /** Runs `wb <cmd>` against the cloud board, or `wb sync …` either way. Returns the exit code. */
@@ -145,20 +197,20 @@ export async function cloudCommand(cmd: string, args: string[], o: Options): Pro
 		}
 		// ---- end of the computer helper ----
 		case "help":
-		case undefined:
-			out(`The board is in the cloud: ${cfg.url}. While this computer syncs, wb works with it through:\n`);
-			out("wb open                               the board (the desktop app, or the browser)");
-			out("wb mcp                                the MCP server for agents, relayed to the cloud board");
+		case undefined: {
+			out(`The board is in the cloud: ${cfg.url}. Every board command below runs on it; wb mcp is relayed to it.\n`);
+			const code = await runOnCloud(cfg, ["help"], {});
+			out(SYNC_HELP);
+			out("\nwb open opens the cloud board (the desktop app, or the browser) and wb mcp relays the MCP server to it.");
 			out("wb serve                              the computer helper: agents, trackers' commands, git for the cloud board");
 			out("wb run <ref> · wb runs · wb stop <n>  start, list and stop agents (on a computer whose helper is online)");
 			out("wb helper [allow]                     which computers are online; allow the new commands that wait here");
-			out(SYNC_HELP);
-			out("\nThe board's other commands work on this computer's board, which isn't used while it syncs: use the board, or the MCP tools.");
-			return 0;
+			out(`While this computer syncs, wb ${Object.keys(COMPUTER_ONLY_SAYS).join(", ")} need this computer: they say so and what to use instead (wb sync off brings the board back).`);
+			return code;
+		}
 		default:
-			throw new Error(
-				`the board is in the cloud (${cfg.url}), and wb ${cmd} doesn't work over the network yet. Use the board (wb open) or the MCP tools (wb mcp); wb help says what works.`,
-			);
+			if (needsComputer(cmd)) throw new Error(`the board is in the cloud (${cfg.url}), and ${COMPUTER_ONLY_SAYS[cmd] ?? `wb ${cmd} needs this computer`}.`);
+			return runOnCloud(cfg, args, o);
 	}
 }
 

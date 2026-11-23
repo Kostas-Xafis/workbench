@@ -273,7 +273,7 @@ export function listReply(list: Awaited<ReturnType<typeof listForAgent>>, projec
 	const scope = (p: string) => (p ? p : "every project");
 	return {
 		text: list.length
-			? `${list.length} secret${list.length === 1 ? "" : "s"} ${project ? `for ${project} (and every project)` : "in the vault"}:\n${list.map((s) => `- ${s.name} (${scope(s.project)})${s.note ? `: ${s.note}` : ""}`).join("\n")}\n\nvault_get gives the values, after {{name}} allows it again.`
+			? `${list.length} secret${list.length === 1 ? "" : "s"} ${project ? `for ${project} (and every project)` : "in the vault"}:\n${list.map((s) => `- ${s.name} (${scope(s.project)})${s.note ? `: ${s.note}` : ""}`).join("\n")}\n\nvault_get gives the values, once they're allowed in the password window on this computer.`
 			: `No secrets ${project ? `for ${project} or every project ` : ""}in the vault.`,
 		data: { secrets: list },
 	};
