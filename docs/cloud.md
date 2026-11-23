@@ -31,22 +31,31 @@ wb sync on https://workbench.<you>.workers.dev --key <the owner key>
 ## Using it
 
 - **Phones and browsers** pair once, from anywhere: `wb sync pair` prints a code and the link that takes it, or Settings → Privacy and security → Pair a phone. The phone keeps a cookie for 400 days, renewed whenever it opens the board.
-- **The desktop app** opens the cloud board in its window and signs it in by itself, with a one-time ticket from this computer's device token (nothing to type). It starts no server of its own. Its tray count asks the cloud board. If the cloud board can't be reached, the window says so, with Retry.
+- **The desktop app** opens the cloud board in its window and signs it in by itself, with a one-time ticket from this computer's device token (nothing to type). Behind the window it starts its server for the computer helper (below), or uses the service's when that runs. Its tray count asks the cloud board. If the cloud board can't be reached, the window says so, with Retry.
 - **Agents** keep `claude mcp add -s user wb -- wb mcp`. While this computer syncs, `wb mcp` relays every MCP call to the cloud board's `/mcp` with this computer's token, with the project of the folder it starts in as the default, as before. A picture given as a file path is read here and sent along.
 - **`wb open`** opens the desktop app, or the browser signed in with a one-time ticket.
-- **The `wb` commands that read or change the board** (`wb ls`, `wb add`, `wb done`, …) don't work over the network yet: they say so and stop, so nothing lands on the local copy by mistake. Use the board or the MCP tools.
-- **The local server** (`wb serve`, the service, an older app's sidecar) doesn't serve a board while this computer syncs: it answers every page with "The board is in the cloud" and the link, and never opens the database.
+- **Agents from the terminal:** `wb run <ref>`, `wb runs` and `wb stop <n>` work on the cloud board; the agent starts on a computer whose helper is online.
+- **The other `wb` commands that read or change the board** (`wb ls`, `wb add`, `wb done`, …) don't work over the network yet: they say so and stop, so nothing lands on the local copy by mistake. Use the board or the MCP tools.
+- **The local server** (`wb serve`, the service, the app's sidecar) doesn't serve a board while this computer syncs: it answers every page with "The board is in the cloud" and the link, and never opens the database. It runs the computer helper.
 
-## What needs a computer
+## The computer helper
 
-The cloud board has no computer, so these aren't on it yet. A helper that does them on a computer that syncs comes next.
+The cloud board has no computer. What needs one is done by a **helper on a computer that syncs**: the local server's process runs it, so `wb serve`, the service and the desktop app all carry it, with nothing to set up. One per computer (the process that has the port, 4321).
+
+- **How it gets through:** an outbound WebSocket to the cloud board, signed in with this computer's device token (`workbench.db.sync.json`). It's a [hibernatable](https://developers.cloudflare.com/durable-objects/best-practices/websockets/) one: its pings every 30 s are answered without waking the board, and the board wakes only for work (a job, or when a tracker is due). Where a WebSocket won't stay open, it polls over https instead.
+- **Jobs:** the cloud board keeps a queue of jobs in its database. Each job goes to one helper: one that's online and has the project's folder, so several computers can sync. With none online, the board says so in words: *No computer is online to do it. Open the Workbench app, or run wb serve, on a computer that syncs with this board.*
+- **It runs the board's own code** for each job (dispatch.ts, trackers.ts, git.ts, logo.ts, usage.ts, health.ts), and the cloud board runs the rest: Run's checks and limits, answering the ask, the run's row and its notes, tracker leases and history.
+- **New commands wait for an OK on the computer.** On the cloud board any paired device may change a tracker's command or the command that starts agents (Settings → Agents), which on a computer only its own board may. So a computer runs a command only once it's allowed there: the ones the board had when its helper first started, and each new one after **Allow** in a window on that computer (or `wb helper allow`). Until then the board shows "… waits for an OK on <computer>". Kept in `workbench.db.helper.json`.
+- **`wb helper`** lists the computers online for the cloud board, and the commands waiting for an OK here.
 
 | What | On the cloud board |
 | --- | --- |
-| Agents the board starts (Run, Answer & send, Send it) | The panel shows past runs; starting one says it needs a computer |
-| Trackers that run a command; git state and pull requests on items | Commands don't run; the git and code parts are empty |
-| The vault's password window for agents (`vault_get`, `vault_list`) | Not available; the vault itself works on the board's page |
-| Usage, Health, the setup guide, project folders, logos from the repo | Not shown (projects show their initials) |
+| Agents the board starts (Run, Answer & send, Send it, `wb run`) | Start on a computer that has the project's folder; their output streams back to the board and Stop stops them there. Unblocked work is sent by itself when Settings says so |
+| Trackers that run a command (and the presets) | Read on a computer when due, and with Refresh |
+| Git state, commits and pull requests on items | From the project folders on a computer (and its `gh`), kept on the board for when no computer is online |
+| The vault's password window for agents (`vault_get`, `vault_list`) | `wb mcp` answers them itself: the window opens on the computer where the agent runs, and the `.env` file is written there. The cloud board only hands over the sealed secrets, as the vault page has them, and keeps the log |
+| Usage, what agents cost today, logos from the repo, Settings → Projects' folders, Add project's suggestions, Test the command | From a computer |
+| Health, the setup guide | Not shown: they check the computer the board runs on, and the cloud board has none |
 | Sharing a report through a tunnel, data sources' sealed headers | Not available |
 | Backup files, Compact | Cloudflare keeps 30 days of every change instead ([point-in-time recovery](https://developers.cloudflare.com/durable-objects/api/sqlite-storage-api/#pitr-point-in-time-recovery-api)); Export still downloads everything as JSON |
 
@@ -71,6 +80,7 @@ The cloud board's rows come back down into a new database, which takes the place
 
 - `worker/src/index.ts`: the Worker. Every request goes to the one Durable Object, `Board`.
 - `worker/src/board.ts`: the board. It runs `createSchema` (db.ts) on its SQLite and serves the route table from `src/routes.ts` (the same one `server.ts` serves on a computer). It adds the gate, the owner key, login tickets and `/api/sync/*`, and answers what needs a computer itself (`NEEDS_COMPUTER`). The page gets `<html data-cloud="1">`, which `ui/core.js` reads as `CLOUD`.
+- `worker/src/helper.ts`: the computer helper's side on the cloud board: its WebSockets and polls (`/api/helper/*`, device tokens in a header only), the job queue (`helper_jobs`), who's online, the hooks the board's code already has (dispatch.ts `launcher`, `places`, `costs`; trackers.ts `reader`), and what it keeps for the page (`helper_cache`). `src/helper.ts` is the helper on a computer; `src/cloudvault.ts` is the relay's vault.
 - `worker/src/sqlite.ts`: bun:sqlite's `Database` (as much as the board uses) over the Durable Object's `ctx.storage.sql`: named `$params` rewritten to positional, `transaction()` as `transactionSync`, BLOBs as `Uint8Array`.
 - `src/sync.ts`: the sync format and the client side (`wb sync on/off`). `src/cloudcli.ts` is `wb` while this computer syncs, and `src/relay.ts` is `wb mcp`'s relay.
 - **Long pages:** a row holds at most 8 MB in the cloud, so a report page longer than a million characters keeps the rest in `report_parts` (on a computer too; `reportHtml` joins them).

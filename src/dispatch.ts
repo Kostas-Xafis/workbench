@@ -14,6 +14,7 @@
  * there is none (the computer restarted, or it was killed). So a restart never leaves a run "running" for ever.
  */
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import { closeSync, existsSync, fstatSync, mkdirSync, openSync, readFileSync, readSync, rmSync } from "node:fs";
 import { tmpdir, userInfo } from "node:os";
 import { join } from "node:path";
@@ -149,9 +150,11 @@ export function runLine(r: Run): string {
 /* ---------- Whether a run may start ---------- */
 
 const ASK_KINDS = ["decision", "review", "notice"];
+/** Whether a project's folder is there to run an agent in. The cloud board asks its computers instead (worker/src/helper.ts). */
+export const places = { has: (path: string) => existsSync(path) };
 const folderOf = (db: Db, slug: string) => {
 	const p = getProject(db, slug);
-	return p?.path && existsSync(p.path) ? p.path : "";
+	return p?.path && places.has(p.path) ? p.path : "";
 };
 
 /** Why this item can't get an agent (its state, its folder, a run on it), or undefined. `answering`: it's an ask
@@ -212,7 +215,8 @@ const WINDOWS = process.platform === "win32";
 const runDir = () =>
 	process.env.WB_RUNS_DIR ??
 	join(process.env.XDG_RUNTIME_DIR || join(tmpdir(), `workbench-${WINDOWS ? userInfo().username : userInfo().uid}`), "workbench-runs");
-const tagOf = (db: Db, id: number) => `wb-run-${Bun.hash(db.filename).toString(36)}-${id}`;
+// node:crypto rather than Bun.hash: the cloud board (a Worker, no Bun) tags the runs its computer helper starts.
+const tagOf = (db: Db, id: number) => `wb-run-${createHash("sha1").update(db.filename).digest("hex").slice(0, 10)}-${id}`;
 const logPath = (r: Pick<Run, "tag">) => join(runDir(), `${r.tag}.log`);
 const exitPath = (r: Pick<Run, "tag">) => join(runDir(), `${r.tag}.exit`);
 
@@ -267,36 +271,18 @@ export async function startRun(
 		.get(i.id, i.project, command.includes("WB_SESSION") ? session : "", from.by ?? (from.where === "auto" ? "board" : "kostas"), from.label, command) as { id: number };
 	const tag = tagOf(db, id);
 	db.query("UPDATE runs SET tag = ? WHERE id = ?").run(tag, id);
-	const run = { id, tag } as Run;
+	const spec: Launch = {
+		id,
+		tag,
+		command,
+		cwd,
+		vars: { WB_PROMPT: runPrompt(db, i), WB_ITEM: `wb-${i.ref}`, WB_TITLE: i.title, WB_PROJECT: i.project, WB_SESSION: session, WB_RUN: String(id) },
+	};
 	try {
-		mkdirSync(runDir(), { recursive: true, mode: 0o700 });
-		rmSync(exitPath(run), { force: true });
-		const fd = openSync(logPath(run), "w", 0o600);
-		// The exit code goes to a file, so whoever looks later knows how it ended. $0 is the tag, so the process can be
-		// told from another one that got the same pid.
-		const argv = ["bash", "-c", `${command}\nprintf '%s' "$?" > "$WB_RUN_EXIT"`, tag];
-		const scoped = await canScope();
-		const full = scoped ? ["systemd-run", "--user", "--scope", "--quiet", `--unit=${tag}`, ...argv] : argv;
-		const env: Record<string, string> = {};
-		for (const [k, v] of Object.entries(process.env)) if (v !== undefined && !NESTED.includes(k)) env[k] = v;
-		Object.assign(env, {
-			PATH: await shellPath(),
-			NO_COLOR: "1",
-			WB_PROMPT: runPrompt(db, i),
-			WB_ITEM: `wb-${i.ref}`,
-			WB_TITLE: i.title,
-			WB_PROJECT: i.project,
-			WB_SESSION: session,
-			WB_RUN: String(id),
-			WB_RUN_EXIT: exitPath(run),
+		const { pid, unit } = await launcher.launch(spec, (e) => {
+			db.query("UPDATE runs SET error = ? WHERE id = ?").run(`couldn't start: ${e}`, id);
 		});
-		const child = spawn(full[0], full.slice(1), { cwd, env, detached: true, windowsHide: true, stdio: ["ignore", fd, fd] });
-		closeSync(fd);
-		child.on("error", (e) => {
-			db.query("UPDATE runs SET error = ? WHERE id = ?").run(`couldn't start: ${e.message}`, id);
-		});
-		child.unref();
-		db.query("UPDATE runs SET pid = ?, unit = ? WHERE id = ?").run(child.pid ?? 0, scoped ? tag : "", id);
+		db.query("UPDATE runs SET pid = ?, unit = ? WHERE id = ?").run(pid, unit, id);
 	} catch (e) {
 		db.query("UPDATE runs SET status = 'failed', ended_at = datetime('now'), error = ? WHERE id = ?").run(`couldn't start: ${(e as Error).message}`, id);
 		throw new Error(`the agent couldn't start: ${(e as Error).message}`);
@@ -305,10 +291,38 @@ export async function startRun(
 	return getRun(db, id)!;
 }
 
+/** What starting a run's process takes: everything but the database, so a computer helper can do it for the cloud board. */
+export type Launch = { id: number; tag: string; command: string; cwd: string; vars: Record<string, string> };
+export type Launched = { pid: number; unit: string };
+
+/** Starts a run's process on this computer, in its own session (and systemd scope), its output to its log file. */
+export async function launchRun(l: Launch, onError: (message: string) => void = () => {}): Promise<Launched> {
+	const run = { id: l.id, tag: l.tag };
+	mkdirSync(runDir(), { recursive: true, mode: 0o700 });
+	rmSync(exitPath(run), { force: true });
+	const fd = openSync(logPath(run), "w", 0o600);
+	// The exit code goes to a file, so whoever looks later knows how it ended. $0 is the tag, so the process can be
+	// told from another one that got the same pid.
+	const argv = ["bash", "-c", `${l.command}\nprintf '%s' "$?" > "$WB_RUN_EXIT"`, l.tag];
+	const scoped = await canScope();
+	const full = scoped ? ["systemd-run", "--user", "--scope", "--quiet", `--unit=${l.tag}`, ...argv] : argv;
+	const env: Record<string, string> = {};
+	for (const [k, v] of Object.entries(process.env)) if (v !== undefined && !NESTED.includes(k)) env[k] = v;
+	Object.assign(env, { PATH: await shellPath(), NO_COLOR: "1", ...l.vars, WB_RUN_EXIT: exitPath(run) });
+	const child = spawn(full[0], full.slice(1), { cwd: l.cwd, env, detached: true, windowsHide: true, stdio: ["ignore", fd, fd] });
+	closeSync(fd);
+	child.on("error", (e) => onError(e.message));
+	child.unref();
+	return { pid: child.pid ?? 0, unit: scoped ? l.tag : "" };
+}
+
+/** Who starts a run's process: this computer, or (on the cloud board) a computer helper that syncs with it. */
+export const launcher = { launch: launchRun };
+
 /* ---------- Following them ---------- */
 
 /** What this process has read of a run's log so far. */
-type Live = { offset: number; partial: string; lines: string[]; session: string; cost: number | null; result: string; isError: boolean };
+export type Live = { offset: number; partial: string; lines: string[]; session: string; cost: number | null; result: string; isError: boolean };
 const live = new Map<number, Live>();
 /** For tests: forget what was read, as a board that just started knows nothing. */
 export const forgetRuns = () => live.clear();
@@ -376,7 +390,7 @@ export function readLine(l: Live, line: string) {
 export const newLive = (): Live => ({ offset: 0, partial: "", lines: [], session: "", cost: null, result: "", isError: false });
 
 /** Reads what the log got since the last look. */
-function readLog(r: Run): Live {
+export function readLog(r: Pick<Run, "id" | "tag">): Live {
 	let l = live.get(r.id);
 	if (!l) live.set(r.id, (l = newLive()));
 	let fd: number;
@@ -405,7 +419,7 @@ function readLog(r: Run): Live {
 }
 
 /** Whether that pid is still this run's process (not gone, not a zombie, not another program that got the pid). */
-function alive(r: Pick<Run, "pid" | "tag">) {
+export function alive(r: Pick<Run, "pid" | "tag">) {
 	if (!r.pid || !r.tag) return false;
 	try {
 		process.kill(r.pid, 0);
@@ -421,7 +435,7 @@ function alive(r: Pick<Run, "pid" | "tag">) {
 	}
 	return Bun.spawnSync(["ps", "-ww", "-o", "args=", "-p", String(r.pid)]).stdout.toString().includes(r.tag);
 }
-const exitCode = (r: Run): number | null => {
+export const exitCode = (r: Pick<Run, "tag">): number | null => {
 	try {
 		const s = readFileSync(exitPath(r), "utf8").trim();
 		return /^\d+$/.test(s) ? Number(s) : null;
@@ -432,7 +446,7 @@ const exitCode = (r: Run): number | null => {
 
 /** Writes what was read to the run. Nothing when this process read nothing (the log may be gone: another one
  * finished the run meanwhile, and its tail stays). */
-function save(db: Db, r: Run, l: Live) {
+export function save(db: Db, r: Pick<Run, "id">, l: Pick<Live, "offset" | "lines" | "session" | "cost">) {
 	if (!l.offset) return;
 	db.query("UPDATE runs SET tail = ?, session = CASE WHEN ? != '' THEN ? ELSE session END, cost = COALESCE(?, cost) WHERE id = ?").run(
 		l.lines.join("\n"),
@@ -447,10 +461,29 @@ function save(db: Db, r: Run, l: Live) {
 function finish(db: Db, r: Run, code: number | null) {
 	if (getRun(db, r.id)?.ended_at) return;
 	const l = readLog(r);
+	flushLog(l);
+	endRun(db, r, code, l);
+	forgetLog(r);
+}
+
+/** Reads the log's last line, which has no newline yet, as a line: the process is gone. */
+export function flushLog(l: Live) {
 	if (l.partial) {
 		readLine(l, l.partial);
 		l.partial = "";
 	}
+}
+/** Lets go of a finished run's files, and of what was read of them. */
+export function forgetLog(r: Pick<Run, "id" | "tag">) {
+	live.delete(r.id);
+	rmSync(logPath(r), { force: true });
+	rmSync(exitPath(r), { force: true });
+}
+
+/** Writes how a run ended (`l`: its whole log as read) and the line in its item's history. The cloud board calls
+ * this with what its computer helper read. */
+export function endRun(db: Db, r: Pick<Run, "id" | "item_id" | "status" | "error">, code: number | null, l: Omit<Live, "partial">) {
+	if (getRun(db, r.id)?.ended_at) return;
 	const status: RunStatus = r.status === "stopped" ? "stopped" : code === 0 && !l.isError ? "done" : "failed";
 	const error =
 		status === "stopped" ? "" : code === null
@@ -460,9 +493,6 @@ function finish(db: Db, r: Run, code: number | null) {
 	const changed = db
 		.query("UPDATE runs SET status = ?, exit_code = ?, ended_at = datetime('now'), result = ?, error = ? WHERE id = ? AND ended_at IS NULL")
 		.run(status, code, l.result.slice(0, 4000), error, r.id).changes;
-	live.delete(r.id);
-	rmSync(logPath(r), { force: true });
-	rmSync(exitPath(r), { force: true });
 	if (!changed) return;
 	const done = getRun(db, r.id)!;
 	const took = minutes(fromSql(done.ended_at!).getTime() - fromSql(done.started_at).getTime());
@@ -500,6 +530,14 @@ export async function stopRun(db: Db, id: number, by = "kostas"): Promise<Run> {
 	if (!r) throw new Error(`no run #${id}`);
 	if (r.ended_at) return r;
 	db.query("UPDATE runs SET status = 'stopped' WHERE id = ? AND ended_at IS NULL").run(id);
+	await terminate(r);
+	finish(db, { ...r, status: "stopped" }, exitCode(r));
+	if (by !== "kostas") addNote(db, r.item_id, `Stopped by ${by}`, "workbench");
+	return getRun(db, id)!;
+}
+
+/** Ends a run's process: its whole process group (and scope), politely, then for sure after 3 s. */
+export async function terminate(r: Pick<Run, "pid" | "tag" | "unit">) {
 	const kill = (sig: NodeJS.Signals) => {
 		if (r.unit) Bun.spawnSync(["systemctl", "--user", "kill", `--signal=${sig}`, `${r.unit}.scope`], { stdout: "ignore", stderr: "ignore" });
 		if (!alive(r)) return;
@@ -515,9 +553,6 @@ export async function stopRun(db: Db, id: number, by = "kostas"): Promise<Run> {
 	for (let n = 0; n < 30 && alive(r); n++) await Bun.sleep(100);
 	if (alive(r)) kill("SIGKILL");
 	for (let n = 0; n < 10 && alive(r); n++) await Bun.sleep(100);
-	finish(db, { ...r, status: "stopped" }, exitCode(r));
-	if (by !== "kostas") addNote(db, r.item_id, `Stopped by ${by}`, "workbench");
-	return getRun(db, id)!;
 }
 
 /* ---------- Unblocked work ---------- */
@@ -578,7 +613,7 @@ export async function runsInfo(db: Db, from: From | null) {
 	const spent = await spentToday(db);
 	const no = from || !l.on ? await startRefusal(db, from ?? { where: "local", label: "" }) : { why: "Agents start only from the board on this computer." };
 	const folders = (db.query("SELECT slug, path FROM projects").all() as { slug: string; path: string }[])
-		.filter((p) => p.path && existsSync(p.path))
+		.filter((p) => p.path && places.has(p.path))
 		.map((p) => p.slug);
 	const strip = ({ tail: _, command: __, ...r }: Run) => r;
 	return {

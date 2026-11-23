@@ -15,6 +15,10 @@
 //! - Quit (`RunEvent::Exit`): owned → SIGTERM, 5 s, SIGKILL. Attached → left running. If the app itself dies,
 //!   an owned server gets SIGTERM from the kernel (PR_SET_PDEATHSIG), so no orphan holds the port.
 //!
+//! - Sync is on (docs/cloud.md): the window opens the cloud board ([`cloud_run`]), and a second supervisor, headless,
+//!   finds or starts the sidecar all the same, without the window: there it runs the computer helper, which does
+//!   for the cloud board what needs this computer (agents, tracker commands, git). It restarts it by itself.
+//!
 //! All of the supervisor's state lives on its one thread (which is also the thread that forks the server, as
 //! PR_SET_PDEATHSIG requires); other threads only send it [`Cmd`]s and read [`Now`].
 
@@ -44,6 +48,8 @@ const LOST_PING: Duration = Duration::from_secs(1);
 const GRACE: Duration = Duration::from_secs(3);
 /// A lost attached board: "Start it here" appears after this long (the systemd unit restarts after 3 s).
 const OFFER_START_AFTER: Duration = Duration::from_secs(15);
+/// The headless supervisor (sync on): how long after a failure it tries again by itself.
+const HEADLESS_RETRY: Duration = Duration::from_secs(60);
 /// At launch, when the systemd unit is enabled but not answering yet: wait this long before starting our own.
 const SERVICE_WAIT: Duration = Duration::from_secs(10);
 /// Delays before restarts 1..=5 of an owned server; a 6th exit within [`RESTART_WINDOW`] shows the error.
@@ -116,15 +122,22 @@ pub fn init<R: Runtime>(builder: Builder<R>) -> Builder<R> {
 /// before the main window (which opens on the fallback page) is created.
 pub fn setup<R: Runtime>(app: &AppHandle<R>) -> Result<(), Box<dyn std::error::Error>> {
     let (tx, rx) = mpsc::channel();
-    // Sync is on: the board is on Cloudflare, so there's no server to find or start (see cloud_run).
+    // Sync is on: the window opens the board on Cloudflare (see cloud_run), and the sidecar runs headless for the
+    // computer helper.
     if let Some((url, token)) = cloud_sync(app) {
         let port = url.port_or_known_default().unwrap_or(443);
         app.manage(Board { url: url.clone(), port, token: Some(token.clone()), now: Mutex::new(Now::default()), tx });
         app.add_capability(CapabilityBuilder::new("fallback").local(true).window(MAIN).permission("allow-retry"))?;
+        let (helper_tx, helper_rx) = mpsc::channel();
+        let local: Url = "http://localhost:4321".parse()?;
+        let sup = Supervisor::new(app, local, 4321, true);
+        std::thread::Builder::new()
+            .name("helper-supervisor".into())
+            .spawn(move || sup.run(helper_rx))?;
         let app = app.clone();
         std::thread::Builder::new()
             .name("cloud-board".into())
-            .spawn(move || cloud_run(app, url, token, rx))?;
+            .spawn(move || cloud_run(app, url, token, rx, helper_tx))?;
         return Ok(());
     }
     let default_url = if crate::NIGHTLY { "http://localhost:4322" } else { "http://localhost:4321" };
@@ -142,30 +155,7 @@ pub fn setup<R: Runtime>(app: &AppHandle<R>) -> Result<(), Box<dyn std::error::E
             .permission("allow-retry"),
     )?;
 
-    let log_path = app
-        .path()
-        .app_log_dir()
-        .map(|d| d.join("server.log"))
-        .unwrap_or_else(|_| std::env::temp_dir().join("workbench-server.log"));
-    let sup = Supervisor {
-        app: app.clone(),
-        url,
-        port,
-        agent: ureq::Agent::config_builder()
-            .timeout_global(Some(PING_TIMEOUT))
-            .http_status_as_error(false)
-            .max_redirects(0)
-            .build()
-            .into(),
-        log: Arc::new(Mutex::new(Log::new(log_path))),
-        child: None,
-        phase: Phase::Looking,
-        exits: VecDeque::new(),
-        next_ping: Instant::now(),
-        view: View::Unknown,
-        away_since: None,
-        granted: false,
-    };
+    let sup = Supervisor::new(app, url, port, false);
     std::thread::Builder::new()
         .name("board-supervisor".into())
         .spawn(move || sup.run(rx))?;
@@ -292,7 +282,7 @@ fn cloud_sync<R: Runtime>(app: &AppHandle<R>) -> Option<(Url, String)> {
 /// Sync is on: nothing to start or watch here. Signs the window in to the cloud board with a one-time ticket and
 /// leaves it there (the board's page deals with being offline from then on); the fallback page, with Retry, when
 /// the cloud board can't be reached at all.
-fn cloud_run<R: Runtime>(app: AppHandle<R>, url: Url, token: String, rx: mpsc::Receiver<Cmd>) {
+fn cloud_run<R: Runtime>(app: AppHandle<R>, url: Url, token: String, rx: mpsc::Receiver<Cmd>, helper: mpsc::Sender<Cmd>) {
     let agent: ureq::Agent = ureq::Agent::config_builder()
         .timeout_global(Some(Duration::from_secs(15)))
         .http_status_as_error(false)
@@ -327,12 +317,16 @@ fn cloud_run<R: Runtime>(app: AppHandle<R>, url: Url, token: String, rx: mpsc::R
                 let _ = window.navigate(page);
             }
         }
-        // Retry signs in again; on quit there's no server of ours to stop.
+        // Retry signs in again; on quit the helper's sidecar stops first (if it's ours).
         loop {
             match rx.recv() {
                 Ok(Cmd::Retry) => break,
                 Ok(Cmd::Lan) => {}
                 Ok(Cmd::Quit(done)) => {
+                    let (stopped, wait) = mpsc::channel();
+                    if helper.send(Cmd::Quit(stopped)).is_ok() {
+                        let _ = wait.recv_timeout(STOP_WAIT + Duration::from_secs(2));
+                    }
                     let _ = done.send(());
                     return;
                 }
@@ -430,9 +424,40 @@ struct Supervisor<R: Runtime> {
     away_since: Option<Instant>,
     /// The board's capability is added once, before the first navigation to the board.
     granted: bool,
+    /// Sync is on: the sidecar runs for the computer helper only. Nothing is shown in the window, nothing is
+    /// published to [`Now`], and it starts (or starts again) by itself rather than with a button.
+    headless: bool,
 }
 
 impl<R: Runtime> Supervisor<R> {
+    fn new(app: &AppHandle<R>, url: Url, port: u16, headless: bool) -> Self {
+        let log_path = app
+            .path()
+            .app_log_dir()
+            .map(|d| d.join("server.log"))
+            .unwrap_or_else(|_| std::env::temp_dir().join("workbench-server.log"));
+        Supervisor {
+            app: app.clone(),
+            url,
+            port,
+            agent: ureq::Agent::config_builder()
+                .timeout_global(Some(PING_TIMEOUT))
+                .http_status_as_error(false)
+                .max_redirects(0)
+                .build()
+                .into(),
+            log: Arc::new(Mutex::new(Log::new(log_path))),
+            child: None,
+            phase: Phase::Looking,
+            exits: VecDeque::new(),
+            next_ping: Instant::now(),
+            view: View::Unknown,
+            away_since: None,
+            granted: false,
+            headless,
+        }
+    }
+
     fn run(mut self, rx: mpsc::Receiver<Cmd>) {
         self.find_or_start(true);
         loop {
@@ -556,6 +581,16 @@ impl<R: Runtime> Supervisor<R> {
                     self.set(Phase::Lost { since: now });
                 }
             }
+            // Headless, nobody can click "Start it here": it starts its own once the other one stays gone.
+            Phase::Lost { since } if self.headless && since.elapsed() >= OFFER_START_AFTER => {
+                self.note("the helper's server stayed gone: starting our own");
+                self.start();
+            }
+            Phase::Failed { .. } | Phase::Taken { .. } if self.headless && now >= self.next_ping => {
+                self.note("trying the helper's server again");
+                self.exits.clear();
+                self.find_or_start(false);
+            }
             Phase::Lost { since } if now >= self.next_ping => {
                 self.next_ping = now + LOST_PING;
                 if let Ping::Board { pid } = self.ping() {
@@ -636,7 +671,7 @@ impl<R: Runtime> Supervisor<R> {
         let db = db_path(&self.app)?;
         let backups = db.parent().unwrap_or(Path::new("/")).join("backups");
         let home = self.app.path().home_dir().unwrap_or_else(|_| PathBuf::from("/"));
-        let lan = lan_setting(&self.app);
+        let lan = !self.headless && lan_setting(&self.app);
         let (reader, writer) = io::pipe().map_err(|e| format!("Can't make a pipe for the server's log: {e}"))?;
         let writer2 = writer.try_clone().map_err(|e| e.to_string())?;
 
@@ -737,12 +772,18 @@ impl<R: Runtime> Supervisor<R> {
         if let Phase::Lost { .. } | Phase::Connected { owned: false } = phase {
             self.next_ping = Instant::now() + if matches!(phase, Phase::Lost { .. }) { LOST_PING } else { ATTACHED_PING };
         }
+        if self.headless && matches!(phase, Phase::Failed { .. } | Phase::Taken { .. }) {
+            self.next_ping = Instant::now() + HEADLESS_RETRY;
+        }
         self.phase = phase;
         self.publish();
     }
 
     /// Updates [`Now`] from the phase and the child.
     fn publish(&self) {
+        if self.headless {
+            return;
+        }
         let server = match self.phase {
             Phase::Connected { owned: true } | Phase::Starting { .. } | Phase::Backoff { .. } => Server::Owned,
             Phase::Connected { owned: false } | Phase::Lost { .. } => Server::Attached,
@@ -754,6 +795,9 @@ impl<R: Runtime> Supervisor<R> {
 
     /// Puts the window on the board, or on the fallback page with the current state.
     fn render(&mut self) {
+        if self.headless {
+            return;
+        }
         let Some(window) = self.app.get_webview_window(MAIN) else { return };
         let want = match &self.phase {
             Phase::Connected { .. } => View::Board,

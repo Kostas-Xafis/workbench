@@ -18,6 +18,23 @@ interface DurableObjectStorage {
 interface DurableObjectState {
 	storage: DurableObjectStorage;
 	blockConcurrencyWhile<T>(fn: () => Promise<T>): Promise<T>;
+	// Hibernatable WebSockets (the computer helper, helper.ts).
+	acceptWebSocket(ws: WebSocket, tags?: string[]): void;
+	getWebSockets(tag?: string): WebSocket[];
+	setWebSocketAutoResponse(pair?: WebSocketRequestResponsePair): void;
+	getWebSocketAutoResponseTimestamp(ws: WebSocket): Date | null;
+}
+
+interface WebSocket {
+	serializeAttachment(value: unknown): void;
+	deserializeAttachment(): unknown;
+}
+declare class WebSocketPair {
+	0: WebSocket;
+	1: WebSocket;
+}
+declare class WebSocketRequestResponsePair {
+	constructor(request: string, response: string);
 }
 
 interface DurableObjectId {}

@@ -253,8 +253,10 @@ export async function health(db: Db, { port, lan }: { port: number; lan: boolean
  * Folders that look like projects but aren't on the board yet: git repositories next to the projects it has
  * (and in ~/Projects), for "Add project" to offer with one click.
  */
-export function candidateFolders(db: Db): { path: string; name: string; slug: string }[] {
-	const list = projects(db);
+export const candidateFolders = (db: Db) => candidatesNear(projects(db));
+
+/** candidateFolders for a list of projects: what a computer helper answers for the cloud board. */
+export function candidatesNear(list: Pick<Project, "path">[]): { path: string; name: string; slug: string }[] {
 	const taken = new Set(list.map((p) => p.path));
 	const roots = new Set([...list.filter((p) => p.path).map((p) => dirname(p.path)), join(homedir(), "Projects")]);
 	const out = new Map<string, { path: string; name: string; slug: string }>();
