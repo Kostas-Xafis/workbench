@@ -42,6 +42,7 @@ A new board opens the setup guide by itself: your name, your first projects, the
 | [Status trackers](docs/trackers.md) | Live readings in the sidebar: by hand, from a command, built in |
 | [Secrets vault](docs/vault.md) | The vault, and how agents ask for secrets |
 | [Desktop app](docs/desktop-app.md) | The app's window, tray, updates and where it keeps things |
+| [The cloud board](docs/cloud.md) | The board on Cloudflare instead of this computer (`wb sync on`), optional |
 | [Development](docs/development.md) | The folders, the board's page, tests, nightly builds, releases |
 
 ## Folders
@@ -52,6 +53,7 @@ ui/          the board's page: index.html plus one .css and .js per part, no bui
 test/        bun test
 scripts/     nightly builds and releases
 src-tauri/   the desktop app (Rust)
+worker/      the cloud board: a Cloudflare Worker running the same board (optional)
 examples/    report pages to start from
 docs/        the pages above
 ```

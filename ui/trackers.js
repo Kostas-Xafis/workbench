@@ -2,7 +2,7 @@
 
 // Under the project's name in the rail: its trackers, then the global ones. A tracker is a few meters
 // (value of max, or a state in words), each with a level; grey until it warns.
-const LOCAL = ["localhost", "127.0.0.1", "[::1]"].includes(location.hostname);
+const LOCAL = !CLOUD && ["localhost", "127.0.0.1", "[::1]"].includes(location.hostname);
 const TRK_ADD = `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-linecap="round"><g stroke-width="1.4"><path d="M2 12.5a6 6 0 0 1 9.4-4.95"/><path d="M8 12.5l2.2-3.3"/><path d="M12.5 10v5M10 12.5h5"/></g></svg>`;
 const EVERY = [[300, "5 min"], [900, "15 min"], [1800, "30 min"], [3600, "1 hour"], [10800, "3 hours"], [21600, "6 hours"], [43200, "12 hours"], [86400, "1 day"], [0, "Only when asked"]];
 const SERIES = ["var(--accent)", "var(--review)", "var(--decision)", "var(--check)", "var(--setup)"];

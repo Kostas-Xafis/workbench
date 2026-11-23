@@ -17,8 +17,8 @@
  * every request (vaultask.ts). Data source secrets and deletions of items or reports are not here. An image
  * can be removed: it's an agent's way to replace a picture it got wrong, and the item's history keeps the line.
  */
-import { readFileSync } from "node:fs";
-import iconPath from "../ui/icon.svg" with { type: "file" };
+// `text`, not `file`: the cloud board (worker/) bundles this with esbuild, which takes no file imports.
+import iconSvg from "../ui/icon.svg" with { type: "text" };
 import {
 	addItem,
 	addLink,
@@ -111,7 +111,7 @@ const M = "io.modelcontextprotocol/";
 const VERSION = "1.0.0";
 const OPEN: Status[] = ["todo", "doing", "waiting"];
 
-const ICON = `data:image/svg+xml;base64,${readFileSync(iconPath).toString("base64")}`;
+const ICON = `data:image/svg+xml;base64,${Buffer.from(iconSvg).toString("base64")}`;
 const SERVER_INFO = {
 	name: "workbench",
 	title: "Workbench",
@@ -1991,13 +1991,19 @@ function checkHeaders(req: Request, m: Rpc) {
  * POST /mcp on the board. Answers with application/json (never a session id); notifications get 202. GET and
  * DELETE get 405: there is no standalone stream and no session to end.
  */
-export async function mcpHttp(req: Request, db: Db, { loopback }: { loopback: boolean }): Promise<Response> {
+export async function mcpHttp(req: Request, db: Db, { loopback, cloud = false }: { loopback: boolean; cloud?: boolean }): Promise<Response> {
 	const refuse = (status: number, message: string) => httpJson(errorReply(null, new RpcError(-32600, message)), status);
-	// The board has no login: MCP is for processes on this computer, and no web page may reach it (DNS rebinding).
-	if (!loopback) return refuse(403, "the workbench MCP server answers only on this computer (localhost)");
-	if (!LOCAL_HOST.test(req.headers.get("host") ?? "")) return refuse(403, "Host must be localhost");
 	const origin = req.headers.get("origin");
-	if (origin && !LOCAL_ORIGIN.test(origin)) return refuse(403, `Origin ${origin} may not use this server`);
+	if (cloud) {
+		// The cloud board's gate already checked the device token (an Authorization header: `wb mcp` relays to it).
+		// No web page calls it: a browser always sends an Origin with a POST.
+		if (origin) return refuse(403, `Origin ${origin} may not use this server`);
+	} else {
+		// The board has no login: MCP is for processes on this computer, and no web page may reach it (DNS rebinding).
+		if (!loopback) return refuse(403, "the workbench MCP server answers only on this computer (localhost)");
+		if (!LOCAL_HOST.test(req.headers.get("host") ?? "")) return refuse(403, "Host must be localhost");
+		if (origin && !LOCAL_ORIGIN.test(origin)) return refuse(403, `Origin ${origin} may not use this server`);
+	}
 	if (req.method !== "POST") return new Response(null, { status: 405, headers: { allow: "POST" } });
 	if (!(req.headers.get("content-type") ?? "").toLowerCase().startsWith("application/json"))
 		return refuse(415, "Content-Type must be application/json");

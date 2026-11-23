@@ -1,5 +1,5 @@
 import { Database } from "bun:sqlite";
-import { timingSafeEqual } from "node:crypto";
+import { createHash, timingSafeEqual } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, rmSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { createTables as createImageTables, itemImages, type ImageInfo } from "./images";
@@ -82,7 +82,8 @@ export type Project = {
 	report_order: string;
 };
 
-export const DB_PATH = process.env.WB_DB ?? join(import.meta.dir, "..", "workbench.db");
+// import.meta.dir is Bun's; the cloud board (worker/) has no folder and no database file.
+export const DB_PATH = process.env.WB_DB ?? join(import.meta.dir ?? ".", "..", "workbench.db");
 
 export function open(path = DB_PATH) {
 	const db = new Database(path, { create: true, strict: true });
@@ -90,6 +91,15 @@ export function open(path = DB_PATH) {
 	db.run("PRAGMA journal_mode = WAL");
 	db.run("PRAGMA busy_timeout = 5000");
 	db.run("PRAGMA foreign_keys = ON");
+	createSchema(db);
+	return db;
+}
+
+/**
+ * Every table, and the changes to them since the first version, made idempotently: run on every open. The cloud
+ * board (worker/src/board.ts) runs it on its Durable Object's SQLite, so the two always have the same schema.
+ */
+export function createSchema(db: Db) {
 	db.run(`CREATE TABLE IF NOT EXISTS projects (
 		slug TEXT PRIMARY KEY,
 		name TEXT NOT NULL,
@@ -265,7 +275,14 @@ export function open(path = DB_PATH) {
 		client TEXT NOT NULL DEFAULT '',
 		at TEXT NOT NULL DEFAULT (datetime('now'))
 	)`);
-	return db;
+	// A report page longer than PART_CHARS keeps the rest here, in order (see publishReport): the cloud board's
+	// SQLite takes at most 8 MB in one row, and one review pack was 19 MB.
+	db.run(`CREATE TABLE IF NOT EXISTS report_parts (
+		version_id INTEGER NOT NULL REFERENCES report_versions(id) ON DELETE CASCADE,
+		i INTEGER NOT NULL,
+		html TEXT NOT NULL,
+		PRIMARY KEY (version_id, i)
+	)`);
 }
 
 export type Db = ReturnType<typeof open>;
@@ -718,18 +735,47 @@ export function getReport(db: Db, id: number): (Report & { versions: ReportVersi
 	const r = db.query(`SELECT ${REPORT_COLS} FROM reports r WHERE id = ?`).get(id) as Report | null;
 	if (!r) return undefined;
 	const versions = db
-		.query("SELECT n, at, author, length(html) AS bytes FROM report_versions WHERE report_id = ? ORDER BY n DESC")
+		.query(
+			`SELECT n, at, author, length(html) + COALESCE((SELECT SUM(length(p.html)) FROM report_parts p WHERE p.version_id = v.id), 0) AS bytes
+			FROM report_versions v WHERE report_id = ? ORDER BY n DESC`,
+		)
 		.all(id) as ReportVersion[];
 	return { ...r, versions };
 }
 
 /** The page of version `n`, or the latest. */
-export function reportHtml(db: Db, id: number, n?: number) {
-	return db
+export function reportHtml(db: Db, id: number, n?: number): { html: string; n: number } | null {
+	const row = db
 		.query(
-			`SELECT html, n FROM report_versions WHERE report_id = $id ${n ? "AND n = $n" : ""} ORDER BY n DESC LIMIT 1`,
+			`SELECT id, html, n, EXISTS (SELECT 1 FROM report_parts p WHERE p.version_id = v.id) AS parts
+			FROM report_versions v WHERE report_id = $id ${n ? "AND n = $n" : ""} ORDER BY n DESC LIMIT 1`,
 		)
-		.get(n ? { id, n } : { id }) as { html: string; n: number } | null;
+		.get(n ? { id, n } : { id }) as { id: number; html: string; n: number; parts: number } | null;
+	if (!row) return null;
+	return { html: row.parts ? row.html + partsOf(db, row.id) : row.html, n: row.n };
+}
+
+/**
+ * The longest a page is kept in one row: a million characters, at most 4 MB of UTF-8, well under the 8 MB a row
+ * can be in the cloud board's SQLite. The rest goes to report_parts. Its visible text, for search, stops there too.
+ */
+export const PART_CHARS = 1_000_000;
+
+const partsOf = (db: Db, versionId: number) =>
+	(db.query("SELECT html FROM report_parts WHERE version_id = ? ORDER BY i").all(versionId) as { html: string }[]).map((p) => p.html).join("");
+
+/** A page cut into rows of at most PART_CHARS: what report_versions.html keeps, then report_parts in order. */
+export function splitPage(html: string): string[] {
+	const out: string[] = [];
+	let i = 0;
+	do {
+		let end = Math.min(i + PART_CHARS, html.length);
+		// Never between the two halves of a surrogate pair: each part has to be valid text on its own.
+		if (end < html.length && /[\uD800-\uDBFF]/.test(html[end - 1])) end--;
+		out.push(html.slice(i, end));
+		i = end;
+	} while (i < html.length);
+	return out;
 }
 
 /** Visible text of a page, for search. */
@@ -836,13 +882,12 @@ export function publishReport(
 		const latest = reportHtml(db, row.id);
 		if (latest?.html === r.html) return { id: row.id, n: latest.n, changed: false };
 		const n = (latest?.n ?? 0) + 1;
-		db.query("INSERT INTO report_versions (report_id, n, html, text, author) VALUES (?, ?, ?, ?, ?)").run(
-			row.id,
-			n,
-			r.html,
-			htmlText(r.html),
-			author,
-		);
+		const [first, ...rest] = splitPage(r.html);
+		const version = db
+			.query("INSERT INTO report_versions (report_id, n, html, text, author) VALUES (?, ?, ?, ?, ?) RETURNING id")
+			.get(row.id, n, first, htmlText(r.html).slice(0, PART_CHARS), author) as { id: number };
+		const part = db.query("INSERT INTO report_parts (version_id, i, html) VALUES (?, ?, ?)");
+		rest.forEach((html, i) => part.run(version.id, i + 1, html));
 		db.query("UPDATE reports SET updated_at = datetime('now') WHERE id = ?").run(row.id);
 		return { id: row.id, n, changed: true };
 	})();
@@ -919,7 +964,7 @@ export type SecretPatch = { project?: string; meta?: string; value?: string };
 
 const SEALED = /^[A-Za-z0-9+/]+={0,2}\.[A-Za-z0-9+/]+={0,2}$/;
 const AUTH = /^[0-9a-f]{64}$/;
-const sha256 = (s: string) => new Bun.CryptoHasher("sha256").update(s).digest("hex");
+const sha256 = (s: string) => createHash("sha256").update(s).digest("hex");
 
 export function vaultInfo(db: Db): VaultInfo | null {
 	return db.query("SELECT salt, iterations, changed_at FROM vault WHERE id = 1").get() as VaultInfo | null;
@@ -1133,7 +1178,9 @@ export function dbStats(db: Db) {
 		wal: fileSize(`${DB_PATH}-wal`),
 		items: one("SELECT COUNT(*) AS n, COALESCE(SUM(length(title) + length(body)), 0) AS bytes FROM items"),
 		notes: one("SELECT COUNT(*) AS n, COALESCE(SUM(length(text)), 0) AS bytes FROM notes"),
-		reportVersions: one("SELECT COUNT(*) AS n, COALESCE(SUM(length(html) + length(text)), 0) AS bytes FROM report_versions"),
+		reportVersions: one(
+			"SELECT COUNT(*) AS n, COALESCE(SUM(length(html) + length(text)), 0) + (SELECT COALESCE(SUM(length(html)), 0) FROM report_parts) AS bytes FROM report_versions",
+		),
 		trackerReadings: one("SELECT COUNT(*) AS n, COALESCE(SUM(length(reading)), 0) AS bytes FROM tracker_history"),
 		images: one("SELECT COUNT(*) AS n, COALESCE(SUM(size), 0) AS bytes FROM images"),
 		linkIcons: one("SELECT COUNT(icon) AS n, COALESCE(SUM(length(icon)), 0) AS bytes FROM links"),
@@ -1243,7 +1290,13 @@ export function exportAll(db: Db) {
 	const waits = new Map<unknown, string[]>();
 	for (const l of all("SELECT l.item_id, b.ref FROM item_links l JOIN items b ON b.id = l.blocker_id ORDER BY l.created_at"))
 		waits.set(l.item_id, [...(waits.get(l.item_id) ?? []), `wb-${l.ref}`]);
-	const versions = byParent(all("SELECT report_id, n, at, author, html FROM report_versions ORDER BY report_id, n"), "report_id");
+	const versions = byParent(
+		all("SELECT id, report_id, n, at, author, html FROM report_versions ORDER BY report_id, n").map(({ id, ...v }) => ({
+			...v,
+			html: String(v.html) + partsOf(db, id as number),
+		})),
+		"report_id",
+	);
 	const history = byParent(
 		all("SELECT tracker_id, at, reading, author FROM tracker_history ORDER BY tracker_id, id").map((h) => ({ ...h, reading: parse(h.reading) })),
 		"tracker_id",

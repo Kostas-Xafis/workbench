@@ -1,2 +1,4 @@
 [test]
+# The board's tests are in test/. The cloud board's (worker/test/) run from worker/, against a local Worker.
+root = "test"
 preload = ["./test/preload.ts"]

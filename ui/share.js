@@ -1,7 +1,9 @@
 /* ---------- Sharing a report (Cloudflare quick tunnel, see share.ts) ---------- */
 
 // Only from this computer: the server refuses anyone else, so the button isn't offered there.
-const CAN_SHARE = ["localhost", "127.0.0.1", "[::1]"].includes(location.hostname);
+const CAN_SHARE = !CLOUD && ["localhost", "127.0.0.1", "[::1]"].includes(location.hostname);
+// Who may change the board (settings, projects, the vault): the page on this computer, or any device paired with the cloud board.
+const OWNER = CAN_SHARE || CLOUD;
 const shareDlg = $("#share-dlg");
 let shares = [];
 let shareCheck = null;

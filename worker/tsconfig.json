@@ -1,0 +1,5 @@
+{
+	// The cloud board, checked with the board's own code it imports (../src). Bun's types, plus worker/src/cloudflare.d.ts.
+	"extends": "../tsconfig.json",
+	"include": ["src/*.ts", "test/*.ts", "../src/assets.d.ts"]
+}

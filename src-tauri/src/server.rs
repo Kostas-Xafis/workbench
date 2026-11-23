@@ -56,9 +56,12 @@ const LOG_TAIL_LINES: usize = 40;
 
 /// Where the board is, and who runs it now. Managed state, set in [`setup`].
 pub struct Board {
-    /// `WB_APP_URL` (default `http://localhost:4321`); doesn't change while the app runs.
+    /// `WB_APP_URL` (default `http://localhost:4321`), or the cloud board's when this computer syncs; doesn't
+    /// change while the app runs.
     pub url: Url,
     pub port: u16,
+    /// This computer's device token for the cloud board, when it syncs (docs/cloud.md); None for a board here.
+    token: Option<String>,
     now: Mutex<Now>,
     tx: mpsc::Sender<Cmd>,
 }
@@ -112,12 +115,23 @@ pub fn init<R: Runtime>(builder: Builder<R>) -> Builder<R> {
 /// Starts finding or starting the board in the background and returns at once. Runs inside Tauri's setup,
 /// before the main window (which opens on the fallback page) is created.
 pub fn setup<R: Runtime>(app: &AppHandle<R>) -> Result<(), Box<dyn std::error::Error>> {
+    let (tx, rx) = mpsc::channel();
+    // Sync is on: the board is on Cloudflare, so there's no server to find or start (see cloud_run).
+    if let Some((url, token)) = cloud_sync(app) {
+        let port = url.port_or_known_default().unwrap_or(443);
+        app.manage(Board { url: url.clone(), port, token: Some(token.clone()), now: Mutex::new(Now::default()), tx });
+        app.add_capability(CapabilityBuilder::new("fallback").local(true).window(MAIN).permission("allow-retry"))?;
+        let app = app.clone();
+        std::thread::Builder::new()
+            .name("cloud-board".into())
+            .spawn(move || cloud_run(app, url, token, rx))?;
+        return Ok(());
+    }
     let default_url = if crate::NIGHTLY { "http://localhost:4322" } else { "http://localhost:4321" };
     let raw = std::env::var("WB_APP_URL").unwrap_or_else(|_| default_url.into());
     let url: Url = raw.parse().map_err(|e| format!("WB_APP_URL {raw:?}: {e}"))?;
     let port = url.port_or_known_default().unwrap_or(4321);
-    let (tx, rx) = mpsc::channel();
-    app.manage(Board { url: url.clone(), port, now: Mutex::new(Now::default()), tx });
+    app.manage(Board { url: url.clone(), port, token: None, now: Mutex::new(Now::default()), tx });
 
     // The fallback page (the app's own bundled page, never the board's origin or a report) may call `retry`
     // and nothing else. Retry only looks for the board again, and starts the bundled server if none answers.
@@ -182,6 +196,11 @@ pub fn board_url<R: Runtime>(app: &AppHandle<R>) -> Url {
     app.state::<Board>().url.clone()
 }
 
+/// This computer's device token for the cloud board when it syncs (tray.rs sends it with its calls), else None.
+pub fn board_token<R: Runtime>(app: &AppHandle<R>) -> Option<String> {
+    app.state::<Board>().token.clone()
+}
+
 /// true when this app started the server it shows (and so stops it on quit, and controls `--lan`). Also true
 /// while that server starts or restarts.
 #[cfg_attr(not(debug_assertions), allow(dead_code))]
@@ -203,6 +222,9 @@ pub fn lan_enabled<R: Runtime>(app: &AppHandle<R>) -> bool {
 #[cfg_attr(not(debug_assertions), allow(dead_code))]
 pub fn set_lan<R: Runtime>(app: &AppHandle<R>, on: bool) -> Result<(), String> {
     let board = app.state::<Board>();
+    if board.token.is_some() {
+        return Err("The board is in the cloud: phones pair with it in Settings → Privacy and security, from anywhere.".into());
+    }
     if board.now().server == Server::Attached {
         return Err(format!(
             "The board on port {} was started outside the app; its own launcher decides --lan.",
@@ -218,7 +240,7 @@ pub fn set_lan<R: Runtime>(app: &AppHandle<R>, on: bool) -> Result<(), String> {
 pub struct AppInfo {
     /// The app's version (tauri.conf.json `version`), not the server's (that's in `/api/ping`).
     version: String,
-    /// "owned": this app started the server; "attached": it was already running.
+    /// "owned": this app started the server; "attached": it was already running; "cloud": this computer syncs.
     server: &'static str,
     port: u16,
 }
@@ -228,7 +250,13 @@ pub struct AppInfo {
 pub fn app_info<R: Runtime>(app: AppHandle<R>, board: State<'_, Board>) -> AppInfo {
     AppInfo {
         version: app.package_info().version.to_string(),
-        server: if board.now().server == Server::Owned { "owned" } else { "attached" },
+        server: if board.token.is_some() {
+            "cloud"
+        } else if board.now().server == Server::Owned {
+            "owned"
+        } else {
+            "attached"
+        },
         port: board.port,
     }
 }
@@ -237,6 +265,104 @@ pub fn app_info<R: Runtime>(app: AppHandle<R>, board: State<'_, Board>) -> AppIn
 #[tauri::command]
 pub fn retry(board: State<'_, Board>) {
     let _ = board.tx.send(Cmd::Retry);
+}
+
+// ---------- the cloud board ----------
+
+/// `<database>.sync.json`, which `wb sync on` writes (src/sync.ts).
+#[derive(Deserialize)]
+struct SyncFile {
+    url: String,
+    token: String,
+}
+
+/// The cloud board's address and this computer's token, when this computer syncs with it. `WB_APP_URL` (a test
+/// board named by hand) and the nightly (its own copy of the data) never do.
+fn cloud_sync<R: Runtime>(app: &AppHandle<R>) -> Option<(Url, String)> {
+    if crate::NIGHTLY || std::env::var_os("WB_APP_URL").is_some() {
+        return None;
+    }
+    let mut file = db_path(app).ok()?.into_os_string();
+    file.push(".sync.json");
+    let sync: SyncFile = serde_json::from_str(&fs::read_to_string(PathBuf::from(file)).ok()?).ok()?;
+    let url: Url = sync.url.parse().ok()?;
+    (matches!(url.scheme(), "https" | "http") && !sync.token.is_empty()).then_some((url, sync.token))
+}
+
+/// Sync is on: nothing to start or watch here. Signs the window in to the cloud board with a one-time ticket and
+/// leaves it there (the board's page deals with being offline from then on); the fallback page, with Retry, when
+/// the cloud board can't be reached at all.
+fn cloud_run<R: Runtime>(app: AppHandle<R>, url: Url, token: String, rx: mpsc::Receiver<Cmd>) {
+    let agent: ureq::Agent = ureq::Agent::config_builder()
+        .timeout_global(Some(Duration::from_secs(15)))
+        .http_status_as_error(false)
+        .tls_config(ureq::tls::TlsConfig::builder().root_certs(ureq::tls::RootCerts::PlatformVerifier).build())
+        .build()
+        .into();
+    let mut granted = false;
+    loop {
+        // The main window is made after setup returns.
+        let window = loop {
+            if let Some(w) = app.get_webview_window(MAIN) {
+                break w;
+            }
+            std::thread::sleep(TICK);
+        };
+        match cloud_login(&agent, &url, &token) {
+            Ok(login) => {
+                if !granted {
+                    if let Err(e) = crate::grant_board(&app, &url) {
+                        eprintln!("workbench-app: couldn't grant the cloud board's capability: {e}");
+                    }
+                    granted = true;
+                }
+                if let Err(e) = window.navigate(login) {
+                    eprintln!("workbench-app: couldn't open the cloud board: {e}");
+                }
+            }
+            Err(why) => {
+                eprintln!("workbench-app: the cloud board at {url}: {why}");
+                let mut page = fallback_url();
+                page.set_fragment(Some(&encode_fragment(&json!({ "state": "cloud", "detail": why }).to_string())));
+                let _ = window.navigate(page);
+            }
+        }
+        // Retry signs in again; on quit there's no server of ours to stop.
+        loop {
+            match rx.recv() {
+                Ok(Cmd::Retry) => break,
+                Ok(Cmd::Lan) => {}
+                Ok(Cmd::Quit(done)) => {
+                    let _ = done.send(());
+                    return;
+                }
+                Err(_) => return,
+            }
+        }
+    }
+}
+
+/// A one-time address that signs this window in to the cloud board and goes on to the board (its /login).
+fn cloud_login(agent: &ureq::Agent, url: &Url, token: &str) -> Result<Url, String> {
+    let host = fs::read_to_string("/etc/hostname").ok().map(|h| h.trim().to_string()).filter(|h| !h.is_empty());
+    let name = format!("Workbench app on {}", host.as_deref().unwrap_or("this computer"));
+    let endpoint = url.join("/api/sync/ticket").map_err(|e| e.to_string())?;
+    let mut res = agent
+        .post(endpoint.as_str())
+        .header("authorization", &format!("Bearer {token}"))
+        .header("content-type", "application/json")
+        .send(json!({ "name": name }).to_string())
+        .map_err(|e| format!("it doesn't answer ({e})"))?;
+    let status = res.status();
+    let body = res.body_mut().read_to_string().map_err(|e| e.to_string())?;
+    let answer: Value = serde_json::from_str(&body).unwrap_or(Value::Null);
+    if !status.is_success() {
+        let why = answer["error"].as_str().map(str::to_string).unwrap_or_else(|| format!("HTTP {status}"));
+        return Err(format!("it said no: {why}"));
+    }
+    let mut login = Url::parse(answer["url"].as_str().ok_or("its answer has no address to sign in at")?).map_err(|e| e.to_string())?;
+    login.query_pairs_mut().append_pair("next", "/");
+    Ok(login)
 }
 
 // ---------- the supervisor ----------

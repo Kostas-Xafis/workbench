@@ -4,7 +4,7 @@
 const phones = { info: null, error: "", busy: false, timer: 0, count: -1 };
 
 async function phonesLoad() {
-	if (!CAN_SHARE) return;
+	if (!OWNER) return;
 	try {
 		const info = await api("/api/devices");
 		// A phone that paired while the code was showing.

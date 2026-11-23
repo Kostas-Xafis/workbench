@@ -7,7 +7,8 @@ const privacy = {
 	error: "",
 	unsource: "",
 	// Separate so it can be swapped for a stub while trying the list out (never start a real share for that).
-	fetchShares: () => api("/api/shares"),
+	// Shares run a tunnel on the computer: the cloud board has none (CAN_SHARE is false there).
+	fetchShares: () => (CAN_SHARE ? api("/api/shares") : Promise.resolve([])),
 };
 async function setPrivacyLoad() {
 	const [info, shares] = await Promise.allSettled([api("/api/settings/privacy"), privacy.fetchShares(), phonesLoad()]);

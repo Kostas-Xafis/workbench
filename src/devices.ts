@@ -5,6 +5,7 @@
  * HttpOnly, SameSite=Strict cookie. The board keeps only the token's hash. Removing a device stops it at once: the gate
  * looks the token up on every request.
  */
+import { createHash } from "node:crypto";
 import type { Server } from "bun";
 import type { Db } from "./db";
 
@@ -30,7 +31,7 @@ export function createDeviceTables(db: Db) {
 }
 
 const COLS = "id, name, paired_at, last_seen_at, last_ip, user_agent";
-const hash = (token: string) => new Bun.CryptoHasher("sha256").update(token).digest("hex");
+const hash = (token: string) => createHash("sha256").update(token).digest("hex");
 /** Uniform picks from `alphabet` (no modulo bias). */
 function randomChars(alphabet: string, n: number) {
 	let out = "";
@@ -97,12 +98,28 @@ export const showCode = (code: string) => `${code.slice(0, 4)}-${code.slice(4)}`
 const normalCode = (s: string) => s.toUpperCase().replace(/[^A-Z0-9]/g, "");
 
 /**
- * The one open pairing code (a new one replaces it), kept in the server's memory only: a restart closes it. `now` is
- * passed in so tests can move the clock.
+ * The one open pairing code (a new one replaces it), kept in the server's memory unless given a store (the cloud
+ * board keeps it in its database): on a computer, a restart closes it. `now` is passed in so tests can move the clock.
  */
+export type OpenCode = { value: string; expires: number; wrong: number };
+
 export class Pairing {
-	code: { value: string; expires: number; wrong: number } | null = null;
+	private held: OpenCode | null = null;
 	private misses = new Map<string, number[]>();
+
+	/**
+	 * `store` keeps the open code where it outlives this object: the cloud board's database, since Cloudflare may
+	 * restart the board between Settings making a code and the phone sending it. Without one, it's in memory.
+	 */
+	constructor(private readonly store?: { load(): OpenCode | null; save(code: OpenCode | null): void }) {}
+
+	get code(): OpenCode | null {
+		return this.store ? this.store.load() : this.held;
+	}
+	set code(c: OpenCode | null) {
+		if (this.store) this.store.save(c);
+		else this.held = c;
+	}
 
 	open(now = Date.now()) {
 		this.code = { value: randomChars(CODE_ALPHABET, 8), expires: now + CODE_MINUTES * 60e3, wrong: 0 };
@@ -141,7 +158,10 @@ export class Pairing {
 		const given = normalCode(input);
 		const want = this.code.value;
 		if (given.length !== want.length || !timingSafe(given, want)) {
-			if (++this.code.wrong >= TRIES_PER_CODE) {
+			const code = this.code;
+			code.wrong++;
+			this.code = code;
+			if (code.wrong >= TRIES_PER_CODE) {
 				this.code = null;
 				throw fail("That code is wrong, and it has now stopped working after too many tries. Make a new one on the computer.");
 			}
@@ -178,18 +198,32 @@ export function cookieValue(req: Request, name: string) {
 
 type AnyHandler = (req: Request, srv: Server<unknown>) => Response | Promise<Response>;
 
+/** The token in an `Authorization: Bearer …` header, or "". */
+export const bearerToken = (req: Request) => /^Bearer\s+(\S+)$/i.exec(req.headers.get("authorization") ?? "")?.[1] ?? "";
+
 /**
  * Wraps every route so that a request from another address gets through only with a paired device's token.
  * `loopback` says whether a request comes from this computer (those never need one). `open` lists the routes that
- * answer without one: the pairing page and what it needs.
+ * answer without one: the pairing page and what it needs. The cloud board (worker/) names its own `cookie` and
+ * also takes the token as a `bearer` header, from `wb`, the MCP relay and the desktop app.
  */
-export function phoneGate(db: Db, { port, loopback, open }: { port: number; loopback: (req: Request, srv: Server<unknown>) => boolean; open: string[] }) {
+export function phoneGate(
+	db: Db,
+	{
+		port,
+		loopback,
+		open,
+		cookie,
+		bearer = false,
+		unpaired = "This phone isn't paired with the board. On the computer, open Settings → Privacy and security and click Pair a phone.",
+	}: { port: number; loopback: (req: Request, srv: Server<unknown>) => boolean; open: string[]; cookie?: string; bearer?: boolean; unpaired?: string },
+) {
 	const seen = new Map<string, number>();
-	const name = cookieName(port);
+	const name = cookie ?? cookieName(port);
 
 	/** The device a request carries, or null. Notes when and from where it was last seen, at most once a minute. */
 	const device = (req: Request, srv: Server<unknown>) => {
-		const d = deviceByToken(db, cookieValue(req, name));
+		const d = deviceByToken(db, cookieValue(req, name) || (bearer ? bearerToken(req) : ""));
 		if (!d) return null;
 		const ip = srv.requestIP(req)?.address ?? "";
 		const now = Date.now();
@@ -214,7 +248,7 @@ export function phoneGate(db: Db, { port, loopback, open }: { port: number; loop
 			return new Response(null, { status: 302, headers: { location: `/pair${next}`, "cache-control": "no-store" } });
 		}
 		return Response.json(
-			{ error: "This phone isn't paired with the board. On the computer, open Settings → Privacy and security and click Pair a phone." },
+			{ error: unpaired },
 			{ status: 401, headers: { "x-wb-pair": "1", "cache-control": "no-store" } },
 		);
 	};

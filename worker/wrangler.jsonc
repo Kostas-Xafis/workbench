@@ -1,0 +1,19 @@
+// The cloud board (docs/cloud.md). `bun run dev` here runs it on this computer with its own local data;
+// `bun run deploy` puts it on Cloudflare. The owner key is a secret: `bunx wrangler secret put WB_OWNER_KEY`.
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "workbench",
+	"main": "src/index.ts",
+	"compatibility_date": "2026-11-01",
+	// node:crypto, node:path and Buffer for the board's shared code; node:fs, os and child_process load, as stubs.
+	"compatibility_flags": ["nodejs_compat"],
+	// db.ts imports bun:sqlite for the board on a computer; the cloud board's database is src/sqlite.ts.
+	"alias": { "bun:sqlite": "./src/no-bun-sqlite.ts" },
+	// The app icons a phone puts on its home screen, as bytes.
+	"rules": [{ "type": "Data", "globs": ["**/*.png"], "fallthrough": true }],
+	// The board's page files (ui/), read by the board after it has checked the device: never served straight.
+	"assets": { "directory": "../ui", "binding": "ASSETS", "run_worker_first": true },
+	"durable_objects": { "bindings": [{ "name": "BOARD", "class_name": "Board" }] },
+	"migrations": [{ "tag": "v1", "new_sqlite_classes": ["Board"] }],
+	"observability": { "enabled": true }
+}

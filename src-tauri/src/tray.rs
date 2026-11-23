@@ -271,9 +271,15 @@ fn fetch_count<R: Runtime>(app: &AppHandle<R>) -> Option<u32> {
     let url = crate::server::board_url(app).join("/api/projects").ok()?;
     let agent: ureq::Agent = ureq::Agent::config_builder()
         .timeout_global(Some(Duration::from_secs(5)))
+        .tls_config(ureq::tls::TlsConfig::builder().root_certs(ureq::tls::RootCerts::PlatformVerifier).build())
         .build()
         .into();
-    let body = agent.get(url.as_str()).call().ok()?.body_mut().read_to_string().ok()?;
+    let mut req = agent.get(url.as_str());
+    // The cloud board (when this computer syncs) answers its paired devices only.
+    if let Some(token) = crate::server::board_token(app) {
+        req = req.header("authorization", &format!("Bearer {token}"));
+    }
+    let body = req.call().ok()?.body_mut().read_to_string().ok()?;
     let projects: serde_json::Value = serde_json::from_str(&body).ok()?;
     let sum = projects
         .as_array()?

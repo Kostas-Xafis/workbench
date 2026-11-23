@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- Bundled with the app (build.frontendDist). The main window opens here and src/server.rs moves it to the
      board once the board answers, and back here while it can't be reached. The state comes in the URL's
-     fragment as JSON: { state: "starting" | "waiting" | "taken" | "old" | "stopped", port, detail?, log?, canStart?, service? }.
+     fragment as JSON: { state: "starting" | "waiting" | "taken" | "old" | "stopped" | "cloud", port, detail?, log?, canStart?, service? }.
      This page's only permission is the `retry` command (look for the board again, start it if none answers). -->
 <html lang="en">
 <head>
@@ -69,6 +69,9 @@
 					cmd: s.service ? "systemctl --user restart workbench" : "" },
 				stopped: { title: "The board stopped", bad: true, button: "Retry",
 					text: (s.detail || "") + (s.log ? " The end of its log:" : "") },
+				// Sync is on (docs/cloud.md): the board is on Cloudflare, and the app couldn't reach it or sign in.
+				cloud: { title: "Can't reach the cloud board", bad: true, button: "Retry",
+					text: "This computer syncs with the board on Cloudflare, and the app couldn't open it. Check the connection, then retry." },
 			};
 			const v = views[s.state] || views.starting;
 			$("title").textContent = v.title;

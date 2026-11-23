@@ -97,8 +97,8 @@ function readControl(el) {
 	if (t === "json") return JSON.parse(el.value);
 	return el.value;
 }
-// Board settings change only from this computer; elsewhere their controls are shown but locked.
-const canChangeBoard = () => CAN_SHARE;
+// Board settings change only from this computer (or a device paired with the cloud board); elsewhere their controls are shown but locked.
+const canChangeBoard = () => OWNER;
 
 const TAB_IC = {
 	start: '<path d="M3.75 14.25V2.25M3.75 2.75h8.5l-2 3 2 3h-8.5"/>',
@@ -112,13 +112,14 @@ const TAB_IC = {
 	updates: '<circle cx="8" cy="8" r="6.25"/><path d="M8 4.75v6M5.5 8.5 8 11l2.5-2.5"/>',
 };
 // In order. render() returns the tab's HTML; load() runs when the tab opens; poll() runs every 10 s while it's open.
+// local: only for the owner (this computer, or the cloud board). computer: needs a computer, so not on the cloud board.
 // A tab whose code is in a later file (settings-*.js, setup.js, updates.js) is called through an arrow: that file
 // hasn't run yet when this list is made.
 const SET_TABS = [
-	{ key: "start", label: "Getting started", local: true, render: () => setStartRender(), load: () => setupLoad(), poll: () => setupLoad() },
+	{ key: "start", label: "Getting started", local: true, computer: true, render: () => setStartRender(), load: () => setupLoad(), poll: () => setupLoad() },
 	{ key: "projects", label: "Projects", local: true, render: projectsTab, load: loadSettingsProjects, poll: loadSettingsProjects },
 	{ key: "notify", label: "Notifications", local: false, render: () => setNotifyRender(), load: () => setNotifyLoad(), poll: () => setNotifyPoll() },
-	{ key: "health", label: "Health", local: true, render: healthTab, load: () => (Date.now() - settings.checkedAt > 30e3 ? checkHealth() : null), poll: () => {} },
+	{ key: "health", label: "Health", local: true, computer: true, render: healthTab, load: () => (Date.now() - settings.checkedAt > 30e3 ? checkHealth() : null), poll: () => {} },
 	{ key: "you", label: "You and your day", local: true, render: () => setYouRender(), load: () => setYouLoad(), poll: () => setYouPoll() },
 	{ key: "data", label: "Data", local: true, render: () => setDataRender(), load: () => setDataLoad(), poll: () => setDataPoll() },
 	{ key: "privacy", label: "Privacy and security", local: true, render: () => setPrivacyRender(), load: () => setPrivacyLoad(), poll: () => setPrivacyPoll() },
@@ -128,6 +129,8 @@ const SET_TABS = [
 const currentTab = () => SET_TABS.find((t) => t.key === settings.tab) ?? SET_TABS[0];
 const localOnlyCard = (what) => `<div class="vault-card" style="margin-top:0"><div class="vault-ic">${svg16(SLIDERS)}</div><h2>${esc(what)} opens on this computer</h2>
 	<p>It changes the board for every device, so it opens only where the board runs, at <a href="http://localhost:${esc(location.port)}/#settings/${esc(settings.tab)}">localhost</a>. Notifications and Appearance work here.</p></div>`;
+const computerOnlyCard = (what) => `<div class="vault-card" style="margin-top:0"><div class="vault-ic">${svg16(SLIDERS)}</div><h2>${esc(what)} needs a computer</h2>
+	<p>This is the cloud board: it checks nothing on a computer. On a computer that syncs with it, <code>wb sync status</code> says where the board is.</p></div>`;
 const projDlg = $("#proj-dlg");
 const projForm = $("#proj-form");
 let currentProj = null;
@@ -147,17 +150,17 @@ function runningFor(ms) {
 async function openSettings(tab) {
 	const known = SET_TABS.find((t) => t.key === tab);
 	// On the phone, start on a tab that works there.
-	settings.tab = known ? known.key : CAN_SHARE ? "projects" : "notify";
+	settings.tab = known ? known.key : OWNER ? "projects" : "notify";
 	if (!known && tab !== undefined) history.replaceState(null, "", `#settings/${settings.tab}`);
 	settings.error = "";
 	renderSettings();
 	const t = currentTab();
-	if (t.local && !CAN_SHARE) return;
-	await Promise.all([loadSettings(), CAN_SHARE ? loadSettingsProjects() : null, t.load?.()]);
+	if ((t.local && !OWNER) || (t.computer && CLOUD)) return;
+	await Promise.all([loadSettings(), OWNER ? loadSettingsProjects() : null, t.load?.()]);
 	renderSettings();
 }
 async function loadSettingsProjects() {
-	if (!CAN_SHARE) return;
+	if (!OWNER) return;
 	try {
 		settings.projects = await api("/api/settings/projects");
 		settings.error = "";
@@ -300,7 +303,7 @@ function renderSettings() {
 		return `<a href="#settings/${x.key}"${x.key === t.key ? ' aria-current="page"' : ""}>${svg16(TAB_IC[x.key] ?? "", 1.4)}<span>${esc(x.label)}</span>${n ? `<span class="tab-n" title="${n} need a look">${n}</span>` : ""}</a>`;
 	}).join("");
 	let body;
-	try { body = t.local && !CAN_SHARE ? localOnlyCard(t.label) : t.render(); }
+	try { body = t.local && !OWNER ? localOnlyCard(t.label) : t.computer && CLOUD ? computerOnlyCard(t.label) : t.render(); }
 	catch (e) { console.error(e); body = `<p class="error">This tab couldn't be drawn: ${esc(e.message)}</p>`; }
 	// On a phone the tabs scroll sideways: a redraw keeps where they were, and a newly opened tab comes into view.
 	const scrolled = el.querySelector(".set-tabs")?.scrollLeft ?? 0;

@@ -41,6 +41,7 @@ import { backupsKeep, exportAll } from "./db";
 import { currentDay, dayData, dayPage, publishDay } from "./day";
 import { addGoal, goalLine, goalsWithStats, goalTitle, needGoal, updateGoal, type GoalInfo, type GoalStatus } from "./goals";
 import { PORT } from "./server";
+import { cloudCommand, cloudFirst } from "./cloudcli";
 import { addSource, KEY_PATH, listSources, removeSource } from "./sources";
 import { PRESETS } from "./presets";
 import { checkBrief, WRITING_GUIDE } from "./brief";
@@ -182,6 +183,7 @@ Items are named wb-xxxx (e.g. wb-k3f9); commands take that, the bare k3f9, or an
   wb devices                       phones paired with the board, and when each was last seen
   wb unpair <id|all>               remove a phone (or every one): it stops reaching the board at once
   wb open                          open the desktop app; without it, start the board and open the browser
+  wb sync ...                      the board on Cloudflare instead of this computer (docs/cloud.md): wb sync help
 
 Options for add/edit:
   --kind task|check|review|decision|setup|bug|idea|notice   (default task)
@@ -269,9 +271,24 @@ const { values: o, positionals: args } = parseArgs({
 		caption: { type: "string", multiple: true },
 		item: { type: "string" },
 		retired: { type: "boolean" },
+		// wb sync (sync.ts, cloudcli.ts)
+		key: { type: "string" },
+		code: { type: "string" },
+		replace: { type: "boolean" },
+		"keep-local": { type: "boolean" },
 		help: { type: "boolean", short: "h" },
 	},
 });
+
+// `wb sync …`, and every command while the board is in the cloud: then this computer's database stays closed.
+if (cloudFirst(args[0])) {
+	try {
+		process.exit(await cloudCommand(o.help ? "help" : args[0], args, o));
+	} catch (e) {
+		console.error(`wb: ${(e as Error).message}`);
+		process.exit(1);
+	}
+}
 
 const db = open();
 // Defaults whose deadline passed go ahead before anything is read or changed, board running or not (asks.ts).

@@ -172,6 +172,11 @@ WB_APP_URL=http://localhost:4399 WB_APP_PROBE=1 WB_APP_PROBE_MANUAL=1 WB_APP_PRO
 4. Owned server exits unexpectedly → restart (1 s, 2 s, 5 s…, at most 5 in a minute), then show the error.
 5. Quit (tray Quit, not window close): owned → SIGTERM, wait 5 s, SIGKILL. Attached → leave it running.
 6. Single instance: a second launch brings the first one's window to the front (`show_main`).
+7. Sync on ([docs/cloud.md](../docs/cloud.md)): when `<database>.sync.json` (written by `wb sync on`) is next to the
+   database above, none of 1–5 happens. `cloud_run` asks the cloud board for a one-time login ticket with the device
+   token in that file (`POST <url>/api/sync/ticket`), grants the board's capability to the cloud board's origin, and
+   loads `<url>/login?ticket=…&next=/`. `board_url` is then the cloud board's, `board_token` its token (the tray's
+   count sends it), `app_info` says `server: "cloud"`, and `set_lan` refuses. Not with `WB_APP_URL` or in the nightly.
 
 Settled in phase 2 (server.rs):
 
@@ -250,9 +255,9 @@ null (the badges on the left edge), polled by Rust (the page's own poll pauses w
   `server::board_url(app) -> Url`, `server::is_owned(app) -> bool`, `server::lan_enabled(app) -> bool`,
   `server::set_lan(app, on) -> Result<(), String>` (saves the app setting `lan`, restarts an owned server; Err when
   attached). Tray Quit calls `app.exit(0)`; `server::on_run_event` stops an owned server on exit.
-- **HTTP from Rust:** `ureq` 3 (blocking, small), for both the ping (server.rs) and the tray's count (tray.rs).
-  Not a second HTTP crate. Added with `default-features = false` (no TLS or gzip; everything is plain HTTP on
-  loopback).
+- **HTTP from Rust:** `ureq` 3 (blocking, small), for the ping (server.rs), the tray's count (tray.rs) and the cloud
+  board's login ticket. Not a second HTTP crate. Features `rustls` and `platform-verifier` only (https for the cloud
+  board with the system's certificates, from the rustls the updater already builds; no gzip).
 - **App settings** (`lan`, `window` = the main window's size and maximized state, saved on close and quit by lib.rs, and anything else the app keeps): `app.json` in the app's config folder
   (`~/.config/io.github.kostas-xafis.workbench/app.json`), owned by server.rs.
 

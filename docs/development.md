@@ -4,11 +4,12 @@ How the repository is laid out, and where to make a change.
 
 | Folder | What's in it |
 | --- | --- |
-| `src/` | The server, the `wb` command and everything they share, in TypeScript run by Bun: `server.ts` (the board's HTTP server), `wb.ts` (the command line), `mcp.ts` (the MCP server), `db.ts` (the SQLite database), and one file per feature (`goals.ts`, `rulings.ts`, `trackers.ts`, `vaultask.ts`, …). A file name in these pages with no folder is in `src/`. |
+| `src/` | The server, the `wb` command and everything they share, in TypeScript run by Bun: `server.ts` (the board's HTTP server on this computer), `routes.ts` (its routes, which the cloud board serves too), `wb.ts` (the command line), `mcp.ts` (the MCP server), `db.ts` (the SQLite database), `sync.ts` (moving the board to the cloud and back), and one file per feature (`goals.ts`, `rulings.ts`, `trackers.ts`, `vaultask.ts`, …). A file name in these pages with no folder is in `src/`. |
 | `ui/` | The board's page: `index.html`, one style sheet and one script per part of the board, the pairing page (`pair.html`), the Usage page (`usage.html`) and the icon. No build step (see below). |
 | `test/` | `bun test`, one file per area (see below). |
 | `scripts/` | `bun run nightly` and `bun run release`, and the helpers the release build runs. |
 | `src-tauri/` | The desktop app, in Rust ([its own README](../src-tauri/README.md)). |
+| `worker/` | The cloud board: a Cloudflare Worker that runs the same board from `src/` and `ui/`, with its own `package.json` (wrangler) and tests ([cloud.md](cloud.md)). |
 | `examples/` | Report pages to start from ([reports.md](reports.md)). |
 | `docs/` | These pages. |
 
@@ -38,6 +39,9 @@ bun test -t "round trip"       # tests whose name matches
 ```
 
 `test/` has one file per area: `db` (projects, items, decisions, search, reports, settings), `trackers` (the reading parser and levels), `mcp` (a client's JSON-RPC against the same entry the board serves at `/mcp`), `asks` (notices, defaults at their deadline, several picks, the cap) and `server` (the HTTP write guard and the localhost-only routes, on a real server on port 4401). `bun run typecheck` covers them too.
+
+- **On the cloud board's SQLite:** `WB_TEST_SQL=durable-object bun test` runs every test that uses `freshDb()` through `worker/src/sqlite.ts` and a stand-in for a Durable Object's storage that allows only what the real one does (`worker/test/fake-storage.ts`). Code that passes the normal run but not this one won't work on the cloud board.
+- **The cloud board itself:** `cd worker && bun test` starts it on a local Worker (`wrangler dev`, port 8797) and tests getting in, the API, MCP and a board going up and coming back down ([cloud.md](cloud.md)). `bun test` at the top runs only `test/` (`root` in bunfig.toml).
 
 - **A fresh board per file:** `bunfig.toml` runs `test/preload.ts` before every file. It points `WB_DB`, `WB_BACKUPS`, `WB_PORT` (4401) and `XDG_RUNTIME_DIR` at a temp folder (`wb-test` in the system temp folder, emptied each run), and stops with an error if the database would be `workbench.db` or anywhere outside the temp folder, so a test can't touch the real board. (They are set there because `db.ts`, `server.ts` and `mcp.ts` read them when imported.)
 - **Adding a test:** make `test/<area>.test.ts`, `import { freshDb } from "./helpers"` and call it at the top: it gives a new database with one project, `demo`, that no other file shares. Call the functions in `db.ts` and friends directly, or an MCP tool through `mcpHttp` (see `test/mcp.test.ts`). A test that needs the server starts `server.ts` as a subprocess with its own `WB_DB` and `HOME` (see `test/server.test.ts`) and stops it in `afterAll`.
@@ -75,4 +79,8 @@ bun run release 0.2.0 --push      # the same, in one go
 - **Signing:** update files are signed with a private key that lives only in the repository's secrets (`TAURI_SIGNING_PRIVATE_KEY`, `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`) and in `~/.tauri/workbench.key` on Kostas's machine; the app carries its public half (`plugins.updater.pubkey` in `src-tauri/tauri.conf.json`) and refuses an update not signed with it. Losing the key means installed apps can't update any more: they'd need a new version installed by hand.
 - **Building a release locally:** `bun run app:build:release` with both variables set builds the same signed files; `bun scripts/release-assets.ts <version>` gathers them into `dist/` with `latest.json` and `SHA256SUMS` (`--unsigned` after a plain `bun run app:build`).
 - **The standalone server** needs `WB_DB` (the database's path); `WB_PORT` and `WB_BACKUPS` as for `bun src/server.ts`. For the service: `ExecStart=/path/to/workbench-server_<version>_linux_x86_64` with `Environment=WB_DB=/home/kostas/Projects/workbench/workbench.db`.
-- **CI:** every push and pull request to master runs the typecheck and `bun test`, compiles the server and checks it answers, and runs `cargo check`, `clippy` (warnings fail) and `cargo test` on the app (Actions → CI).
+- **CI:** three workflows, each run by a push or pull request to master only when its own files change, so a change to one part doesn't run the others' checks, and a change to the docs alone runs nothing:
+  - **Server** (`server.yml`): `src/`, `ui/`, `test/`, `scripts/` and the package files. The typecheck, `bun test`, and the compiled server answering `/api/ping`.
+  - **Desktop app** (`app.yml`): `src-tauri/`. `cargo check`, `clippy` (warnings fail) and `cargo test`.
+  - **Cloud board** (`worker.yml`): `worker/`, and `src/` and `ui/`, which it runs too. Its typecheck, the board's tests on the cloud board's SQLite, its own tests on a local Worker, and the bundle. Deploying is by hand (Run workflow), never on a push.
+  - A release commit (`Release X.Y.Z`, which only changes version numbers) runs none of them: its tag builds everything (Release).

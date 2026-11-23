@@ -107,15 +107,16 @@ const capAt = (s: Share) => Math.max(s.expiresAt, s.startedAt + shareLimits(s.db
 
 const WINDOWS = process.platform === "win32";
 
-// Runtime state lives in XDG_RUNTIME_DIR (gone at reboot, like the tunnels), one file per database.
-const STATE_DIR =
+// Runtime state lives in XDG_RUNTIME_DIR (gone at reboot, like the tunnels), one file per database. Worked out when
+// first needed, not on import: the cloud board (worker/) loads this file too, and has no user or Bun.hash.
+const stateDir = () =>
 	process.env.WB_SHARE_DIR ??
 	join(
 		process.env.XDG_RUNTIME_DIR || join(tmpdir(), `workbench-${WINDOWS ? userInfo().username : userInfo().uid}`),
 		"workbench-shares",
 	);
-const STATE_FILE = join(STATE_DIR, `shares-${Bun.hash(DB_PATH).toString(36)}.json`);
-const logFile = (report: number) => join(STATE_DIR, `share-${Bun.hash(DB_PATH).toString(36)}-${report}.log`);
+const stateFile = () => join(stateDir(), `shares-${Bun.hash(DB_PATH).toString(36)}.json`);
+const logFile = (report: number) => join(stateDir(), `share-${Bun.hash(DB_PATH).toString(36)}-${report}.log`);
 
 // A service started at login gets a short PATH, so look where the installers below put cloudflared too.
 const LOCAL_APP_DATA = process.env.LOCALAPPDATA || join(homedir(), "AppData", "Local");
@@ -290,7 +291,7 @@ export function listShares(): ShareInfo[] {
 }
 
 function save() {
-	mkdirSync(STATE_DIR, { recursive: true, mode: 0o700 });
+	mkdirSync(stateDir(), { recursive: true, mode: 0o700 });
 	const live = [...shares.values()].filter((s) => s.status !== "failed");
 	const saved: Saved[] = live.map(({ report, version, url, startedAt, expiresAt, maxAt, port, pid }) => ({
 		report,
@@ -302,12 +303,12 @@ function save() {
 		port,
 		pid,
 	}));
-	writeFileSync(STATE_FILE, JSON.stringify(saved, null, 1), { mode: 0o600 });
+	writeFileSync(stateFile(), JSON.stringify(saved, null, 1), { mode: 0o600 });
 }
 
 function load(): Saved[] {
 	try {
-		return JSON.parse(readFileSync(STATE_FILE, "utf8"));
+		return JSON.parse(readFileSync(stateFile(), "utf8"));
 	} catch {
 		return [];
 	}
@@ -382,8 +383,17 @@ function fail(s: Share, msg: string) {
 	save();
 }
 
-/** Ends what has expired (by the wall clock, so time asleep counts) and notices tunnels that died. */
+let sweeping = false;
+
+/**
+ * Ends what has expired (by the wall clock, so time asleep counts) and notices tunnels that died. The first call
+ * starts doing it every 15 s (not on import, which the cloud board does too, and where a timer may not start).
+ */
 function sweep() {
+	if (!sweeping) {
+		sweeping = true;
+		setInterval(sweep, 15e3).unref?.();
+	}
 	const now = Date.now();
 	for (const s of [...shares.values()]) {
 		if (s.status === "failed") continue;
@@ -392,7 +402,6 @@ function sweep() {
 			fail(s, `cloudflared stopped. ${lastLines(s.report)}`);
 	}
 }
-setInterval(sweep, 15e3).unref?.();
 
 /** Ends every share (running, starting or failed); returns how many there were. */
 export function stopAllShares(): number {
@@ -475,7 +484,7 @@ export async function startShare(db: Db, reportId: number, version?: number, hou
 	s.port = s.server.port!;
 
 	// Detached, with its output in a log file: it has to outlive the board.
-	mkdirSync(STATE_DIR, { recursive: true, mode: 0o700 });
+	mkdirSync(stateDir(), { recursive: true, mode: 0o700 });
 	const fd = openSync(logFile(r.id), "w", 0o600);
 	const cmd = [check.cloudflared!, "tunnel", "--no-autoupdate", "--url", `http://127.0.0.1:${s.port}`];
 	const argv = (await canScope())

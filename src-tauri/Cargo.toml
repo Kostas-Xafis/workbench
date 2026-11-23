@@ -16,8 +16,9 @@ tauri-build = { version = "2.7", features = [] }
 tauri = { version = "2.12", features = ["tray-icon", "image-png"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-# HTTP to the board on 127.0.0.1 only (server.rs ping, tray.rs count): no TLS, no JSON feature needed.
-ureq = { version = "3", default-features = false }
+# HTTP to the board: on 127.0.0.1 (server.rs ping, tray.rs count), or the cloud board over https when this computer
+# syncs (docs/cloud.md), with rustls and the system's certificates, as the updater already builds them.
+ureq = { version = "3", default-features = false, features = ["rustls", "platform-verifier"] }
 tauri-plugin-autostart = "2"
 tauri-plugin-opener = "2"
 tauri-plugin-single-instance = "2"

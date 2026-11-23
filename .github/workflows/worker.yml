@@ -1,0 +1,105 @@
+# The cloud board (worker/, docs/cloud.md): a Cloudflare Worker with the board in a Durable Object, running the
+# board's own code from src/ and ui/. On a change to it or to that code: the typecheck, the board's tests on the
+# cloud board's SQLite (WB_TEST_SQL=durable-object), the cloud board's tests on a local Worker (wrangler dev), and
+# the bundle. A docs-only change, the desktop app's Rust or the release scripts don't run it.
+#
+# Deploying is by hand, never on a push: Actions → Cloud board → Run workflow (workflow_dispatch, on master), which
+# runs the checks and then `wrangler deploy`. Or locally: `cd worker && bun run deploy`. It needs two repository
+# secrets (Settings → Secrets and variables → Actions): CLOUDFLARE_API_TOKEN (a token with "Workers Scripts: Edit"
+# for the account) and CLOUDFLARE_ACCOUNT_ID. The Worker's owner key (WB_OWNER_KEY) is set once with
+# `bunx wrangler secret put WB_OWNER_KEY` and stays across deploys.
+name: Cloud board
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "worker/**"
+      - "src/**"
+      - "ui/**"
+      - "test/**"
+      - "package.json"
+      - "bun.lock"
+      - "tsconfig.json"
+      - "src-tauri/icons/256x256.png"
+      - "src-tauri/icons/icon.png"
+      - ".github/workflows/worker.yml"
+  pull_request:
+    branches: [master]
+    paths:
+      - "worker/**"
+      - "src/**"
+      - "ui/**"
+      - "test/**"
+      - "package.json"
+      - "bun.lock"
+      - "tsconfig.json"
+      - "src-tauri/icons/256x256.png"
+      - "src-tauri/icons/icon.png"
+      - ".github/workflows/worker.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: worker-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
+
+permissions:
+  contents: read
+
+env:
+  BUN_VERSION: 1.4.4
+  WRANGLER_SEND_METRICS: "false"
+
+jobs:
+  check:
+    name: Typecheck, tests on a local Worker, bundle
+    # A release commit only changes the version numbers of what the commit before it was checked with, and its tag
+    # builds everything anyway (release.yml).
+    if: ${{ !startsWith(github.event.head_commit.message, 'Release ') }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - run: bun install --frozen-lockfile
+      - run: bun install --frozen-lockfile
+        working-directory: worker
+      - run: bunx tsc --noEmit -p worker
+      - name: The board's tests on the cloud board's SQLite
+        run: bun test
+        env:
+          WB_TEST_SQL: durable-object
+      - name: The cloud board on a local Worker
+        run: bun test
+        working-directory: worker
+      - name: The bundle builds
+        run: bunx wrangler deploy --dry-run --outdir dist
+        working-directory: worker
+
+  deploy:
+    name: Deploy to Cloudflare
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master'
+    needs: check
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - run: bun install --frozen-lockfile
+        working-directory: worker
+      - name: The Cloudflare secrets are there
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          missing=""
+          [ -n "$CLOUDFLARE_API_TOKEN" ] || missing="$missing CLOUDFLARE_API_TOKEN"
+          [ -n "$CLOUDFLARE_ACCOUNT_ID" ] || missing="$missing CLOUDFLARE_ACCOUNT_ID"
+          if [ -n "$missing" ]; then echo "::error::Missing repository secrets:$missing (see the top of worker.yml)"; exit 1; fi
+      - run: bunx wrangler deploy
+        working-directory: worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

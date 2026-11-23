@@ -21,7 +21,7 @@ start();
 setInterval(() => {
 	if (document.visibilityState !== "visible" || dlg.open || linkDlg.open || projDlg.open) return;
 	loadSettings();
-	if (!$("#settings-view").hidden && !(currentTab().local && !CAN_SHARE)) currentTab().poll?.();
+	if (!$("#settings-view").hidden && !(currentTab().local && !OWNER) && !(currentTab().computer && CLOUD)) currentTab().poll?.();
 	loadProjects();
 	loadItems();
 	loadRepos();

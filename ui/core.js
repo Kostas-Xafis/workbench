@@ -1,3 +1,6 @@
+// The cloud board (worker/, docs/cloud.md) says so on its page: <html data-cloud="1">. Paired devices are its owner
+// there, but whatever needs a computer (sharing, Usage, agents, folders) isn't on it.
+const CLOUD = document.documentElement.dataset.cloud === "1";
 const KINDS = ["task", "check", "review", "decision", "setup", "bug", "idea", "notice"];
 const STATUSES = ["todo", "doing", "waiting", "done", "dropped"];
 const OPEN = ["todo", "doing", "waiting"];

@@ -1,0 +1,77 @@
+# The board's TypeScript: the server, the wb command, the MCP server and the page (src/, ui/), checked and tested,
+# and compiled into the one binary the desktop app bundles and the release ships. Runs only when those change: the
+# desktop app's Rust is app.yml, the cloud board is worker.yml, and docs alone run nothing.
+name: Server
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "src/**"
+      - "ui/**"
+      - "test/**"
+      - "scripts/**"
+      - "package.json"
+      - "bun.lock"
+      - "tsconfig.json"
+      - "bunfig.toml"
+      # The compiled server embeds the app icons a phone puts on its home screen.
+      - "src-tauri/icons/256x256.png"
+      - "src-tauri/icons/icon.png"
+      # The board's tests can run on the cloud board's SQLite (test/helpers.ts, WB_TEST_SQL).
+      - "worker/src/sqlite.ts"
+      - "worker/test/fake-storage.ts"
+      - ".github/workflows/server.yml"
+  pull_request:
+    branches: [master]
+    paths:
+      - "src/**"
+      - "ui/**"
+      - "test/**"
+      - "scripts/**"
+      - "package.json"
+      - "bun.lock"
+      - "tsconfig.json"
+      - "bunfig.toml"
+      # The compiled server embeds the app icons a phone puts on its home screen.
+      - "src-tauri/icons/256x256.png"
+      - "src-tauri/icons/icon.png"
+      # The board's tests can run on the cloud board's SQLite (test/helpers.ts, WB_TEST_SQL).
+      - "worker/src/sqlite.ts"
+      - "worker/test/fake-storage.ts"
+      - ".github/workflows/server.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: server-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  BUN_VERSION: 1.4.4
+
+jobs:
+  server:
+    name: Typecheck, tests and server build
+    # A release commit only changes the version numbers of what the commit before it was checked with, and its tag
+    # builds everything anyway (release.yml).
+    if: ${{ !startsWith(github.event.head_commit.message, 'Release ') }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - run: bun install --frozen-lockfile
+      - run: bun run typecheck
+      - run: bun test
+      - name: Compile the server into one binary
+        run: bun build --compile --minify --bytecode --sourcemap src/server.ts --outfile workbench-server
+      - name: The binary starts and answers /api/ping
+        run: |
+          dir=$(mktemp -d)
+          WB_PORT=4399 WB_DB="$dir/workbench.db" WB_BACKUPS="$dir/backups" ./workbench-server > "$dir/log" 2>&1 &
+          for i in $(seq 50); do curl -fsS http://127.0.0.1:4399/api/ping && exit 0; sleep 0.2; done
+          cat "$dir/log"; exit 1

@@ -1,0 +1,4 @@
+[test]
+preload = ["./test/preload.ts"]
+# Starting the Worker locally (wrangler dev) takes a few seconds.
+timeout = 60000

@@ -1,4 +1,5 @@
-// `import x from "../ui/icon.svg" with { type: "file" }` gives the file's path (embedded when compiled). The board's
+// `import x from "../ui/icon.svg" with { type: "file" }` gives the file's path (embedded when compiled), `with { type: "text" }`
+// its contents (mcp.ts, which the cloud board bundles too: esbuild takes no file imports). The board's
 // style sheets and scripts (ui/*.css, ui/*.js) are imported that way in ui.ts.
 declare module "*.svg" {
 	const path: string;
