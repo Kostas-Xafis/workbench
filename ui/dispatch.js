@@ -48,7 +48,7 @@ function sendWhy(i) {
 	if (!info.on) return "The board doesn't start agents: turn it on in Settings → Agents.";
 	if (!info.allowed) return info.why || "Agents start only from this computer.";
 	if (!sendKind(i)) return i.owner === "agent" && i.status === "doing" ? "It's being worked on already." : "Only an agent's to-do, or a decision, review or notice you answer.";
-	if (!info.folders.includes(i.project)) return "Its project has no folder on this computer (Settings → Projects).";
+	if (!info.folders.includes(i.project)) return CLOUD ? "No computer that's online has its project's folder (Settings → Projects)." : "Its project has no folder on this computer (Settings → Projects).";
 	if (runActive(i.id)) return "An agent is on it already.";
 	if (info.limited) return info.why;
 	return "";

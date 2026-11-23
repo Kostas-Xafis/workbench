@@ -9,11 +9,15 @@
  *   `_meta` into them; a legacy one sends the revision `initialize` agreed.
  * - A picture given as a file (attach_image, add_item's images) is a path on this computer: the relay reads it and
  *   sends its bytes instead, since the cloud board has no files.
+ * - vault_list and vault_get are answered here (cloudvault.ts): the password window opens on this computer, and the
+ *   .env file is written here, where the agent runs.
  */
 import { readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 import { cloudFetch, type SyncConfig } from "./sync";
+import { VAULT_TOOLS, vaultHere } from "./cloudvault";
+import { relayedToolReply } from "./mcp";
 
 const M = "io.modelcontextprotocol/";
 const MAX_IMAGE = 20 * 1024 * 1024;
@@ -69,6 +73,13 @@ export async function relay(cfg: SyncConfig) {
 	};
 
 	const send = async (raw: Msg) => {
+		// ---- The vault's password window, on this computer (cloudvault.ts) ----
+		if (raw.method === "tools/call" && VAULT_TOOLS.has(String(raw.params?.name))) {
+			const out = await vaultHere(cfg, String(raw.params!.name), (raw.params!.arguments ?? {}) as Record<string, unknown>, project);
+			if (raw.id !== undefined && raw.id !== null) write(relayedToolReply(raw as Parameters<typeof relayedToolReply>[0], agreed, out));
+			return;
+		}
+		// ---- end of the vault ----
 		let m = raw;
 		try {
 			m = withImages(raw);

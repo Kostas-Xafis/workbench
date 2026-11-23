@@ -6,9 +6,9 @@
  *   `Authorization: Bearer` header (`wb`, the MCP relay, the app). There is no "this computer": a paired device may
  *   do what the board's page on the computer may (settings, the vault, data). The first device comes from the
  *   owner key (the WB_OWNER_KEY secret) through /api/sync/claim; later ones pair with a code, as phones do.
- * - What needs a computer: git and pull requests, agents the board starts, backups to files, Usage, sharing
- *   through a tunnel, folders and health. NEEDS_COMPUTER answers those here, in words, until the computer helper
- *   does them (docs/cloud.md).
+ * - What needs a computer: agents the board starts, tracker commands, git and pull requests, logos, Usage and
+ *   project folders are done by a helper on a computer that syncs (helper.ts). What no helper does (backups to
+ *   files, sharing through a tunnel, health) NEEDS_COMPUTER answers here, in words (docs/cloud.md).
  * - Moving a board: /api/sync/* (src/sync.ts), for `wb sync on` and `wb sync off`. Bearer tokens only.
  * - Jobs: asks past their deadline go ahead on the next request (at most every 30 s), as `wb` does; tidying runs
  *   once a day from an alarm. Point-in-time recovery (30 days) stands in for the nightly backup file.
@@ -26,11 +26,11 @@ import { createSchema, tidy, type Db } from "../../src/db";
 import { applyDue } from "../../src/asks";
 import { createHash } from "node:crypto";
 import { addDevice, deviceName, Pairing, phoneGate, type OpenCode } from "../../src/devices";
-import { listRuns, runsInfo } from "../../src/dispatch";
 import { boardRoutes, PAIR_OPEN, type BoardFile, type BoardHost } from "../../src/routes";
 import { readRows, SYNC_FORMAT, tableInfo, tableNames, wipe, writeRows, type Cell } from "../../src/sync";
 import { SqliteDb } from "./sqlite";
 import { compile, dispatch } from "./router";
+import { Helpers } from "./helper";
 
 export type Env = {
 	BOARD: DurableObjectNamespace;
@@ -46,13 +46,10 @@ const cookie = (token: string) => `${COOKIE}=${token}; Path=/; Max-Age=${token ?
 const COMPUTER = "on the cloud board this needs a computer, which the board doesn't have yet (docs/cloud.md)";
 /** Routes that only a computer can answer, and what to say instead. */
 export const NEEDS_COMPUTER: Record<string, string> = {
-	"/usage": `Usage reads Claude Code's files: ${COMPUTER}`,
-	"/api/usage": `Usage reads Claude Code's files: ${COMPUTER}`,
 	"/api/data/backups": "the cloud board keeps 30 days of every change instead of backup files (Cloudflare's point-in-time recovery)",
 	"/api/data/backups/:name": "the cloud board has no backup files",
 	"/api/data/backups/:name/restore": "the cloud board has no backup files",
 	"/api/data/compact": "the cloud board's database compacts itself",
-	"/api/settings/folders": `project folders are on a computer: ${COMPUTER}`,
 	"/api/settings/health": `health checks a computer: ${COMPUTER}`,
 	"/api/setup": `the setup guide checks a computer: ${COMPUTER}`,
 	"/api/share/check": `sharing runs a tunnel: ${COMPUTER}`,
@@ -61,13 +58,8 @@ export const NEEDS_COMPUTER: Record<string, string> = {
 	"/api/reports/:id/share": `sharing runs a tunnel: ${COMPUTER}`,
 	"/api/reports/:id/share/extend": `sharing runs a tunnel: ${COMPUTER}`,
 	"/api/reports/:id/fetch": `a data source's headers are sealed with a key on a computer: ${COMPUTER}`,
-	"/api/runs/test": `agents run on a computer: ${COMPUTER}`,
-	"/api/runs/:id/stop": `agents run on a computer: ${COMPUTER}`,
 	"/api/update/check": "the cloud board is updated by deploying the Worker",
 };
-/** What the board's page asks for on every poll that only a computer knows: empty, so the page shows nothing. */
-const EMPTY: Record<string, unknown> = { "/api/git": [], "/api/code": {} };
-
 /** The routes that answer without a device: the pairing page and what it needs, the ping, claiming and logging in. */
 const OPEN = new Set([...PAIR_OPEN, "/api/ping", "/api/sync/claim", "/login"]);
 /** How long a login ticket (POST /api/sync/ticket) can be used for, once. */
@@ -91,6 +83,7 @@ export class Board extends DurableObject<Env> {
 	private origin = "";
 	private dueAt = 0;
 	private claimMisses: number[] = [];
+	private readonly helpers: Helpers;
 
 	constructor(ctx: DurableObjectState, env: Env) {
 		super(ctx, env);
@@ -157,6 +150,7 @@ export class Board extends DurableObject<Env> {
 			ping: () => ({ app: "workbench", version: pkg.version, cloud: true, sync: SYNC_FORMAT, claimed: this.claimed() }),
 		};
 		this.match = compile(boardRoutes(this.host) as Record<string, unknown>);
+		this.helpers = new Helpers(ctx, db);
 	}
 
 	/** Whether a device exists yet: until one does, only the owner key gets in. */
@@ -181,15 +175,21 @@ export class Board extends DurableObject<Env> {
 			if (no) return no;
 		}
 		if (path.startsWith("/api/sync/")) return this.sync(req, url);
+		// ---- The computer helper (helper.ts): what needs a computer, done by one that syncs with this board. ----
+		if (path.startsWith("/api/helper/") || path === "/api/helper") return this.helpers.fetch(req, url, this.host.gate.device(req, srv));
 		if (!m) return new Response("not found", { status: 404 });
-		if (Object.hasOwn(EMPTY, m.pattern)) return json(EMPTY[m.pattern]);
-		// Starting an agent needs a computer; the list of past runs (and what the panel says) comes from here.
-		if (m.pattern === "/api/runs" && req.method === "POST") return json({ error: `agents run on a computer: ${COMPUTER}` }, 501);
-		if (m.pattern === "/api/runs" && req.method === "GET" && !url.searchParams.get("item")) return json(await this.runsPanel());
+		try {
+			const device = this.host.gate.device(req, srv);
+			const done = await this.helpers.route(m.pattern, req, url, { device, boardOnly: this.host.boardOnly(req, srv), localRead: this.host.localRead(req, srv) });
+			if (done) return done;
+			if (m.pattern === "/api/settings/projects") return await this.helpers.projectsTab(await dispatch(m, req, srv));
+		} catch (e) {
+			console.error(`${req.method} ${path}: ${(e as Error).stack ?? e}`);
+			return json({ error: (e as Error).message }, 500);
+		}
+		// ---- end of the computer helper ----
 		const why = NEEDS_COMPUTER[m.pattern];
 		if (why) return json({ error: why, cloud: true }, 501);
-		// A project's logo is a file in its folder, on a computer: the page shows its letters instead.
-		if (m.pattern === "/api/projects/:slug/logo") return new Response("no logo", { status: 404, headers: { "cache-control": "max-age=3600" } });
 		try {
 			return await dispatch(m, req, srv);
 		} catch (e) {
@@ -198,17 +198,6 @@ export class Board extends DurableObject<Env> {
 			console.error(`${req.method} ${path}: ${(e as Error).stack ?? e}`);
 			return json({ error: (e as Error).message }, 500);
 		}
-	}
-
-	/** Settings → Agents and the item dialog's panel: past runs, and that none start from here. */
-	private async runsPanel() {
-		let info: Record<string, unknown> = {};
-		try {
-			info = await runsInfo(this.db, null);
-		} catch {
-			info = { runs: listRuns(this.db, { limit: 30 }), active: [] };
-		}
-		return { ...info, allowed: false, why: `Agents start on a computer: ${COMPUTER}`, folders: [], running: 0, active: [] };
 	}
 
 	/** Asks past their deadline go ahead with their default, before anything is read (asks.ts). */
@@ -222,6 +211,18 @@ export class Board extends DurableObject<Env> {
 			console.error(`asks: ${(e as Error).message}`);
 		}
 	}
+
+	// ---- The computer helper's WebSockets (helper.ts): hibernatable, so an idle one costs nothing. ----
+	webSocketMessage(ws: WebSocket, data: string | ArrayBuffer) {
+		return this.helpers.message(ws, data);
+	}
+	webSocketClose(ws: WebSocket) {
+		this.helpers.closed(ws);
+	}
+	webSocketError(ws: WebSocket) {
+		this.helpers.closed(ws);
+	}
+	// ---- end of the computer helper ----
 
 	/** Makes sure tomorrow's tidy is scheduled. */
 	private async tidyDaily() {

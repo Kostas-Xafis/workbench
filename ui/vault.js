@@ -383,8 +383,7 @@ vaultView.addEventListener("click", async (e) => {
 });
 for (const ev of ["pointerdown", "keydown"]) vaultView.addEventListener(ev, touchVault);
 // Usage opens for the project you're looking at (all of them under "All projects"). It reads Claude Code's files on
-// the computer, so the cloud board has none.
-$("#usage-btn").hidden = CLOUD;
+// the computer: on the cloud board, a computer that syncs with it reads them (its helper), and says so when none is online.
 $("#usage-btn").onclick = (e) => {
 	if (e.button || e.metaKey || e.ctrlKey || e.shiftKey) return;
 	e.preventDefault();

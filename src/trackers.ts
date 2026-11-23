@@ -762,14 +762,20 @@ export async function runShell(
 	return out;
 }
 
-/** Where a tracker's command runs: its project's folder, or home for a global one. */
-function workDir(db: Db, project: string) {
+/** The folder of a tracker's project, '' for a global one. */
+function folderOf(db: Db, project: string) {
 	const p = project ? (db.query("SELECT path FROM projects WHERE slug = ?").get(project) as { path: string } | null) : null;
-	return p?.path && existsSync(p.path) ? p.path : homedir();
+	return p?.path ?? "";
 }
 
-async function read(db: Db, t: Tracker, signal: AbortSignal): Promise<Reading> {
-	const cwd = workDir(db, t.project);
+/** Who takes a reading: this computer, or (on the cloud board) a computer helper that syncs with it. */
+export const reader = { read: readTracker };
+
+const read = (db: Db, t: Tracker, signal: AbortSignal): Promise<Reading> => reader.read(t, folderOf(db, t.project), signal);
+
+/** Takes a tracker's reading on this computer. Its command runs in its project's folder, or home for a global one. */
+export async function readTracker(t: Pick<Tracker, "id" | "kind" | "command" | "options" | "name" | "project">, folder: string, signal: AbortSignal): Promise<Reading> {
+	const cwd = folder && existsSync(folder) ? folder : homedir();
 	const env = { WB_TRACKER: t.name, WB_PROJECT: t.project };
 	if (t.kind === "command") return parseReading(await runShell(t.command, { cwd, env, signal }));
 	const preset = PRESETS[t.kind];

@@ -21,6 +21,7 @@ import { refreshUsage } from "./usage";
 import { runDue } from "./trackers";
 import { boardRoutes, PAIR_OPEN, type BoardFile, type BoardHost } from "./routes";
 import { readSync, type SyncConfig } from "./sync";
+import { startHelper } from "./helper";
 
 export const PORT = Number(process.env.WB_PORT ?? 4321);
 // The compiled binary (bun build --compile) runs from bun's embedded file system.
@@ -183,24 +184,28 @@ export function serve({ lan = false } = {}) {
 
 /**
  * While this computer syncs with the cloud board (sync.ts), the board isn't here: whatever starts the server (the
- * service, an older desktop app's sidecar) gets one that says where it went, and never opens the database.
+ * service, the desktop app's sidecar) gets one that says where it went, and never opens the database. It also runs
+ * the computer helper (helper.ts), which does for the cloud board what needs this computer: one per computer, the
+ * process that has the port.
  */
-export function serveMoved(cfg: SyncConfig) {
+export function serveMoved(cfg: SyncConfig, { helper = true } = {}) {
 	const page = `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Workbench</title>
 <style>body{font:15px/1.5 system-ui,sans-serif;max-width:34rem;margin:15vh auto;padding:0 16px;color:#1d1c1a;background:#f6f5f2}@media(prefers-color-scheme:dark){body{color:#e8e6e1;background:#1b1a18}a{color:#8fa2ff}}</style>
 <h1>The board is in the cloud</h1><p>This computer syncs with the cloud board, so the board isn't here. Open it at <a href="${cfg.url}/">${cfg.url}</a>.</p>
 <p><code>wb sync off</code> brings it back to this computer.</p>`;
-	return Bun.serve({
+	const server = Bun.serve({
 		port: PORT,
 		hostname: "127.0.0.1",
 		routes: {
-			"/api/ping": () => Response.json({ app: "workbench", version: pkg.version, moved: cfg.url, pid: process.pid }, { headers: { "cache-control": "no-store" } }),
+			"/api/ping": () => Response.json({ app: "workbench", version: pkg.version, moved: cfg.url, pid: process.pid, helper: !!running?.connected() }, { headers: { "cache-control": "no-store" } }),
 		},
 		fetch: (req) =>
 			new URL(req.url).pathname.startsWith("/api/") || req.method !== "GET"
 				? Response.json({ error: `the board is in the cloud: ${cfg.url}`, moved: cfg.url }, { status: 409 })
 				: new Response(page, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } }),
 	});
+	const running = helper ? startHelper(cfg) : null;
+	return server;
 }
 
 if (import.meta.main) {
@@ -212,7 +217,7 @@ if (import.meta.main) {
 	const synced = readSync();
 	if (synced) {
 		const s = serveMoved(synced);
-		console.log(`workbench: the board is in the cloud (${synced.url}); http://${s.hostname}:${s.port} says so`);
+		console.log(`workbench: the board is in the cloud (${synced.url}); http://${s.hostname}:${s.port} says so, and the computer helper runs here`);
 	} else {
 		const s = serve({ lan: process.argv.includes("--lan") });
 		console.log(`workbench on http://${s.hostname}:${s.port}`);

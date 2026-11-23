@@ -101,7 +101,7 @@ import {
 } from "./trackers";
 import { briefText } from "./today";
 import { latestRun, runLine } from "./dispatch";
-import { FILE_MINUTES, getForAgent, listForAgent, type Delivery } from "./vaultask";
+import { FILE_MINUTES, getForAgent, getReply, listForAgent, listReply, type Delivery } from "./vaultask";
 
 const BOARD = `http://localhost:${Number(process.env.WB_PORT ?? 4321)}`;
 const MODERN = "2026-07-28";
@@ -1348,14 +1348,7 @@ const TOOLS: Tool[] = [
 		hints: RO,
 		async run(a, c) {
 			const project = projectOf(c, a.project, false);
-			const list = await listForAgent({ db: c.db, project, session: c.session }, a.reason);
-			const scope = (p: string) => (p ? p : "every project");
-			return {
-				text: list.length
-					? `${list.length} secret${list.length === 1 ? "" : "s"} ${project ? `for ${project} (and every project)` : "in the vault"}:\n${list.map((s) => `- ${s.name} (${scope(s.project)})${s.note ? `: ${s.note}` : ""}`).join("\n")}\n\nvault_get gives the values, after {{name}} allows it again.`
-					: `No secrets ${project ? `for ${project} or every project ` : ""}in the vault.`,
-				data: { secrets: list },
-			};
+			return listReply(await listForAgent({ db: c.db, project, session: c.session }, a.reason), project);
 		},
 	},
 	{
@@ -1376,13 +1369,7 @@ const TOOLS: Tool[] = [
 		async run(a, c) {
 			const project = projectOf(c, a.project, false);
 			const deliver: Delivery = a.deliver ?? "file";
-			const r = await getForAgent({ db: c.db, project, session: c.session }, a.names, a.reason, deliver);
-			const missing = r.missing.length ? `\nNot found: ${r.missing.join(", ")} (vault_list shows the names).` : "";
-			if (!r.given.length) return { text: `None of those are in the vault.${missing}`, data: { given: [], missing: r.missing } };
-			const text = r.file
-				? `${r.given.length} secret${r.given.length === 1 ? "" : "s"} written to ${r.file} (deleted in ${FILE_MINUTES} minutes), as ${r.given.map((g) => g.env).join(", ")}.\nUse: set -a; . ${r.file}; set +a; <command>. Don't print the values.${missing}`
-				: `${r.given.map((g) => `${g.env}=${g.value}`).join("\n")}\n\nKeep these out of files, commits and messages.${missing}`;
-			return { text, data: { given: r.given, missing: r.missing, ...(r.file ? { file: r.file, expires_minutes: FILE_MINUTES } : {}) } };
+			return getReply(await getForAgent({ db: c.db, project, session: c.session }, a.names, a.reason, deliver));
 		},
 	},
 	{
@@ -2085,3 +2072,16 @@ async function listen(req: Request, m: Rpc, c: Conn): Promise<Response> {
 	});
 }
 
+
+/* ---------- wb mcp's relay (relay.ts): a tool answered on this computer, shaped as this server shapes it ---------- */
+
+/** The JSON-RPC reply to a tools/call that the relay answered itself (vault_get and vault_list, cloudvault.ts). */
+export function relayedToolReply(m: { id?: Id | null; params?: Json }, agreed: string | undefined, out: { text: string; data?: Json } | { error: string }): Json {
+	const meta = ((m.params?._meta ?? {}) as Json)[`${M}protocolVersion`];
+	const era: Era = typeof meta === "string" ? { version: meta, modern: meta === MODERN } : { version: agreed ?? "2025-03-26", modern: false };
+	const result: Json =
+		"error" in out
+			? { content: [{ type: "text", text: out.error }], isError: true }
+			: { content: [{ type: "text", text: out.text }], ...(out.data && since(era, "2025-06-18") ? { structuredContent: out.data } : {}), isError: false };
+	return { jsonrpc: "2.0", id: m.id ?? null, result: shape(era, result) };
+}

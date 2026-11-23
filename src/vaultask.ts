@@ -21,7 +21,7 @@ import { existsSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync, ch
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
-import { listSecrets, logVaultAccess, projects, secretValue, vaultAuthOk, vaultInfo, type Db, type VaultAccess, type VaultInfo } from "./db";
+import { listSecrets, logVaultAccess, projects, secretValue, vaultAuthOk, vaultInfo, type Db, type Secret, type VaultAccess, type VaultInfo } from "./db";
 import { getSetting } from "./settings";
 
 /** How long a delivered .env file lives. */
@@ -105,30 +105,56 @@ export function resetCooldown() {
 /** A refusal the agent should read and act on (not a bug). */
 export class VaultRefusal extends Error {}
 
-type Who = { db: Db; project?: string; session?: string };
-type Found = { id: number; project: string; name: string; note: string };
+/**
+ * Where the vault is: this computer's database, or the cloud board, which `wb mcp`'s relay reaches with this
+ * computer's device token (cloudvault.ts). The window, the password and the decrypting stay on this computer either way.
+ */
+export type VaultStore = {
+	/** Settings → Privacy and security → Vault: whether agents may ask at all. */
+	agentsOn(): Promise<boolean>;
+	info(): Promise<Pick<VaultInfo, "salt" | "iterations"> | null>;
+	/** The sealed secrets, when `auth` (from the password) is the vault's; null when it isn't. */
+	open(auth: string): Promise<{ secrets: Pick<Secret, "id" | "project" | "meta">[]; value(id: number): Promise<string | undefined> } | null>;
+	projectName(slug: string): Promise<string>;
+	log(a: Omit<VaultAccess, "id" | "at">): Promise<void>;
+};
 
-const projectName = (db: Db, slug?: string) => (slug ? (projects(db).find((p) => p.slug === slug)?.name ?? slug) : "");
-const who = (db: Db, project?: string) => (project ? `An agent working on ${projectName(db, project)}` : "An agent");
+/** The vault in this computer's database. */
+export const dbVault = (db: Db): VaultStore => ({
+	agentsOn: async () => getSetting<boolean>(db, "vault.agents"),
+	info: async () => vaultInfo(db),
+	open: async (auth) => (vaultAuthOk(db, auth) ? { secrets: listSecrets(db), value: async (id) => secretValue(db, id) } : null),
+	projectName: async (slug) => projects(db).find((p) => p.slug === slug)?.name ?? slug,
+	log: async (a) => logVaultAccess(db, a),
+});
+
+type Who = { db?: Db; store?: VaultStore; project?: string; session?: string };
+type Found = { id: number; project: string; name: string; note: string };
+type Opened = NonNullable<Awaited<ReturnType<VaultStore["open"]>>>;
+
+const storeOf = (w: Who) => w.store ?? dbVault(w.db!);
+const who = async (w: Who) => (w.project ? `An agent working on ${await storeOf(w).projectName(w.project)}` : "An agent");
 const cleanReason = (r: string) =>
 	r.replace(/[\u0000-\u001f\u007f\u200b-\u200f\u202a-\u202e\u2066-\u2069]+/g, " ").replace(/\s+/g, " ").trim().slice(0, MAX_REASON);
 
 /**
- * Asks Kostas for the vault password in the window, up to TRIES times, and gives back the key. Throws a VaultRefusal
- * (logged) when agent requests are off, there's no vault, or the answer is Deny, no answer, or wrong every time.
+ * Asks Kostas for the vault password in the window, up to TRIES times, and gives back the key and the opened vault.
+ * Throws a VaultRefusal (logged) when agent requests are off, there's no vault, or the answer is Deny, no answer,
+ * or wrong every time.
  */
-async function unlock(w: Who, ask: Omit<Ask, "title">, log: Pick<VaultAccess, "what" | "asked" | "delivery">): Promise<CryptoKey> {
+async function unlock(w: Who, ask: Omit<Ask, "title">, log: Pick<VaultAccess, "what" | "asked" | "delivery">): Promise<{ key: CryptoKey; vault: Opened }> {
+	const store = storeOf(w);
 	const entry = (outcome: VaultAccess["outcome"]) =>
-		logVaultAccess(w.db, { project: w.project ?? "", session: w.session ?? "", secrets: [], ...log, outcome });
-	if (!getSetting<boolean>(w.db, "vault.agents")) {
-		entry("off");
+		store.log({ project: w.project ?? "", session: w.session ?? "", secrets: [], ...log, outcome });
+	if (!(await store.agentsOn())) {
+		await entry("off");
 		throw new VaultRefusal("agents may not ask for secrets on this board (Settings → Privacy and security → Vault). Ask Kostas to turn it on, or to give you the value another way.");
 	}
-	const info = vaultInfo(w.db);
+	const info = await store.info();
 	if (!info) throw new VaultRefusal("Kostas has no vault yet (the board's Vault button sets one up).");
 	return oneAtATime(async () => {
 		if (Date.now() - deniedAt < COOLDOWN_MS) {
-			entry("denied");
+			await entry("denied");
 			throw new VaultRefusal("Kostas said no to a vault request a moment ago. Don't ask again unless they tell you to.");
 		}
 		let text = ask.text;
@@ -137,45 +163,46 @@ async function unlock(w: Who, ask: Omit<Ask, "title">, log: Pick<VaultAccess, "w
 			try {
 				answer = await dialog.ask({ title: "Workbench vault", ...ask, text });
 			} catch (e) {
-				entry("failed");
+				await entry("failed");
 				throw new VaultRefusal(`${(e as Error).message}. Ask Kostas for the value another way.`);
 			}
 			if (answer === null) {
 				deniedAt = Date.now();
-				entry("denied");
+				await entry("denied");
 				throw new VaultRefusal("Kostas said no. Don't ask again unless they tell you to; carry on without it, or ask them what to do.");
 			}
 			if (typeof answer === "object") {
-				entry("no-answer");
+				await entry("no-answer");
 				throw new VaultRefusal(`nobody answered the password window within ${ANSWER_SECONDS / 60} minutes. Kostas may be away: carry on with other work, or file what you need for them on the board.`);
 			}
 			const d = await deriveVault(answer, info);
-			if (vaultAuthOk(w.db, d.auth)) return d.key;
+			const vault = await store.open(d.auth);
+			if (vault) return { key: d.key, vault };
 			text = `Wrong password, try again.\n\n${ask.text}`;
 		}
-		entry("wrong-password");
+		await entry("wrong-password");
 		throw new VaultRefusal("the vault password was wrong every time. Don't ask again unless Kostas tells you to.");
 	});
 }
 
 /** The secrets an agent in `project` may see: that project's and those for every project (all of them for none). */
-async function readNames(db: Db, key: CryptoKey, project?: string): Promise<Found[]> {
-	const rows = listSecrets(db).filter((s) => !project || !s.project || s.project === project);
+async function readNames(vault: Opened, key: CryptoKey, project?: string): Promise<Found[]> {
+	const rows = vault.secrets.filter((s) => !project || !s.project || s.project === project);
 	return Promise.all(rows.map(async (r) => ({ id: r.id, project: r.project, ...(await unseal<{ name: string; note: string }>(key, r.meta)) })));
 }
 
 /** vault_list: the names and notes of the secrets the agent may ask for, never a value. */
 export async function listForAgent(w: Who, reason: string) {
-	const key = await unlock(
+	const { key, vault } = await unlock(
 		w,
 		{
-			text: `${who(w.db, w.project)} asks to see the names of your vault secrets${w.project ? " for that project" : ""} (not their values).\n\nThe agent says: “${cleanReason(reason)}”\n\nEnter the vault password to show it the names.`,
+			text: `${await who(w)} asks to see the names of your vault secrets${w.project ? " for that project" : ""} (not their values).\n\nThe agent says: “${cleanReason(reason)}”\n\nEnter the vault password to show it the names.`,
 			ok: "Show names",
 		},
 		{ what: "names", asked: 0, delivery: "" },
 	);
-	const found = (await readNames(w.db, key, w.project)).sort((a, b) => a.name.localeCompare(b.name));
-	logVaultAccess(w.db, { project: w.project ?? "", session: w.session ?? "", what: "names", asked: 0, secrets: [], delivery: "", outcome: "given" });
+	const found = (await readNames(vault, key, w.project)).sort((a, b) => a.name.localeCompare(b.name));
+	await storeOf(w).log({ project: w.project ?? "", session: w.session ?? "", what: "names", asked: 0, secrets: [], delivery: "", outcome: "given" });
 	return found.map(({ name, note, project }) => ({ name, note, project }));
 }
 
@@ -193,15 +220,15 @@ export async function getForAgent(w: Who, names: string[], reason: string, deliv
 		deliver === "file"
 			? `They go into a private file for the agent to use (deleted after ${FILE_MINUTES} minutes), not into its conversation.`
 			: "The agent sees the values, and they stay in its conversation.";
-	const key = await unlock(
+	const { key, vault } = await unlock(
 		w,
 		{
-			text: `${who(w.db, w.project)} asks for ${wanted.length === 1 ? "this secret" : `these ${wanted.length} secrets`}:\n${wanted.map((n) => `   •  ${n}`).join("\n")}\n\nThe agent says: “${cleanReason(reason)}”\n\n${where}\n\nEnter the vault password to give ${wanted.length === 1 ? "it" : "them"}.`,
+			text: `${await who(w)} asks for ${wanted.length === 1 ? "this secret" : `these ${wanted.length} secrets`}:\n${wanted.map((n) => `   •  ${n}`).join("\n")}\n\nThe agent says: “${cleanReason(reason)}”\n\n${where}\n\nEnter the vault password to give ${wanted.length === 1 ? "it" : "them"}.`,
 			ok: wanted.length === 1 ? "Give it" : "Give them",
 		},
 		{ what: "values", asked: wanted.length, delivery: deliver },
 	);
-	const all = await readNames(w.db, key, w.project);
+	const all = await readNames(vault, key, w.project);
 	const rank = (s: Found) => (s.project === w.project ? 0 : s.project === "" ? 1 : 2);
 	const given: (Found & { value: string })[] = [];
 	const missing: string[] = [];
@@ -219,14 +246,14 @@ export async function getForAgent(w: Who, names: string[], reason: string, deliv
 			if (!s) missing.push(hits ? `${n} (in more than one project: pass project)` : n);
 			continue;
 		}
-		const sealed = secretValue(w.db, s.id);
+		const sealed = await vault.value(s.id);
 		if (!sealed) {
 			missing.push(n);
 			continue;
 		}
 		given.push({ ...s, value: (await unseal<{ value: string }>(key, sealed)).value });
 	}
-	logVaultAccess(w.db, {
+	await storeOf(w).log({
 		project: w.project ?? "",
 		session: w.session ?? "",
 		what: "values",
@@ -238,6 +265,27 @@ export async function getForAgent(w: Who, names: string[], reason: string, deliv
 	const out: Given[] = given.map((g) => ({ name: g.name, env: envName(g.name), project: g.project, ...(deliver === "text" ? { value: g.value } : {}) }));
 	const file = deliver === "file" && given.length ? writeEnvFile(given) : undefined;
 	return { given: out, missing, file };
+}
+
+/* ---------- What the tools answer (mcp.ts, and relay.ts on a computer that syncs) ---------- */
+
+export function listReply(list: Awaited<ReturnType<typeof listForAgent>>, project: string | undefined) {
+	const scope = (p: string) => (p ? p : "every project");
+	return {
+		text: list.length
+			? `${list.length} secret${list.length === 1 ? "" : "s"} ${project ? `for ${project} (and every project)` : "in the vault"}:\n${list.map((s) => `- ${s.name} (${scope(s.project)})${s.note ? `: ${s.note}` : ""}`).join("\n")}\n\nvault_get gives the values, after {{name}} allows it again.`
+			: `No secrets ${project ? `for ${project} or every project ` : ""}in the vault.`,
+		data: { secrets: list },
+	};
+}
+
+export function getReply(r: Awaited<ReturnType<typeof getForAgent>>) {
+	const missing = r.missing.length ? `\nNot found: ${r.missing.join(", ")} (vault_list shows the names).` : "";
+	if (!r.given.length) return { text: `None of those are in the vault.${missing}`, data: { given: [] as Given[], missing: r.missing } };
+	const text = r.file
+		? `${r.given.length} secret${r.given.length === 1 ? "" : "s"} written to ${r.file} (deleted in ${FILE_MINUTES} minutes), as ${r.given.map((g) => g.env).join(", ")}.\nUse: set -a; . ${r.file}; set +a; <command>. Don't print the values.${missing}`
+		: `${r.given.map((g) => `${g.env}=${g.value}`).join("\n")}\n\nKeep these out of files, commits and messages.${missing}`;
+	return { text, data: { given: r.given, missing: r.missing, ...(r.file ? { file: r.file, expires_minutes: FILE_MINUTES } : {}) } };
 }
 
 /* ---------- The .env file ---------- */

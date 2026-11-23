@@ -173,7 +173,9 @@ WB_APP_URL=http://localhost:4399 WB_APP_PROBE=1 WB_APP_PROBE_MANUAL=1 WB_APP_PRO
 5. Quit (tray Quit, not window close): owned → SIGTERM, wait 5 s, SIGKILL. Attached → leave it running.
 6. Single instance: a second launch brings the first one's window to the front (`show_main`).
 7. Sync on ([docs/cloud.md](../docs/cloud.md)): when `<database>.sync.json` (written by `wb sync on`) is next to the
-   database above, none of 1–5 happens. `cloud_run` asks the cloud board for a one-time login ticket with the device
+   database above, the window doesn't show a local board. A second supervisor, headless, still does 1–5 on port
+   4321 without the window (no `--lan`, no `Now`, and it starts again by itself instead of offering "Start it
+   here"): that server runs the computer helper. `cloud_run` asks the cloud board for a one-time login ticket with the device
    token in that file (`POST <url>/api/sync/ticket`), grants the board's capability to the cloud board's origin, and
    loads `<url>/login?ticket=…&next=/`. `board_url` is then the cloud board's, `board_token` its token (the tray's
    count sends it), `app_info` says `server: "cloud"`, and `set_lan` refuses. Not with `WB_APP_URL` or in the nightly.
