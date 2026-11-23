@@ -9,6 +9,7 @@
 //! - `tray`, `notify`, `web` (system agent): tray icon and menu, notifications with click-back,
 //!   links/navigation/downloads.
 //! - `update`: updates of the app itself (tauri-plugin-updater), offered on the board and in the tray.
+//! - `webkit`: WebKitGTK settings that have to be in place before it starts (Linux).
 //! - `probe` (debug builds only): answers the phase-1 questions; never compiled into a release.
 //!
 //! A new command means a line in [`with_commands`], one in build.rs, and a permission in
@@ -21,6 +22,7 @@ mod server;
 mod tray;
 mod update;
 mod web;
+mod webkit;
 mod zoom;
 
 use tauri::ipc::CapabilityBuilder;
@@ -60,6 +62,8 @@ const BOARD_PERMISSIONS: &[&str] = &[
 ];
 
 pub fn run() {
+    // First, before WebKit or any thread starts: its web process otherwise runs out of file descriptors (webkit.rs).
+    webkit::prepare();
     let context = tauri::generate_context!();
     // The updater's settings (endpoints, pubkey) come with the release pipeline; a build without them has no updater.
     let has_feed = context.config().plugins.0.contains_key("updater");

@@ -40,6 +40,7 @@ settings (bell, theme, folded sections) start at their defaults in the app.
 | `src/tray.rs` | system agent | Tray icon with the count, menu Open board / Needs you: N / Start on login / Phone access (owned server only) / Quit; close to tray |
 | `src/notify.rs` | system agent | `notify` command and click-back (a working first version is there) |
 | `src/web.rs` | system agent | External links to the default browser, navigation guard, new windows, downloads, permission requests |
+| `src/webkit.rs` | shared | WebKitGTK settings that must be in place before it starts (Linux): DMA-BUF renderer off, open-files limit raised (the window froze after a day of leaked GPU fences on NVIDIA) |
 | `src/probe.rs`, `src/probe.js` | phase-3 review | Debug-only probe that produced the findings below |
 | `build.rs` | shared | App commands that get `allow-*` permissions |
 | `src/update.rs` | updates | Updates of the app (tauri-plugin-updater): checks, the `update_*` commands, install and restart, the tray's "Update to …" line (through `tray::set_update`) |
