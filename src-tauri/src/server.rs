@@ -129,8 +129,11 @@ pub fn setup<R: Runtime>(app: &AppHandle<R>) -> Result<(), Box<dyn std::error::E
         app.manage(Board { url: url.clone(), port, token: Some(token.clone()), now: Mutex::new(Now::default()), tx });
         app.add_capability(CapabilityBuilder::new("fallback").local(true).window(MAIN).permission("allow-retry"))?;
         let (helper_tx, helper_rx) = mpsc::channel();
-        let local: Url = "http://localhost:4321".parse()?;
-        let sup = Supervisor::new(app, local, 4321, true);
+        // The helper's server is on the board's usual port: the nightly's own (4322) for the nightly, never the
+        // installed app's.
+        let local_port = if crate::NIGHTLY { 4322 } else { 4321 };
+        let local: Url = format!("http://localhost:{local_port}").parse()?;
+        let sup = Supervisor::new(app, local, local_port, true);
         std::thread::Builder::new()
             .name("helper-supervisor".into())
             .spawn(move || sup.run(helper_rx))?;
@@ -267,9 +270,11 @@ struct SyncFile {
 }
 
 /// The cloud board's address and this computer's token, when this computer syncs with it. `WB_APP_URL` (a test
-/// board named by hand) and the nightly (its own copy of the data) never do.
+/// board named by hand) never does. The nightly reads the sync file next to its own copy of the data, which
+/// scripts/nightly.ts never copies, so it syncs only when told to (`WB_DB=<its database> wb sync on …`): that's how
+/// a cloud board is tried in the app before a release.
 fn cloud_sync<R: Runtime>(app: &AppHandle<R>) -> Option<(Url, String)> {
-    if crate::NIGHTLY || std::env::var_os("WB_APP_URL").is_some() {
+    if std::env::var_os("WB_APP_URL").is_some() {
         return None;
     }
     let mut file = db_path(app).ok()?.into_os_string();
