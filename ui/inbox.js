@@ -206,12 +206,20 @@ function ibDeferredText(def) {
 	const days = [...new Set(def.map((d) => day(d.until, { weekday: true, relative: true })))];
 	return days.length === 1 ? `${def.length} deferred until ${days[0]}` : `${def.length} deferred, the first back ${days[0]}`;
 }
-function ibEmptyHtml() {
+// What an empty tab says: nothing waits on you (or nothing of this kind), what's deferred and when it comes back,
+// and the tabs that do have something.
+const IB_NONE = { answer: "Nothing to answer", errands: "No errands", look: "Nothing to look at" };
+function ibEmptyText() {
 	const def = ibDeferred();
 	const others = IB_TABS.filter(([k]) => k !== ib.tab && ibCount(k));
-	const text = def.length ? `${ibDeferredText(def)}, then ${def.length === 1 ? "it comes" : "they come"} back.` : others.length ? "" : "Nothing is deferred either.";
+	const title = others.length ? IB_NONE[ib.tab] : "Nothing waits on you";
+	const text = def.length ? `${ibDeferredText(def)}; ${def.length === 1 ? "it comes" : "they come"} back then.` : "Nothing is deferred.";
 	const go = others.map(([k, label]) => `<button type="button" class="ghost sm" data-ib-tab="${k}">${esc(label)} · ${ibCount(k)}</button>`).join("");
-	return `<div class="ib-empty" role="presentation">${emptyState("Nothing waits on you", text, go)}</div>`;
+	return { title, text, go };
+}
+function ibEmptyHtml() {
+	const { title, text, go } = ibEmptyText();
+	return `<div class="ib-empty" role="presentation">${emptyState(title, text, go)}</div>`;
 }
 function ibRowHtml(line) {
 	if (!line.item) return line.html;
@@ -247,7 +255,10 @@ function ibRenderPane() {
 	const empty = $(".ib-pane-empty", inboxEl);
 	ibPaneEl.hidden = !i;
 	empty.hidden = !!i;
-	if (!i) paint(empty, ib.shown.length ? "" : `<div class="ib-calm">${glyph("check")}</div>${emptyState(ib.cleared ? `${ib.cleared} cleared. Nothing waits on you.` : "Nothing waits on you", ibDeferred().length ? `${ibDeferredText(ibDeferred())}.` : "")}`);
+	if (!i) {
+		const { title, text, go } = ibEmptyText();
+		paint(empty, ib.shown.length ? "" : `<div class="ib-calm">${glyph("check")}</div>${emptyState(ib.cleared ? `${ib.cleared} cleared. ${title}.` : title, text, go)}`);
+	}
 	const left = ib.shown.length, all = left + ib.cleared;
 	paint($(".ib-focus-head", inboxEl), !ib.focus ? "" : `<div class="ib-fh">
 		<b>${esc(IB_TABS.find(([k]) => k === ib.tab)[1])}</b><span class="ib-fh-n" aria-live="polite">${ib.cleared} cleared · ${left} to go</span><span class="spacer"></span>
@@ -325,7 +336,14 @@ async function ibAcceptAll(btn) {
 	const shown = list.slice(0, 12).map((i) => `• ${i.title} → ${Array.isArray(what(i)) ? what(i).join("; ") || "none of them" : what(i)}`);
 	const more = list.length > 12 ? `\n… and ${list.length - 12} more` : "";
 	const asked = confirmIn(btn, { text: `Answer these ${list.length} decisions with what the agent recommends?\n\n${shown.join("\n")}${more}`, yes: `Answer ${list.length}` });
-	document.querySelector("dialog.k-confirm:last-of-type")?.classList.add("ib-confirm");
+	// Wider, for the list: placed again under the button, now that it's its own size.
+	const dlg = document.querySelector("dialog.k-confirm:last-of-type");
+	if (dlg) {
+		dlg.classList.add("ib-confirm");
+		const a = btn.getBoundingClientRect();
+		dlg.style.left = `${Math.max(8, Math.min(a.left, innerWidth - dlg.offsetWidth - 8))}px`;
+		dlg.style.top = `${Math.max(8, Math.min(a.bottom + 6, innerHeight - dlg.offsetHeight - 8))}px`;
+	}
 	if (!(await asked)) return;
 	ib.accepting = true;
 	let done = 0;
