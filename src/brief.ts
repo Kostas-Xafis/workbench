@@ -13,9 +13,9 @@ export const BRIEF_RULES = `{{name}} reads items on the board, often on a phone,
 - Say where things are as a user finds them (Settings → Reader → Toolbar), not by source file.
 - Anything visible on screen gets a screenshot, with a caption saying what to look at; two for before and after.
 - check: numbered steps to run on the phone, what right and wrong look like.
-- review: quote the exact words (lines starting with >) or show a picture; what to judge; what happens if {{name}} says nothing.
-- notice: what changed and where to see it; what stays if {{name}} says nothing.
-- decision: what's being decided and why now; for each option, what changes for the user; your recommendation and why.
+- decision: open with your recommendation and why; then what's being decided and why now; for each option, what changes for the user.
+- notice: what changed and where to see it. Use one instead of a wording or layout review.
+- review: show what to judge (a picture, or quoted lines starting with >).
 - setup: the exact address, each click, what to copy back and where it goes, why it's needed.
 - bug: what happens, what should happen, how to make it happen.
 Test: could {{name}} act on this from their phone without opening anything else?`;

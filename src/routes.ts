@@ -7,7 +7,6 @@
  * in worker/src/board.ts, which answers them itself in the cloud; here they run as they always have.
  */
 import {
-	addItem,
 	addLink,
 	addNote,
 	addSecret,
@@ -71,6 +70,7 @@ import { archivedDay, currentDay } from "./day";
 import { todayData } from "./today";
 import { buildQueue, deferItem, giveBack } from "./queue";
 import { resolveAsk } from "./asks";
+import { fileItem } from "./filing";
 import { codeLinks, repoState, type CodeLinks } from "./git";
 import { candidateFolders, checkFolder, folderState, health } from "./health";
 import { addGoal, goalsWithStats, itemGoals, moveGoal, updateGoal, type GoalPatch } from "./goals";
@@ -1033,8 +1033,9 @@ export function boardRoutes(h: BoardHost) {
 			},
 			POST: jsonOnly(async (req) => {
 				try {
+					// The one way items are filed (filing.ts). What Kostas files on the page is never checked.
 					const body = await req.json();
-					return json({ id: addItem(db, body, "web") }, 201);
+					return json({ id: (await fileItem(db, { item: body, author: "web", byAgent: false })).id }, 201);
 				} catch (e) {
 					return fail(e);
 				}

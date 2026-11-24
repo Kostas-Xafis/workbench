@@ -20,7 +20,6 @@
 // `text`, not `file`: the cloud board (worker/) bundles this with esbuild, which takes no file imports.
 import iconSvg from "../ui/icon.svg" with { type: "text" };
 import {
-	addItem,
 	addLink,
 	addNote,
 	answerItem,
@@ -50,8 +49,9 @@ import {
 	type Note,
 	type Status,
 } from "./db";
-import { applyDue, capRefusal, deadlineText, defaultText, itemPicks, itemRecommended, needsKostas } from "./asks";
+import { applyDue, deadlineText, defaultText, itemPicks, itemRecommended, needsKostas } from "./asks";
 import { BRIEF_RULES, checkBrief } from "./brief";
+import { changeText, checkChange, fileItem, type Filed } from "./filing";
 import { activeGoal, addGoal, dueText, GOAL_STATUSES, goalLine, goalsWithStats, goalTitle, needGoal, updateGoal, type GoalInfo } from "./goals";
 import { runData, runText } from "./checkruns";
 import { integrationGuide } from "./integrate";
@@ -61,7 +61,6 @@ import { addImage, imageBytes, imageData, imageInfo, imageSummary, prepareImage,
 import { PRESETS } from "./presets";
 import {
 	addRuling,
-	ASKING_KINDS,
 	getRuling,
 	itemRulings,
 	listRulings,
@@ -73,10 +72,10 @@ import {
 	updateRuling,
 	type Ruling,
 } from "./rulings";
-import { ownerDefaultsText, ownerFor, yourName } from "./settings";
+import { ownerDefaultsText, yourName } from "./settings";
 import { noteMcpContact } from "./setup";
 import { listSources } from "./sources";
-import { SITTING_DAYS, STALLED_DAYS, WAITING_DAYS, staleLabel } from "./stale";
+import { STALLED_DAYS, WAITING_DAYS, staleLabel } from "./stale";
 import {
 	addTracker,
 	cleanReading,
@@ -125,17 +124,17 @@ const CAPABILITIES = { tools: {}, resources: {}, prompts: {}, completions: {} };
 // {{name}} and {{owner-defaults}} in what agents read are filled in per request (personal), from the board's settings.
 const INSTRUCTIONS = `The workbench is {{name}}'s local board of open work across their projects. Open work lives here, never in markdown lists.
 - Items are named wb-xxxx (e.g. wb-k3f9). When a prompt names one, get_item first: its body and notes are the brief.
-- Kinds: task and bug (code), check ({{name}} tries it on a device: write the steps), review (wording or design for {{name}}), decision (a question only {{name}} can answer: options plus your recommendation), setup (accounts, consoles, stores), notice (what changed, for {{name}} to see; it doesn't wait on them), idea. {{owner-defaults}} The owner value for {{name}} is kostas.
-- {{name}}'s attention is the bottleneck: ask so work doesn't stop. Nothing needs their decision → a notice, and carry on. A decision or review with a safe default → give default and decide_by: it goes ahead by itself if they say nothing. Related choices → one decision with pick "many". Each project takes a limited number of open asks from agents.
+- Kinds: task and bug (code), check ({{name}} tries it on a device: write the steps), review (something only {{name}} can judge), decision (a question only {{name}} can answer), setup (accounts, consoles, stores), notice (what changed, for {{name}} to see; it doesn't wait on them), idea. {{owner-defaults}} The owner value for {{name}} is kostas.
+- Decide open questions yourself and keep moving: {{name}} has no time to explain. Ask only about money, accounts, stores, anything that can't be undone, or what the product should be. Related questions → one decision with pick "many". Every decision has recommended, and its body opens with it: it goes ahead by itself unless {{name}} objects. Changed something → a notice saying what, never a wording or layout review. Reviews and notices go ahead by themselves after the usual wait.
 - When you start work {{name}} gave you: find its item (list_items with q) and start_item it, or add_item one and start it. One item per piece of work {{name}} would recognise.
-- finish_item with a note on what changed and where (commit, branch). wait_item when blocked. Everything you leave for {{name}} is its own item.
-- When you're blocked on {{name}} (a decision, a check, a setup step), file that as its own item and wait on it: add_item with blocks: <your item> does both in one call, or wait_item with on: <that item>. The board then puts your item back to todo, with the answer in its history, the moment it's answered or finished: don't poll. Items that hold up the most waiting work show first for {{name}} (unblocks in list_items).
+- finish_item with a note on what changed and where (commit, branch). Everything you leave for {{name}} is its own item.
+- Blocked on {{name}}? add_item with blocks: <your item> files the ask and waits on it in one call (or wait_item with on). Your item goes back to todo, with the answer in its history, the moment it's answered or finished: don't poll.
 - The board can start an agent on an item itself ({{name}}'s Run or Answer & send): then nobody watches the session, so put questions on the board, not in the chat. Agents never start agents: there is no tool for it, and wb run is {{name}}'s. get_item shows an item's latest run.
-- {{name}} doesn't open files. An item has to make sense by itself, in plain words: put the content in the body instead of pointing at docs/x.md or PLAN §3, say where things are in the app rather than in the code, and attach a screenshot (attach_image) for anything on screen. add_item has the details, and warns you about what it can see is missing: fix those with update_item.
-- Rulings are {{name}}'s standing answers in a project, one line each: project_overview lists them, list_rulings searches them. Read them before you ask {{name}} anything, and follow them. An answered decision gets a drafted ruling ("<question>: <answer>"); when you pick one up, rewrite that draft as one clear line with update_ruling. add_ruling for a rule {{name}} states in the conversation; retire_ruling when one no longer holds.
+- {{name}} doesn't open files: an item makes sense by itself, in plain words, with a screenshot (attach_image) for anything on screen. add_item has how, and warns about what's missing: fix it with update_item.
+- Rulings are {{name}}'s standing answers in a project, one line each: project_overview lists them, list_rulings searches them. Read them before you ask, and follow them. An answered decision gets a drafted ruling ("<question>: <answer>"); when you pick one up, rewrite that draft as one clear line with update_ruling. add_ruling for a rule {{name}} states in the conversation; retire_ruling when one no longer holds.
 - Every report you publish gets its own icon in colour (publish_report's icon), so the sidebar reads at a glance.
 - Status trackers are live readings shown on the board, such as build quotas or CI minutes left. Check list_trackers before something that uses up a quota, refresh_trackers after.
-- A goal says what a project's work is for (a release, a milestone), with a target date and the items that serve it. list_goals and project_overview show each goal's progress and what blocks it. Give the items you file the goal they serve (add_item's goal), and prefer work on the active goal. Don't create goals for {{name}} unless they ask: when you think the project needs one, file a decision item proposing it.
+- A goal says what a project's work is for (a release, a milestone), with a target date and the items that serve it (list_goals, project_overview). Give the items you file the goal they serve (add_item's goal), and prefer work on the active goal. Don't create goals unless {{name}} asks: propose one in a decision.
 - Secrets (API keys, tokens): never ask {{name}} to paste one into the chat. vault_get asks them in a password window on their computer and hands you a private .env file; vault_list shows the names. When they say no, don't ask again unless they tell you to.
 - Tools default to the project of the folder this server runs in; pass project (a slug from list_projects) to work elsewhere.`;
 
@@ -530,7 +529,7 @@ async function overview(c: Conn, slug: string) {
 	}
 	const stale = open.filter((i) => i.stale);
 	if (stale.length)
-		out.push("", `## Stale: ${stale.length} (doing with no news for ${STALLED_DAYS}+ days, waiting for ${WAITING_DAYS}+, or open on ${yourName(c.db)} for ${SITTING_DAYS}+)`, ...stale.map((i) => `- ${itemLine(c, i, false)}`));
+		out.push("", `## Stale: ${stale.length} (agent work doing with no news for ${STALLED_DAYS}+ days, or waiting for ${WAITING_DAYS}+)`, ...stale.map((i) => `- ${itemLine(c, i, false)}`));
 	const top = topUnblockers(c.db, slug);
 	if (top.length)
 		out.push("", `## What ${yourName(c.db)} can unblock (open items that waiting work depends on)`, ...top.map((t) => `- wb-${t.item.ref} ${t.item.kind}: ${t.item.title} · unblocks ${t.waiters.map((w) => `wb-${w.ref} (${w.title})`).join(", ")}`));
@@ -652,13 +651,13 @@ function reportId(a: Record<string, any>, c: Conn) {
 const ASK_PARAMS: Record<string, Schema> = {
 	default: {
 		anyOf: [{ type: "string" }, { type: "array", items: { type: "string" }, maxItems: 12 }],
-		description: 'What happens if {{name}} says nothing (decisions, reviews, notices). A decision with options: one of them (pick "many": a list, [] for none of them). With a default the ask goes ahead by itself at decide_by, exactly as if {{name}} had picked it. "" removes it.',
+		description: 'What happens if {{name}} says nothing (decisions, reviews, notices); it goes ahead at decide_by as if {{name}} had picked it. A decision with options: one of them (pick "many": a list, [] for none). Left out: the recommendation; a review closes with no objections, a notice as seen.',
 	},
-	decide_by: str('When the default goes ahead: a date (2026-11-14, the end of that day), "in 3 days", or "none". Left out, a new default gets the board\'s usual wait (Settings → You and your day, 3 days unless changed).'),
-	pick: { type: "string", enum: ["one", "many"], description: 'A decision: answered with one option (default) or several ticked at once ("many"), e.g. which extras to build. Bundle related choices into one this way.' },
+	decide_by: str('When the default goes ahead: a date (2026-11-14), "in 3 days", or "none". Left out: the usual wait (Settings → You and your day, 3 days).'),
+	pick: { type: "string", enum: ["one", "many"], description: 'A decision: answered with one option (default) or several ticked ("many"). Bundle related questions into one this way.' },
 	recommended: {
 		anyOf: [{ type: "string" }, { type: "array", items: { type: "string" }, maxItems: 12 }],
-		description: 'Your pick among the options (pick "many": a list). Marked on its button; a pick-many decision starts with these ticked.',
+		description: 'Your pick among the options (pick "many": a list). Without a default, it is the default.',
 	},
 };
 /** The ask fields of a tool call as an item patch. */
@@ -699,7 +698,7 @@ const TOOLS: Tool[] = [
 		name: "project_overview",
 		title: "Project overview",
 		description:
-			"Everything about one project at a glance: open items by kind, {{name}}'s rulings (standing answers: read them before you ask anything), stale ones (stalled doing, long waiting, long on the user) listed apart, status trackers with their readings, git state (branch, uncommitted files, unpushed commits, unmerged branches, worktrees), reports, links and data sources. A good first call when you start work in a project.",
+			"Everything about one project at a glance: open items by kind, {{name}}'s rulings (standing answers: read them before you ask anything), stale agent work (stalled doing, long waiting) listed apart, status trackers with their readings, git state (branch, uncommitted files, unpushed commits, unmerged branches, worktrees), reports, links and data sources. A good first call when you start work in a project.",
 		input: obj({ project: PROJECT }),
 		hints: RO,
 		async run(a, c) {
@@ -870,7 +869,7 @@ const TOOLS: Tool[] = [
 		name: "add_item",
 		title: "Add an item",
 		description:
-			`Files a new item. kind: task or bug (code work), check ({{name}} tries it on a device), review (wording or design), decision (a question only {{name}} can answer), setup (accounts, consoles, stores), notice (what changed, for {{name}} to see; doesn't wait on them), idea. Returns the new wb-xxxx, and warnings about what {{name}} can't follow.\nDon't stop work on {{name}}: nothing to decide → a notice. A safe default → give default (and decide_by). Related choices → one decision, pick "many". A project takes a limited number of open asks.\n\n${BRIEF_RULES}`,
+			`Files a new item. kind: task or bug (code work), check ({{name}} tries it on a device), review (something only {{name}} can judge), decision (a question only {{name}} can answer), setup (accounts, consoles, stores), notice (what changed; doesn't wait on {{name}}), idea. Returns the new wb-xxxx, what goes ahead if {{name}} says nothing, and warnings.\nAsk only what you can't decide. A decision needs recommended (it becomes the default) unless it's priority 1; related questions → one decision, pick "many". Changed something → a notice, not a review.\n\n${BRIEF_RULES}`,
 		input: obj(
 			{
 				title: str("Short, specific and in plain words: what to do or decide, as {{name}} would say it.", { minLength: 1, maxLength: 300 }),
@@ -899,55 +898,44 @@ const TOOLS: Tool[] = [
 		),
 		hints: WRITE,
 		async run(a, c) {
-			const kind = a.kind ?? (a.options?.length ? "decision" : "task");
-			const owner = a.owner ?? ownerFor(c.db, kind);
-			const brief = checkBrief(
-				{ title: a.title, body: a.body ?? "", kind, owner },
-				{ name: yourName(c.db), images: a.images?.length ?? 0, attach: ATTACH },
-			);
-			if (brief.refuse) throw new ToolError(brief.refuse);
 			const project = projectOf(c, a.project)!;
-			const capped = capRefusal(c.db, { project, kind, owner, priority: a.priority });
-			if (capped) throw new ToolError(capped);
-			const images = await readImages(a.images);
-			const waitsOn: number[] = (a.waits_on ?? []).map((r: string) => itemId(c, r));
 			const blocked: number | undefined = a.blocks ? itemId(c, a.blocks) : undefined;
-			if (blocked !== undefined) {
-				const b = getItem(c.db, blocked)!;
-				if (b.status === "done" || b.status === "dropped") throw new ToolError(`wb-${b.ref} is ${b.status}: it can't wait on anything`);
-				if (waitsOn.includes(blocked)) throw new ToolError("the new item can't both wait on wb-" + b.ref + " and block it");
-			}
-			const id = addItem(
-				c.db,
-				{
-					title: a.title.trim(),
-					kind,
-					// Without one, the board's setting for the kind.
-					owner: a.owner,
-					project,
-					goal_id: goalArg(c, a.goal, project),
-					priority: a.priority,
-					area: a.area,
-					body: a.body,
-					options: a.options,
-					...askPatch(a),
-					branch: a.branch,
-					sources: a.source,
-					status: a.status,
-				},
-				"agent",
-			);
-			for (const m of images) addImage(c.db, id, m.image, m.caption, "agent");
+			let filed: Filed;
 			try {
-				if (waitsOn.length) waitOn(c.db, id, waitsOn, "agent");
-				if (blocked !== undefined) waitOn(c.db, blocked, [id], "agent");
+				filed = await fileItem(c.db, {
+					item: {
+						title: a.title,
+						kind: a.kind,
+						// Without one, the board's setting for the kind.
+						owner: a.owner,
+						project,
+						goal_id: goalArg(c, a.goal, project),
+						priority: a.priority,
+						area: a.area,
+						body: a.body,
+						options: a.options,
+						...askPatch(a),
+						branch: a.branch,
+						sources: a.source,
+						status: a.status,
+					},
+					author: "agent",
+					byAgent: true,
+					attach: ATTACH,
+					images: { count: a.images?.length ?? 0, read: () => readImages(a.images) },
+					waitsOn: (a.waits_on ?? []).map((r: string) => itemId(c, r)),
+					blocks: blocked,
+				});
 			} catch (e) {
-				throw new ToolError(`${(e as Error).message}. The item is filed as wb-${getItem(c.db, id)!.ref}; wait_item links it.`);
+				throw new ToolError((e as Error).message);
 			}
-			const out = changed(c, id, blocked !== undefined ? `Added (wb-${getItem(c.db, blocked)!.ref} now waits on it)` : "Added", brief.warnings);
+			const { id, repeats } = filed;
+			const out = changed(c, id, blocked !== undefined ? `Added (wb-${getItem(c.db, blocked)!.ref} now waits on it)` : "Added", filed.warnings);
+			if (filed.goesAhead) {
+				out.text += `\n\n${filed.goesAhead}`;
+				out.data = { ...out.data, goes_ahead: filed.goesAhead };
+			}
 			// An ask that looks like one already answered: saved all the same, with the ruling it may repeat.
-			const i = getItem(c.db, id)!;
-			const repeats = ASKING_KINDS.includes(kind) ? similarRulings(c.db, i.project, i.title, i.body, { except: id }) : [];
 			if (repeats.length) {
 				out.text += `\n\n${repeatWarning(repeats, yourName(c.db))}`;
 				out.data = { ...out.data, already_ruled: repeats.map((m) => ({ ...rulingJson(m.ruling), score: m.score })) };
@@ -983,25 +971,29 @@ const TOOLS: Tool[] = [
 		hints: { ...WRITE, idempotentHint: true },
 		run(a, c) {
 			const id = itemId(c, a.ref);
-			if (a.waits_on?.length) waitOn(c.db, id, a.waits_on.map((r: string) => itemId(c, r)), "agent");
-			if (a.not_waiting_on?.length) removeLinks(c.db, id, a.not_waiting_on.map((r: string) => itemId(c, r)));
-			const patch: ItemPatch = askPatch(a);
+			let patch: ItemPatch = askPatch(a);
 			for (const k of ["title", "kind", "owner", "status", "priority", "area", "body", "options", "branch"] as const)
 				if (a[k] !== undefined) (patch as Json)[k] = a[k];
 			if (a.project !== undefined) patch.project = projectOf(c, a.project)!;
 			if (a.goal !== undefined) patch.goal_id = goalArg(c, a.goal, patch.project ?? getItem(c.db, id)!.project);
-			// Handing an item to {{name}} is filing an ask: the same cap.
-			const was = getItem(c.db, id)!;
-			if (patch.owner === "kostas" && was.owner !== "kostas") {
-				const capped = capRefusal(c.db, { project: patch.project ?? was.project, kind: patch.kind ?? was.kind, owner: "kostas", priority: patch.priority ?? was.priority });
-				if (capped) throw new ToolError(capped.replace("Nothing was filed.", "Nothing was changed."));
+			// Handing an item to {{name}}, or making it an ask, is filing one: the same rules (filing.ts).
+			let gave = false;
+			try {
+				({ patch, gave } = checkChange(c.db, getItem(c.db, id)!, patch, true));
+			} catch (e) {
+				throw new ToolError((e as Error).message);
 			}
+			if (a.waits_on?.length) waitOn(c.db, id, a.waits_on.map((r: string) => itemId(c, r)), "agent");
+			if (a.not_waiting_on?.length) removeLinks(c.db, id, a.not_waiting_on.map((r: string) => itemId(c, r)));
 			updateItem(c.db, id, patch, "agent", a.note ?? "");
 			const i = getItem(c.db, id)!;
 			// A status change or a note says nothing new about the brief; rewording it does.
 			const reworded = a.title !== undefined || a.body !== undefined || a.kind !== undefined || a.owner !== undefined;
 			const brief = reworded ? checkBrief(i, { name: yourName(c.db), images: i.images.length, attach: ATTACH }) : { warnings: [] };
-			return changed(c, id, "Updated", brief.refuse ? [brief.refuse.replace(" Nothing was filed.", "")] : brief.warnings);
+			const out = changed(c, id, "Updated", brief.refuse ? [brief.refuse.replace(" Nothing was filed.", "")] : brief.warnings);
+			const said = changeText(c.db, id, gave);
+			if (said) out.text += `\n\n${said}`;
+			return out;
 		},
 	},
 	{
@@ -1625,7 +1617,7 @@ const TRACKING = `Track it on the workbench with this server's tools:
 - start_item now (it links this session to the item); add the branch once you have one.
 - add_note for what {{name}} should know along the way; wait_item when you're blocked, saying on what. When it's something {{name}} has to answer or do, file it as its own item and wait on it (add_item with blocks: this item, or wait_item with on): the board resumes you when it's answered.
 - finish_item with a note on what changed and where (commit, branch, PR).
-- Anything you leave for {{name}} (a device check, a wording, a question) is its own item: add_item with kind check, review or decision, or a notice when nothing needs their decision (give a decision a default when there is a safe one). It has to make sense without opening anything else: the content in the body, a screenshot for anything on screen (attach_image).
+- Decide what you can yourself. Anything you leave for {{name}} is its own item (add_item): a check, a decision with your recommendation, or a notice of what changed. It makes sense without opening anything else, with a screenshot for anything on screen (attach_image).
 - This item's images, if it lists any, are part of the brief: read them with get_image.`;
 
 /** For work-on: the rulings that bear on the item (by its words), and its own drafted one to rewrite. */
@@ -1704,7 +1696,7 @@ const PROMPTS: Prompt[] = [
 		arguments: [{ name: "project", description: "Project slug (default: the current one)" }],
 		async get(a, c) {
 			const slug = projectOrRpc(c, a.project);
-			return `Write me a short status of ${slug}: what's in progress, what waits on me (decisions first, and which of them hold up the most waiting work), anything blocked, stale items (stalled or forgotten work to chase), trackers that warn, and git loose ends. A few lines, no preamble.\n\n${await overview(c, slug)}`;
+			return `Write me a short status of ${slug}: what's in progress, what waits on me (decisions first, and which of them hold up the most waiting work), anything blocked, stale agent work to chase, trackers that warn, and git loose ends. A few lines, no preamble.\n\n${await overview(c, slug)}`;
 		},
 	},
 ];

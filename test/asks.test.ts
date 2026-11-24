@@ -1,9 +1,12 @@
 // Asks that don't block (asks.ts): notices, defaults with a deadline, several picks, the cap on open asks.
 import { describe, expect, test } from "bun:test";
-import { addItem, answerItem, getItem, open, projectsWithCounts, updateItem } from "../src/db";
+import { addItem, answerItem, getItem, open, projectsWithCounts, resolveItem, updateItem } from "../src/db";
 import { applyDue, capRefusal, deadlineText, needsKostas, parseDecideBy, resolveAsk, sqlTime } from "../src/asks";
 import { mcpHttp } from "../src/mcp";
 import { updateSettings } from "../src/settings";
+import { parseWb } from "../src/cliargs";
+import { runCli } from "../src/cli";
+import { fileItem } from "../src/filing";
 import { freshDb } from "./helpers";
 
 const BRIEF = "This is what changed on the board, and why: say if you'd rather it stayed as it was before.";
@@ -206,5 +209,122 @@ describe("the cap on open asks", () => {
 		});
 		const tools = ((await (await mcpHttp(req, db, { loopback: true })).json()) as any).result.tools;
 		for (const t of tools) expect(t.description.length).toBeLessThanOrEqual(2048);
+	});
+});
+
+describe("every ask has a way out", () => {
+	type DB = ReturnType<typeof freshDb>;
+	const mcp = (db: DB) => async (name: string, args: Record<string, unknown>) => {
+		const req = new Request("http://localhost:4401/mcp?project=demo", {
+			method: "POST",
+			headers: { "content-type": "application/json", host: "localhost:4401", "mcp-protocol-version": "2025-06-18" },
+			body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } }),
+		});
+		const r = ((await (await mcpHttp(req, db, { loopback: true })).json()) as any).result;
+		return { text: r.content[0].text as string, data: r.structuredContent, error: r.isError as boolean };
+	};
+	const wb = async (db: DB, argv: string[], author = "agent") => {
+		const { values: o, positionals: args } = parseWb(argv);
+		const lines: string[] = [];
+		const code = await runCli({
+			db,
+			args,
+			o: { ...o, project: "demo" },
+			cwd: "/tmp/demo",
+			author,
+			tty: false,
+			base: "",
+			port: 0,
+			out: (l) => lines.push(l),
+			err: (l) => lines.push(l),
+			read: async () => {
+				throw new Error("no files here");
+			},
+			write: async () => {},
+		});
+		return { code, text: lines.join("\n") };
+	};
+	const idOf = (db: DB, ref: string) => resolveItem(db, ref)!;
+
+	test("an agent's review without a default closes with no objections at the usual wait, and says so", async () => {
+		const db = freshDb();
+		const r = await mcp(db)("add_item", { title: "Check the new wording", kind: "review", body: BRIEF });
+		expect(r.error).toBe(false);
+		expect(r.data.item.default).toBe("No objections");
+		expect(r.text).toMatch(/no default, so the board gave it one: it closes with no objections on/);
+		const id = idOf(db, r.data.item.ref);
+		const days = (new Date(getItem(db, id)!.decide_by!.replace(" ", "T") + "Z").getTime() - Date.now()) / 86400e3;
+		expect(Math.round(days)).toBe(3);
+		past(db, id);
+		applyDue(db);
+		expect(getItem(db, id)!.status).toBe("done");
+		expect(notes(db, id).some((t) => t.endsWith("closed with no objections"))).toBe(true);
+		// A notice closes as seen, as it did; the reply says when.
+		const n = await mcp(db)("add_item", { title: "Renamed the button", kind: "notice", body: BRIEF });
+		expect(n.text).toMatch(/It closes as seen on .* unless Kostas says otherwise/);
+	});
+	test("a decision's recommendation becomes its default; with neither it's refused unless priority 1", async () => {
+		const db = freshDb();
+		const call = mcp(db);
+		const one = await call("add_item", { title: "Pick a name", options: ["A", "B"], recommended: "B", body: `${BRIEF} I recommend B.` });
+		expect(one.data.item.default).toBe("B");
+		expect(one.text).toContain("goes ahead with B on");
+		const many = await call("add_item", { title: "Pick extras", options: ["X", "Y", "Z"], pick: "many", recommended: ["X", "Z"], body: `${BRIEF} I recommend X and Z.` });
+		expect(many.data.item.default).toBe("X; Z");
+		// Its own default wins.
+		const own = await call("add_item", { title: "Pick a size", options: ["S", "M"], recommended: "M", default: "S", body: `${BRIEF} I recommend M.` });
+		expect(own.data.item.default).toBe("S");
+		const none = await call("add_item", { title: "Pick a colour", options: ["Red", "Blue"], body: BRIEF });
+		expect(none.error).toBe(true);
+		expect(none.text).toMatch(/Nothing was filed.*recommended.*in 3 days.*money, accounts.*priority 1/s);
+		const urgent = await call("add_item", { title: "Pick a colour", options: ["Red", "Blue"], priority: 1, body: BRIEF });
+		expect(urgent.error).toBe(false);
+		expect(urgent.data.item.default).toBeUndefined();
+		// Checks and setup are things Kostas does: no default.
+		const check = await call("add_item", { title: "Try it on the phone", kind: "check", body: "1. Open the app on the phone and tap Start.\n2. It should open the list." });
+		expect(check.error).toBe(false);
+		expect(check.data.item.default).toBeUndefined();
+	});
+	test("the same when update_item or wb edit makes an item an ask; items already asks don't change", async () => {
+		const db = freshDb();
+		const call = mcp(db);
+		const task = addItem(db, { title: "Task", project: "demo", body: BRIEF }, "agent");
+		const ref = `wb-${getItem(db, task)!.ref}`;
+		const refused = await call("update_item", { ref, kind: "decision", owner: "kostas", options: ["A", "B"] });
+		expect(refused.error).toBe(true);
+		expect(refused.text).toContain("Nothing was changed");
+		expect(getItem(db, task)!.kind).toBe("task");
+		const ok = await call("update_item", { ref, kind: "review", owner: "kostas" });
+		expect(ok.data.item.default).toBe("No objections");
+		expect(ok.text).toContain("closes with no objections");
+		// Already a review for Kostas, filed before: left as it is.
+		const old = addItem(db, { title: "Old review", project: "demo", kind: "review", body: BRIEF }, "agent");
+		await call("update_item", { ref: `wb-${getItem(db, old)!.ref}`, body: `${BRIEF} More.` });
+		expect(getItem(db, old)!.default_answer).toBe("");
+		// wb edit, by an agent.
+		const t2 = addItem(db, { title: "Task 2", project: "demo", body: BRIEF }, "agent");
+		const r2 = `wb-${getItem(db, t2)!.ref}`;
+		const e1 = await wb(db, ["edit", r2, "--kind", "decision", "--owner", "kostas", "--option", "A", "--option", "B"]);
+		expect(e1.code).toBe(1);
+		expect(e1.text).toContain("Nothing was changed");
+		const e2 = await wb(db, ["edit", r2, "--kind", "decision", "--owner", "kostas", "--option", "A", "--option", "B", "--recommend", "A"]);
+		expect(e2.code).toBe(0);
+		expect(getItem(db, t2)!.default_answer).toBe("A");
+	});
+	test("wb add follows the same rules for agents; Kostas's own items, there or on the page, are never changed", async () => {
+		const db = freshDb();
+		const refused = await wb(db, ["add", "Pick a colour", "--option", "Red", "--option", "Blue", "--body", BRIEF]);
+		expect(refused.code).toBe(1);
+		expect(refused.text).toContain("Nothing was filed");
+		const ok = await wb(db, ["add", "Check the wording", "--kind", "review", "--body", BRIEF]);
+		expect(ok.code).toBe(0);
+		expect(ok.text).toContain("closes with no objections");
+		expect((await wb(db, ["add", "Pick a colour", "--option", "Red", "--option", "Blue"], "kostas")).code).toBe(0);
+		expect((await wb(db, ["add", "My review", "--kind", "review"], "kostas")).code).toBe(0);
+		const mine = db.query("SELECT default_answer FROM items WHERE title = 'My review'").get() as { default_answer: string };
+		expect(mine.default_answer).toBe("");
+		const web = await fileItem(db, { item: { title: "From the page", project: "demo", kind: "review" }, author: "web", byAgent: false });
+		expect(getItem(db, web.id)!.default_answer).toBe("");
+		expect(web.goesAhead).toBe("");
 	});
 });

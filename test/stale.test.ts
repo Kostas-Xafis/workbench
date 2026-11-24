@@ -25,10 +25,11 @@ describe("the stale rule", () => {
 		expect(staleOf(item("waiting", 6), null, NOW)).toBeNull();
 		expect(staleOf(item("waiting", 8), null, NOW)?.why).toBe("waiting");
 	});
-	test("open on Kostas for 14 days is sitting, measured from creation", () => {
-		expect(staleOf(item("todo", 1, { owner: "kostas", created: 13 }), null, NOW)).toBeNull();
-		expect(staleOf(item("todo", 1, { owner: "kostas", created: 15 }), null, NOW)).toEqual({ why: "sitting", since: daysAgo(15) });
-		expect(staleOf(item("todo", 1, { created: 30 }), null, NOW)).toBeNull(); // an agent's todo is just queued
+	test("Kostas's items are never stale, however long they've waited; an agent's todo is just queued", () => {
+		expect(staleOf(item("todo", 30, { owner: "kostas", created: 30 }), null, NOW)).toBeNull();
+		expect(staleOf(item("doing", 30, { owner: "kostas" }), null, NOW)).toBeNull();
+		expect(staleOf(item("waiting", 30, { owner: "kostas" }), null, NOW)).toBeNull();
+		expect(staleOf(item("todo", 1, { created: 30 }), null, NOW)).toBeNull();
 	});
 	test("closed items are never stale", () => {
 		expect(staleOf(item("done", 40, { owner: "kostas" }), null, NOW)).toBeNull();
