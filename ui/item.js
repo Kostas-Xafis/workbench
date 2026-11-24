@@ -19,6 +19,10 @@ function openItem(item) {
 	setOptions(form.project, state.allProjects.filter((p) => !p.archived_at || p.slug === item.project).map((p) => ({ value: p.slug, label: p.name })));
 	for (const k of ["title", "status", "owner", "kind", "priority", "project", "area", "branch", "session", "body"]) form[k].value = item[k] ?? "";
 	ownerPicked = false;
+	formTouched = false;
+	// A closed item from the board's list comes without its details until they load (openItemById): no editing them yet.
+	$("#edit-body").disabled = item.body === undefined;
+	$("#body-view").classList.toggle("loading", item.body === undefined);
 	labelOwner();
 	const options = optionsOf(item);
 	form.options.value = options.join("\n");
@@ -55,8 +59,42 @@ function openItem(item) {
 	if (isNew) form.title.focus();
 }
 
+/**
+ * Opens an item at once from what the board already has (state.items), then fills in what the list leaves out: the
+ * history, the pictures, what it waits on, and a closed item's details. One the board doesn't list (another
+ * project's, tidied away) waits for the server. `key` is an id or a ref (wb-k3f9, k3f9).
+ */
+async function openItemById(key) {
+	const k = String(key).replace(/^wb-/i, "").toLowerCase();
+	const known = state.items.find((i) => String(i.id) === k || i.ref === k);
+	if (!known) return openItem(await api(`/api/items/${encodeURIComponent(k)}`));
+	openItem({ ...known, loading: true });
+	try { itemLoaded(await api(`/api/items/${known.id}`)); }
+	catch (e) { if (state.current?.id === known.id) $("#err").textContent = e.message; }
+}
+let formTouched = false;
+form.addEventListener("input", () => { formTouched = true; });
+function itemLoaded(full) {
+	const cur = state.current;
+	if (!dlg.open || !cur?.loading || cur.id !== full.id) return;
+	// Changed since the board's last poll, and nothing typed yet: show it as it is now.
+	if (!formTouched && full.updated_at !== cur.updated_at) return openItem(full);
+	const { notes, images, image_count, waits_on, blocks, body } = full;
+	state.current = { ...cur, notes, images, image_count, waits_on, blocks, body, loading: false };
+	if (cur.body === undefined) {
+		form.body.value = body ?? "";
+		showBodyEditor(false);
+		$("#edit-body").disabled = false;
+		$("#body-view").classList.remove("loading");
+	}
+	renderImages();
+	renderHistory();
+	hookRun(hooks.itemLoaded, state.current);
+}
+
 function renderHistory() {
 	const item = state.current;
+	if (item.loading) return void ($("#history ol").innerHTML = `<li class="loading">Loading the history…</li>`);
 	$("#history ol").innerHTML = (item.notes || []).map((n) => `<li><time title="${esc(n.at)} UTC">${ago(n.at)}</time>${n.author ? `<span class="who">${esc(n.author === "kostas" ? setting("name") || "Kostas" : n.author)}</span>` : ""}${n.text.includes("\n") ? `<div class="note-md">${md(n.text)}</div>` : esc(n.text)}</li>`).join("");
 }
 
@@ -128,6 +166,8 @@ async function uploadPending(itemId) {
 function formPatch() {
 	const p = {};
 	for (const k of ["title", "status", "owner", "kind", "project", "area", "branch", "session", "body"]) p[k] = form[k].value;
+	// Details that haven't loaded yet stay as they are.
+	if (state.current.id && state.current.body === undefined) delete p.body;
 	p.priority = Number(form.priority.value);
 	p.options = form.options.value.split("\n").map((o) => o.trim()).filter(Boolean);
 	hookRun(hooks.itemSave, p);

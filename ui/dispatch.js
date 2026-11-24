@@ -336,7 +336,7 @@ $("#settings-view").addEventListener("click", async (e) => {
 		try { await stopAgent(stop.dataset.runStopSet); } catch (err) { toast(err.message); }
 		renderSettings();
 	} else if (open) {
-		try { openItem(await api(`/api/items/${open.dataset.runItem}`)); } catch (err) { toast(err.message); }
+		try { await openItemById(open.dataset.runItem); } catch (err) { toast(err.message); }
 	}
 });
 onSettingsChange((key) => {

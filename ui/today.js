@@ -125,7 +125,7 @@ function todayRender() {
 
 todayEl.addEventListener("click", (e) => {
 	const it = e.target.closest("[data-item]");
-	if (it) return api(`/api/items/${encodeURIComponent(it.dataset.item)}`).then(openItem).catch((err) => toast(err.message));
+	if (it) return openItemById(it.dataset.item).catch((err) => toast(err.message));
 	if (e.target.closest("#td-fresh")) return todayLoad(true);
 	if (e.target.closest("[data-queue]")) return (location.hash = "#queue");
 	const b = e.target.closest("[data-board]");

@@ -159,7 +159,9 @@ function setCollapsed(c) {
 $("#rail-open").onclick = () => setCollapsed(!state.collapsed);
 
 async function loadLinks() {
-	state.links = await api("/api/links");
+	const links = await api("/api/links");
+	if (links === state.links) return;
+	state.links = links;
 	renderRail();
 }
 async function loadSources() {
@@ -169,7 +171,9 @@ async function loadSources() {
 	renderRail();
 }
 async function loadReports() {
-	state.reports = await api("/api/reports");
+	const reports = await api("/api/reports");
+	if (reports === state.reports) return;
+	state.reports = reports;
 	renderRail();
 	checkNewerReport();
 }

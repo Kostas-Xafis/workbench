@@ -22,6 +22,8 @@ const hooks = {
 	cardActions: [],
 	// (item, isNew) → nothing: the item dialog is filled and about to open; show or fill your own part of it.
 	itemOpen: [],
+	// (item) → nothing: an item opened from the board's list (no history, pictures or links yet) has loaded them all.
+	itemLoaded: [],
 	// (patch) → nothing: Save is about to send `patch` (an item's fields); add your own part of the form to it.
 	itemSave: [],
 	// (collapsed) → HTML: in the sidebar, under the trackers (the folded rail when `collapsed`).

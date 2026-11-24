@@ -96,6 +96,28 @@ describe("getting in", () => {
 });
 
 describe("the board", () => {
+	test("the page names its files by version, kept for good; a poll with nothing new gets 304", async () => {
+		const page = await api("/");
+		const html = await page.text();
+		expect(html).toContain('<html data-cloud="1"');
+		const m = html.match(/src="\/ui\/core\.js\?v=([\w-]+)"/);
+		expect(m).not.toBeNull();
+		expect(html).not.toMatch(/(?:href|src)="\/ui\/[^"?]+"/);
+		const file = await api(`/ui/core.js?v=${m![1]}`);
+		expect(file.status).toBe(200);
+		expect(file.headers.get("cache-control")).toBe("private, max-age=31536000, immutable");
+		expect((await api("/ui/core.js")).headers.get("cache-control")).toBe("no-cache");
+		const items = await api("/api/items");
+		const tag = items.headers.get("etag")!;
+		expect(tag).toBeTruthy();
+		const same = await api("/api/items", { headers: { "if-none-match": tag } });
+		expect(same.status).toBe(304);
+		expect(await same.text()).toBe("");
+		// What the computer helper answers in the cloud (git, pull requests) too.
+		const git = await api("/api/git");
+		expect((await api("/api/git", { headers: { "if-none-match": git.headers.get("etag")! } })).status).toBe(304);
+	});
+
 	test("projects, items and notes, with the board's own rules", async () => {
 		expect((await api("/api/projects", { method: "POST", body: JSON.stringify({ slug: "demo", name: "Demo", path: "/home/me/demo" }) })).status).toBe(201);
 		const added = await api("/api/items", { method: "POST", body: JSON.stringify({ project: "demo", title: "From the cloud", kind: "decision", options: ["A", "B"] }) });

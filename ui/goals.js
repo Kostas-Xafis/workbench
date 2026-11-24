@@ -133,7 +133,9 @@ function clearGoal() {
 window.addEventListener("hashchange", () => { if (/^#goal\//.test(location.hash) || !$("#board").hidden) renderBoard(); });
 
 async function loadGoals() {
-	goals = await api("/api/goals");
+	const list = await api("/api/goals");
+	if (list === goals && goalsLoaded) return;
+	goals = list;
 	goalsLoaded = true;
 	// A hash that names a goal that isn't there any more, or is closed: back to everything. (One of another project
 	// stays: hooks.start below goes to that project.)

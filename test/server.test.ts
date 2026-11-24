@@ -58,6 +58,47 @@ describe("server", () => {
 		expect(items.map((i) => i.title)).toEqual(["From a test"]);
 	});
 
+	test("a poll that finds nothing new gets 304 and no body; a change gets the new answer", async () => {
+		const first = await fetch(`${BASE}/api/items?project=demo`);
+		const tag = first.headers.get("etag")!;
+		expect(tag).toMatch(/^"[\w-]+"$/);
+		expect(first.headers.get("cache-control")).toBe("no-store");
+		const same = await fetch(`${BASE}/api/items?project=demo`, { headers: { "if-none-match": tag } });
+		expect(same.status).toBe(304);
+		expect(await same.text()).toBe("");
+		await post("/api/items", JSON.stringify({ title: "Another", project: "demo" }), "application/json");
+		const changed = await fetch(`${BASE}/api/items?project=demo`, { headers: { "if-none-match": tag } });
+		expect(changed.status).toBe(200);
+		expect(changed.headers.get("etag")).not.toBe(tag);
+		expect(((await changed.json()) as unknown[]).length).toBe(2);
+	});
+
+	test("bodies=open leaves out the details of closed items only", async () => {
+		const [a, b] = (await (await fetch(`${BASE}/api/items?project=demo`)).json()) as { id: number }[];
+		const patch = (id: number, p: object) => fetch(`${BASE}/api/items/${id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(p) });
+		await patch(a.id, { body: "open details" });
+		await patch(b.id, { body: "closed details", status: "done" });
+		const items = (await (await fetch(`${BASE}/api/items?project=demo&bodies=open`)).json()) as { id: number; body?: string }[];
+		expect(items.find((i) => i.id === a.id)!.body).toBe("open details");
+		expect("body" in items.find((i) => i.id === b.id)!).toBe(false);
+		expect(((await (await fetch(`${BASE}/api/items/${b.id}`)).json()) as { body: string }).body).toBe("closed details");
+	});
+
+	test("the page names its files by version, and a versioned file is kept for good", async () => {
+		const page = await fetch(`${BASE}/`);
+		expect(page.headers.get("cache-control")).toBe("no-cache");
+		const html = await page.text();
+		const m = html.match(/src="\/ui\/board\.js\?v=([\w-]+)"/);
+		expect(m).not.toBeNull();
+		expect(html).not.toMatch(/(?:href|src)="\/ui\/[^"?]+"/);
+		const again = await fetch(`${BASE}/`, { headers: { "if-none-match": page.headers.get("etag")! } });
+		expect(again.status).toBe(304);
+		const kept = await fetch(`${BASE}/ui/board.js?v=${m![1]}`);
+		expect(kept.headers.get("cache-control")).toBe("private, max-age=31536000, immutable");
+		expect(await kept.text()).toContain("function renderBoard");
+		expect((await fetch(`${BASE}/ui/board.js`)).headers.get("cache-control")).toBe("no-cache");
+	});
+
 	test("the write guard: a write that isn't JSON gets 415 and changes nothing", async () => {
 		const body = JSON.stringify({ title: "Sneaky", project: "demo" });
 		for (const type of ["text/plain", "application/x-www-form-urlencoded", "multipart/form-data; boundary=x", undefined]) {

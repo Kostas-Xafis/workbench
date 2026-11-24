@@ -161,7 +161,7 @@ rulingsView.addEventListener("click", async (e) => {
 	}
 	const it = t.closest("[data-open-item]");
 	if (it) {
-		try { openItem(await api(`/api/items/${encodeURIComponent(it.dataset.openItem)}`)); } catch { toast(`wb-${it.dataset.openItem} isn't on the board any more (closed items are tidied away).`); }
+		try { await openItemById(it.dataset.openItem); } catch { toast(`wb-${it.dataset.openItem} isn't on the board any more (closed items are tidied away).`); }
 	}
 });
 rulingsView.addEventListener("submit", async (e) => {
