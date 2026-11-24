@@ -116,7 +116,10 @@ export function firstLine(text: string, max = 200) {
 const lastWords = (notes: Note[]) => [...notes].reverse().find((n) => n.author !== "workbench" && !isChange(n.text));
 /** What the agent said when it finished: the first note that says something from its done time on, else the last before. */
 function doneWords(notes: Note[], doneAt: string | null) {
-	const said = notes.filter((n) => n.author !== "workbench" && !isChange(n.text));
+	const all = notes.filter((n) => n.author !== "workbench" && !isChange(n.text));
+	// The agent's words first: a note of yours after it finished isn't what it did.
+	const agents = all.filter((n) => n.author === "agent");
+	const said = agents.length ? agents : all;
 	return (doneAt ? said.find((n) => n.at >= doneAt) : undefined) ?? said.at(-1);
 }
 const sqlTime = (ms: number) => new Date(ms).toISOString().slice(0, 19).replace("T", " ");

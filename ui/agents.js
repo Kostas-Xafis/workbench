@@ -23,7 +23,7 @@ agEl.innerHTML = `<div class="ag-wrap">
 		<section class="ag-lane" data-lane="ready" aria-label="Ready to land"><h2>Ready to land <i></i></h2><div class="ag-list" role="listbox" aria-label="Ready to land"></div></section>
 		<section class="ag-lane" data-lane="stuck" aria-label="Stuck"><h2>Stuck <i></i></h2><div class="ag-list" role="listbox" aria-label="Stuck"></div></section>
 	</div>
-	<section class="ag-log" aria-label="Finished"><h2>Finished <i></i></h2><div class="ag-list" role="listbox" aria-label="Finished"></div></section>
+	<section class="ag-log" aria-label="Finished"><h2><span>Finished</span> <i></i></h2><div class="ag-list" role="listbox" aria-label="Finished"></div></section>
 </div>`;
 $("#content").append(agEl);
 const agOn = () => !agEl.hidden;
@@ -34,6 +34,8 @@ function agSince() {
 	const now = Date.now(), last = Number(localGet("agents.last")) || 0;
 	let since = Number(localGet("agents.since")) || 0;
 	if (!since || now - last > AG_GAP) since = last || now - 86400e3;
+	// From a visit: "since <when>"; the first time, the last day.
+	ag.fromVisit = !!last;
 	localSet("agents.since", String(since));
 	localSet("agents.last", String(now));
 	return Math.max(since, now - AG_MAX);
@@ -82,7 +84,8 @@ function agView() {
 	return { running: pick(d?.running), ready: pick(d?.ready), stuck, finished: pick(d?.finished) };
 }
 // The order J and K follow in the reader: the lanes left to right (as many as they show), then Finished.
-const agShown = (lane, list) => (ag.all.has(lane) ? list : list.slice(0, AG_SHOWN));
+// Fewer on a phone, where the lanes stack.
+const agShown = (lane, list) => (ag.all.has(lane) ? list : list.slice(0, matchMedia("(max-width: 760px)").matches ? 3 : AG_SHOWN));
 const agOrder = () => { const v = agView(); return [...agShown("running", v.running), ...agShown("ready", v.ready), ...agShown("stuck", v.stuck), ...v.finished].map((x) => x.item.id); };
 
 const agRef = (i) => `<span class="ag-ref">wb-${esc(i.ref)}</span>`;
@@ -157,7 +160,7 @@ function agRender() {
 	if (!d) return;
 	const v = agView();
 	const since = new Date(ag.since || Date.now() - 86400e3);
-	const sinceWords = Date.now() - since.getTime() <= 86400e3 + 60e3 ? "in the last day" : `since ${when(since)}`;
+	const sinceWords = ag.fromVisit && Date.now() - since.getTime() < 86400e3 - 60e3 ? `since ${when(since)}` : "in the last day";
 	paint(agEl.querySelector(".ag-counts"), esc([`${v.running.length} running`, `${v.ready.length} to land`, `${v.stuck.length} stuck`, `${v.finished.length} finished ${sinceWords}`].join(" · ")));
 	paint(agEl.querySelector(".ag-filters"), agFilters());
 	const lim = agEl.querySelector(".ag-limits");
@@ -168,6 +171,7 @@ function agRender() {
 		h.textContent = list.length || "";
 	}
 	agEl.querySelector(".ag-log h2 i").textContent = v.finished.length || "";
+	paint(agEl.querySelector(".ag-log h2 span"), esc(`Finished ${sinceWords}`));
 	const empty = {
 		running: ["No agent is running", "Run an agent's to-do from its item, or send one with your answer."],
 		ready: ["Nothing to land", "Finished work whose branch isn't merged shows here."],
@@ -246,6 +250,8 @@ defineView({
 		// A new visit (not a project picked in the view): Finished starts from the last one.
 		if (from !== "agents" || !ag.since) ag.since = agSince();
 		if (ag.data) agRender();
+		// The first answer can take a few seconds (git and pull requests are read once, then kept).
+		else for (const el of agEl.querySelectorAll(".ag-list")) if (!el.children.length) el.innerHTML = `<p class="ag-loading">Loading…</p>`;
 		agLoad();
 		agWatch();
 	},

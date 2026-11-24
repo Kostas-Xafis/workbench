@@ -75,3 +75,4 @@
 	.ag-logrow .ag-what { grid-column: 1 / -1; grid-row: 2; }
 	.ag-logrow .ag-m { grid-column: 2; grid-row: 1; }
 }
+.ag-loading { margin: 0; padding: var(--sp-3) 0; font-size: var(--fs-12); color: var(--faint); }
