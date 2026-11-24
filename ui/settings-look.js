@@ -37,7 +37,7 @@ const SHORTCUTS = () => [
 	[[["Enter"]], "Open the search result you're on"],
 	[[["Esc"]], "Close the search results, then clear the search"],
 	[[["Esc"]], "Close a dialog, or the item you're reading"],
-	[[["J"], ["K"]], "In an item: the next or previous one on the board"],
+	[[["J"], ["K"]], "In an item: the next or previous one in the list you opened it from"],
 	[[["1"], ["9"]], "In an item: answer with that choice (tick it, when several can be picked)"],
 	[[["E"]], "In an item: edit its details (" + MOD + " Enter saves)"],
 	[[["Enter"]], "In an item's reply box: answer, object or add the note (Shift Enter for a new line)"],
