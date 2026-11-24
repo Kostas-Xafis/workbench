@@ -42,6 +42,8 @@
 .ib-list .k-row { position: relative; z-index: 1; background: var(--card); touch-action: pan-y; }
 .ib-list .k-row:hover { background: var(--hover); }
 .ib-list .k-row.is-sel { background: var(--accent-bg); }
+/* The meta line may take two lines here: what it recommends and when it goes ahead both matter. */
+.ib-list .k-meta { white-space: normal; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; }
 .ib-grp { font-size: var(--fs-11); font-weight: 600; letter-spacing: .07em; text-transform: uppercase; color: var(--faint); padding: var(--sp-4) var(--sp-4) 6px; }
 .ib-grp + .k-row { border-top: 0; }
 .ib-p1 { color: var(--ink); font-weight: 700; }
