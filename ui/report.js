@@ -1,50 +1,26 @@
-/* ---------- Reports ---------- */
+/* ---------- Reports: the report view (#report/<id>, #report/<id>/v<n>) ---------- */
 
 const frame = $("#r-frame");
-// Whether a view has been shown yet: a page opened on #item/wb-xxxx shows the board under the reader first.
-let viewShown = false;
-
-function showView(name) {
-	viewShown = true;
-	for (const [id, v] of [["#board", "board"], ["#report-view", "report"], ["#vault-view", "vault"], ["#settings-view", "settings"], ["#welcome-view", "welcome"],
-		...views.map((x) => [x.el, x.name])]) $(id).hidden = v !== name;
-	$("#vault-btn").setAttribute("aria-pressed", name === "vault");
-	renderProjects();
-	if (name !== "vault") lockVault();
-	if (name !== "report") {
+defineView({
+	name: "report",
+	el: "#report-view",
+	match: (h) => { const m = h.match(/^#report\/(\d+)(?:\/v(\d+))?$/); return m ? { id: Number(m[1]), v: m[2] ? Number(m[2]) : null } : null; },
+	show: (p) => showReport(p.id, p.v),
+	hide() {
 		state.report = null;
 		frame.removeAttribute("src");
 		delete frame.dataset.src;
-	}
-}
-
-function route() {
-	// #item/wb-xxxx: the reader opens over whatever shows (ui/reader.js).
-	if (readerRoute()) return;
-	const m = location.hash.match(/^#report\/(\d+)(?:\/v(\d+))?$/);
-	if (m) return showReport(Number(m[1]), m[2] ? Number(m[2]) : null);
-	const own = views.find((x) => x.match(location.hash));
-	if (own) {
-		showView(own.name);
-		document.title = own.title ?? "Workbench";
-		renderRail();
-		return own.open?.(location.hash);
-	}
-	const view = location.hash === "#vault" ? "vault" : inSettings() ? "settings" : inWelcome() ? "welcome" : "board";
-	showView(view);
-	document.title = { vault: "Vault · Workbench", settings: "Settings · Workbench", welcome: "Set up · Workbench", board: "Workbench" }[view];
-	renderRail();
-	if (view === "vault") openVault();
-	if (view === "settings") openSettings(location.hash.split("/")[1]);
-	if (view === "welcome") openWelcome(location.hash.split("/")[1]);
-}
+	},
+	title: () => state.report?.title ?? "Report",
+	nav: () => (state.report ? `project:${state.report.project}` : null),
+});
 
 async function showReport(id, v) {
 	let r;
-	try { r = await api(`/api/reports/${id}`); } catch { history.replaceState(null, "", location.pathname + location.search); return route(); }
+	try { r = await api(`/api/reports/${id}`); } catch { return go("", { replace: true }); }
+	if (router.view?.name !== "report") return; // left while it loaded
 	state.report = r;
 	state.reportV = v;
-	showView("report");
 	const shown = v ?? r.version;
 	$("#r-title").textContent = r.title;
 	$("#r-sub").textContent = `${projectName(r.project)} · updated ${ago(r.updated_at)}`;
@@ -58,7 +34,7 @@ async function showReport(id, v) {
 	const src = withFrameTheme(`/r/${id}${v ? `?v=${v}` : ""}`);
 	if (frame.dataset.src !== src) { frame.dataset.src = src; frame.src = src; }
 	frame.dataset.version = shown;
-	document.title = `${r.title} · Workbench`;
+	retitle();
 	renderRail();
 	refreshShares();
 }
@@ -73,16 +49,11 @@ function checkNewerReport() {
 }
 $("#r-newer").onclick = () => { delete frame.dataset.src; showReport(state.report.id, null); };
 $("#r-reload").onclick = () => { frame.src = frame.dataset.src; };
-function goBoard() {
-	history.pushState(null, "", location.pathname + location.search);
-	route();
-}
 $("#r-back").onclick = goBoard;
 $("#r-version").onchange = (e) => {
 	const n = Number(e.target.value);
-	location.hash = `#report/${state.report.id}${n === state.report.version ? "" : `/v${n}`}`;
+	go(`#report/${state.report.id}${n === state.report.version ? "" : `/v${n}`}`);
 };
-window.addEventListener("hashchange", route);
 
 // The page runs sandboxed (origin "null") and asks the board through postMessage. Read-only by design:
 // nothing here changes the board, except opening an item in the reader for Kostas to act on, and the page's

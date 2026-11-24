@@ -23,7 +23,7 @@ const askShows = (i) => !!i.id && askOpen(i) && ASK_KINDS.includes(i.kind);
 // What saying nothing does, in a sentence.
 function askNothing(i) {
 	const what = askDefaultText(i);
-	const at = i.decide_by ? ` ${askDay(parseTime(i.decide_by))}` : "";
+	const at = i.decide_by ? ` ${when(i.decide_by)}` : "";
 	if (i.kind === "notice") return `If you say nothing, it closes as seen${at}`;
 	if (!what) return "";
 	return i.kind === "decision" ? `If you say nothing, it goes ahead with ${what}${at}` : `If you say nothing, it goes ahead: ${what}${at}`;

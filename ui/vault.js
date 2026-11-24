@@ -377,7 +377,7 @@ vaultView.addEventListener("click", async (e) => {
 			const v = await secretValue(s, "Duplicate");
 			if (v != null) openSecret({ name: `${s.name}_COPY`, value: v, note: s.note, project: s.project, copyOf: s.name });
 		} else if (act === "delete") {
-			if (!confirm(`Delete the secret “${s.name}”? This can't be undone.`)) return;
+			if (!(await confirmIn(b, { text: `Delete the secret “${s.name}”? This can't be undone.`, yes: "Delete", danger: true }))) return;
 			await vaultApi(`/api/secrets/${s.id}`, vault.auth, { method: "DELETE" });
 			await loadSecrets();
 			renderVault();
@@ -392,7 +392,17 @@ $("#usage-btn").onclick = (e) => {
 	e.preventDefault();
 	location.href = state.project ? `/usage?project=${encodeURIComponent(state.project)}` : "/usage";
 };
-$("#vault-btn").onclick = () => (location.hash === "#vault" ? goBoard() : (location.hash = "#vault"));
+$("#vault-btn").onclick = () => (location.hash === "#vault" ? goHome() : go("#vault"));
+defineView({
+	name: "vault",
+	el: "#vault-view",
+	match: (h) => (h === "#vault" ? {} : null),
+	show: () => openVault(),
+	// It locks when you leave it.
+	hide: () => lockVault(),
+	title: "Vault",
+	nav: "vault",
+});
 
 // .env export: pick secrets, enter the password once, then copy or download. The text leaves with the dialog.
 const envDlg = $("#env-dlg");

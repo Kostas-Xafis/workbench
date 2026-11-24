@@ -18,17 +18,7 @@ const GLYPH = {
 	play: RING + '<path d="M6.8 5.6v4.8L10.6 8z"/>',
 	pause: RING + '<path d="M6.5 5.8v4.4M9.5 5.8v4.4"/>',
 	commit: '<circle cx="8" cy="8" r="2.6"/><path d="M1.5 8h3.9M10.6 8h3.9"/>',
-	// One per kind, in the kind's colour: section headers and search results.
-	"k-decision": '<path d="M8 14.25V8.75L4 4.25M8 8.75l4-4.5M3.75 7.25V4h3.25M12.25 7.25V4H9"/>',
-	"k-setup": '<path d="M10.6 2.1a3.4 3.4 0 0 0-3.9 4.5L2.3 11a1.5 1.5 0 0 0 2.1 2.1l4.4-4.4a3.4 3.4 0 0 0 4.5-3.9l-2.1 2.1-1.9-.3-.3-1.9z"/>',
-	"k-check": '<rect x="4.25" y="1.75" width="7.5" height="12.5" rx="1.75"/><path d="M6.3 7.9l1.3 1.3 2.2-2.5M7.25 12.1h1.5"/>',
-	"k-review": '<path d="M1.75 8S4.25 3.75 8 3.75 14.25 8 14.25 8 11.75 12.25 8 12.25 1.75 8 1.75 8z"/><circle cx="8" cy="8" r="1.9"/>',
-	"k-bug": '<path d="M6.2 5.9a1.8 1.8 0 0 1 3.6 0M6.6 4.3 5.7 2.7M9.4 4.3l.9-1.6"/><rect x="4.75" y="5.75" width="6.5" height="8" rx="3.25"/><path d="M8 8.25v5.5M4.75 9.5H2.4M11.25 9.5h2.35M5 7.2 3.4 5.9M11 7.2l1.6-1.3M5.1 12.2l-1.7 1.3M10.9 12.2l1.7 1.3"/>',
-	"k-task": '<path d="M5.25 4.5 1.75 8l3.5 3.5M10.75 4.5 14.25 8l-3.5 3.5M9.1 3 6.9 13"/>',
-	"k-notice": '<circle cx="8" cy="8" r="6.25"/><path d="M8 7.4v3.85M8 4.9v.05"/>',
-	"k-idea": '<path d="M6.25 11.25c0-1.1-.5-1.8-1.2-2.5a4 4 0 1 1 5.9 0c-.7.7-1.2 1.4-1.2 2.5zM6.5 13.75h3"/>',
 };
-const kindIcon = (kind) => `<span class="kic k-${kind}" aria-hidden="true">${glyph(`k-${kind}`)}</span>`;
 const glyph = (name) => `<svg class="gl" viewBox="0 0 16 16" aria-hidden="true">${GLYPH[name]}</svg>`;
 const WHO = [["all", "Everything"], ["kostas", "Needs you"], ["agent", "With agents"]];
 const $ = (s, el = document) => el.querySelector(s);
@@ -148,15 +138,7 @@ function hl(text, q) {
 	return out + esc(text.slice(last));
 }
 
-const parseTime = (s) => new Date(s.replace(" ", "T") + "Z");
-function ago(s) {
-	const d = (Date.now() - parseTime(s)) / 1000;
-	if (d < 60) return "just now";
-	if (d < 3600) return `${Math.floor(d / 60)} min ago`;
-	if (d < 86400) return `${Math.floor(d / 3600)} h ago`;
-	if (d < 86400 * 30) return `${Math.floor(d / 86400)} d ago`;
-	return parseTime(s).toLocaleDateString();
-}
+// Times (ago, when, day, inDays, took, parseTime) are in time.js.
 const sessionHref = (s) => /^local_[0-9a-f-]+$/.test(s) ? `claude://claude.ai/epitaxy/${s}` : null;
 const projectName = (slug) => state.allProjects.find((p) => p.slug === slug)?.name ?? slug;
 // Archived projects stay out of the rail and "All", but their names still resolve (search, old items).

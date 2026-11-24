@@ -241,12 +241,13 @@ ckEl.addEventListener("input", (e) => {
 	if (ck.need && e.target.value.trim()) { ck.need = false; e.target.classList.remove("need"); ckEl.querySelector(".ck-need")?.remove(); }
 });
 
-views.push({
+defineView({
 	name: "check",
 	el: "#check-view",
-	match: (h) => /^#check\/[^/]+/.test(h),
-	title: "Run a check · Workbench",
-	async open(hash) {
+	match: (h) => (/^#check\/[^/]+/.test(h) ? { hash: h } : null),
+	title: "Run a check",
+	nav: null,
+	async show({ hash }) {
 		const ref = ckRef(decodeURIComponent(hash.split("/")[1] ?? ""));
 		if (ref !== ck.ref || !ck.data) await ckLoad(ref);
 		else {

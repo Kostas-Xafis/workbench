@@ -121,16 +121,13 @@ hooks.cardMeta.push((i) => {
 function showGoal(id) {
 	const g = goalById(id);
 	if (!g) return;
-	if (state.project !== g.project) setProject(g.project);
-	if (location.hash === `#goal/${g.id}`) return renderBoard();
-	location.hash = `#goal/${g.id}`;
+	useProject(g.project);
+	go(`#goal/${g.id}`);
 }
 function clearGoal() {
 	if (goalFilterId() === null && !/^#goal\//.test(location.hash)) return;
-	history.pushState(null, "", location.pathname + location.search);
-	renderBoard();
+	setProject(state.project);
 }
-window.addEventListener("hashchange", () => { if (/^#goal\//.test(location.hash) || !$("#board").hidden) renderBoard(); });
 
 async function loadGoals() {
 	const list = await api("/api/goals");
@@ -168,13 +165,8 @@ hooks.start.push(async () => {
 	const m = location.hash.match(/^#goal\/(\d+)$/);
 	const g = m && goalById(m[1]);
 	if (g && g.status === "open" && g.project !== state.project && state.projects.some((p) => p.slug === g.project)) {
-		state.project = g.project;
-		localSet("project", g.project);
-		renderProjects();
-		renderRail();
-		loadItems();
-		loadCode();
-		loadRepos();
+		useProject(g.project);
+		retitle();
 	}
 	renderBoard();
 });
