@@ -186,7 +186,7 @@ function createReader(host, opts = {}) {
 		const by = r.compose ? "new" : !i.created_at ? "" : `${rdMine(creator) ? "filed by you" : creator === "agent" ? "filed by the agent" : creator === "import" ? "imported" : "filed"} ${ago(i.created_at)}`;
 		const status = !r.compose && i.status !== "todo" ? `<span class="rd-status st-${i.status}">${esc(i.status)}${i.done_at && !OPEN.includes(i.status) ? ` ${esc(ago(i.done_at))}` : ""}</span>` : "";
 		return `<div class="rd-ctx">${i.ref ? `<button type="button" class="ref" data-copy="wb-${esc(i.ref)}" title="Copy wb-${esc(i.ref)}">wb-${esc(i.ref)}</button>` : ""}
-			<span class="rd-kind">${glyph(`k-${i.kind}`)}${esc(i.kind)}</span>${i.project ? `<span>${esc(projectName(i.project))}</span>` : ""}${by ? `<span>${esc(by)}</span>` : ""}${status}</div>`;
+			<span class="rd-kind">${kindGlyph(i.kind)}${esc(i.kind)}</span>${i.project ? `<span>${esc(projectName(i.project))}</span>` : ""}${by ? `<span>${esc(by)}</span>` : ""}${status}</div>`;
 	}
 	function briefHtml(i) {
 		if (r.compose || r.briefEdit) {
@@ -538,7 +538,7 @@ function createReader(host, opts = {}) {
 		const un = q("[data-rd-unpend]");
 		if (un) { const [p] = r.pending.splice(Number(un.dataset.rdUnpend), 1); URL.revokeObjectURL(p.url); return r.render(); }
 		const rm = q("[data-rd-unimage]");
-		if (rm && confirm("Remove this picture?")) api(`/api/images/${rm.dataset.rdUnimage}`, { method: "DELETE" }).then((it) => { r.take(it); loadItems(); }).catch((err) => r.error(err.message));
+		if (rm) confirmIn(rm, { text: "Remove this picture?", yes: "Remove", danger: true }).then((yes) => yes && api(`/api/images/${rm.dataset.rdUnimage}`, { method: "DELETE" }).then((it) => { r.take(it); loadItems(); })).catch((err) => r.error(err.message));
 	});
 	host.addEventListener("change", (e) => {
 		const t = e.target;
@@ -699,9 +699,11 @@ function openNewItem() {
 		project: state.project || state.report?.project || state.projects[0]?.slug || "",
 	});
 }
-function closeSheet({ nav = true } = {}) {
+async function closeSheet({ nav = true } = {}) {
 	if (!sheetDlg.open) return;
-	if (sheet.composing() && !confirm("Leave this new item without creating it?")) return;
+	// Asks only while a new item is being written; otherwise it closes at once, before this returns.
+	if (sheet.composing() && !(await confirmIn("Leave this new item without creating it?", { yes: "Leave it", no: "Keep writing" }))) return;
+	if (!sheetDlg.open) return;
 	document.activeElement?.blur?.();
 	sheet.leave();
 	sheetDlg.close();
@@ -720,13 +722,12 @@ function sheetNav(dir) {
 	const next = at < 0 ? (dir > 0 ? keys[0] : undefined) : keys[at + dir];
 	if (next !== undefined) openItemById(next, { list: sheetList }).catch((e) => toast(e.message));
 }
-/** route() asks this first (report.js): #item/wb-xxxx opens the reader over the view that's showing. */
+/** route() asks this first (router.js): #item/wb-xxxx opens the reader over the view that's showing. */
 function readerRoute() {
 	const h = location.hash;
 	if (routeSkip !== null) { const skip = routeSkip === h; routeSkip = null; if (skip) return true; }
 	const m = h.match(/^#item\/(?:wb-)?([a-z0-9]+)$/i);
 	if (m) {
-		if (!viewShown) { showView("board"); document.title = "Workbench"; renderRail(); }
 		if (!sheetDlg.open || sheet.item?.ref !== m[1].toLowerCase()) openItemById(m[1], { route: true }).catch(() => { toast(`wb-${m[1]} isn't on the board.`); if (sheetDlg.open) closeSheet(); else history.replaceState(null, "", sheetBase()); });
 		return true;
 	}

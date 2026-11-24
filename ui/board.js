@@ -172,3 +172,27 @@ $("#sections").addEventListener("click", async (e) => {
 	const c = e.target.closest(".card");
 	if (c) openItemById(c.dataset.id, { list: boardOrder }).catch((err) => toast(err.message));
 });
+
+// The board is a view like the others: all projects at "" (where the board opens, until a view claims that), one
+// project at #project/<slug> (until Projects has pages of its own), and a goal's items at #goal/<id> (goals.js).
+// The sidebar (rail.js) is its side column, and goes with it.
+defineView({
+	name: "board",
+	el: "#board-view",
+	default: true,
+	match(h) {
+		const p = h.match(/^#project\/([^/]+)$/);
+		if (p) return { slug: decodeURIComponent(p[1]) };
+		const g = h.match(/^#goal\/(\d+)$/);
+		return g ? { goal: Number(g[1]) } : null;
+	},
+	show(p) {
+		// A goal keeps the project it's in (goals.js moves to it).
+		if (p.goal === undefined) useProject(p.slug ?? "");
+		renderBoard();
+		renderRail();
+	},
+	title: () => (state.project ? projectName(state.project) : "All projects"),
+	nav: () => (state.project ? `project:${state.project}` : "board"),
+	entry: { label: "Board", order: 90, icon: '<rect x="2.25" y="2.75" width="11.5" height="10.5" rx="1.5"/><path d="M6.25 2.75v10.5M2.25 6.75h4"/>' },
+});

@@ -1,16 +1,4 @@
-/* ---------- Projects ---------- */
-
-function renderProjects() {
-	const total = state.projects.reduce((n, p) => n + p.mine, 0);
-	const btn = (p) => `<button class="pbtn" data-project="${esc(p.slug)}" aria-current="${p.slug === state.project}"
-		title="${esc(p.name)}${p.mine ? ` · ${p.mine} waiting on you` : ""}${p.notices ? ` · ${p.notices} notice${p.notices > 1 ? "s" : ""}` : ""}">${logo(p)}<span class="pname">${esc(p.slug ? p.name : "All")}</span>${p.mine ? `<span class="badge">${p.mine}</span>` : ""}</button>`;
-	const settingsBtn = `<button type="button" class="pbtn set-pbtn" id="settings-btn" title="Settings" aria-label="Settings" aria-pressed="${inSettings()}">
-		<span class="set-ic"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor"><g stroke-width="1.4"><path d="M2.5 4.5h6M11.5 4.5h2M2.5 11.5h2M7.5 11.5h6"/><circle cx="10" cy="4.5" r="1.5"/><circle cx="6" cy="11.5" r="1.5"/></g></svg></span><span class="pname">Settings</span></button>`;
-	paint($("#prail"), btn({ slug: "", name: "All projects", mine: total }) + `<div class="prail-sep"></div>` + state.projects.map(btn).join("") + settingsBtn);
-	const p = state.projects.find((p) => p.slug === state.project);
-	paint($("#here"), `<span class="here" style="gap:10px">${logo(p ?? { slug: "" })}<div><b>${esc(p ? p.name : "All projects")}</b>
-		<small>${esc(p ? p.path : `${state.projects.length} projects`)}</small></div></span>`);
-}
+/* ---------- Projects: the list, and which one the board shows ---------- */
 
 async function loadProjects() {
 	const all = await api("/api/projects");
@@ -18,23 +6,22 @@ async function loadProjects() {
 	state.allProjects = all;
 	state.projects = state.allProjects.filter((p) => !p.archived_at);
 	if (state.project && !state.projects.some((p) => p.slug === state.project)) state.project = "";
-	renderProjects();
+	renderNav();
+	retitle();
 }
 
-function setProject(slug) {
+// The project the board, Today, the queue, rulings and search show ("" for all of them). The address sets it: the
+// board view takes #project/<slug> (and "" for all), and the other views keep the one it set last. True when it changed.
+function useProject(slug) {
+	if (slug && !state.projects.some((p) => p.slug === slug)) slug = "";
+	if (slug === state.project) return false;
 	state.project = slug;
 	localSet("project", slug);
-	renderProjects();
 	renderRail();
-	// The vault, Today and the queue stay open (showing the new project's); a report goes back to the board.
-	if (location.hash && !["#vault", "#today", "#queue"].includes(location.hash)) history.pushState(null, "", location.pathname + location.search);
-	route();
 	loadItems();
 	loadCode();
 	loadRepos();
+	return true;
 }
-$("#prail").addEventListener("click", (e) => {
-	if (e.target.closest("#settings-btn")) return inSettings() ? goBoard() : (location.hash = "#settings");
-	const b = e.target.closest("[data-project]");
-	if (b) setProject(b.dataset.project);
-});
+// Goes to a project's page (the board for it, until Projects has pages of its own), or to all of them.
+const setProject = (slug) => go(slug ? `#project/${encodeURIComponent(slug)}` : "");

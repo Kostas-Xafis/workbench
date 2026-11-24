@@ -46,10 +46,8 @@ const hooks = {
 	// [keys, what] entries added to the shortcut list in Settings → Appearance (see SHORTCUTS); the listener is yours.
 	shortcuts: [],
 };
-// Views of their own, like the vault: { name, el: "#x-view", match: (hash) => boolean, title, open(hash) }. route()
-// shows the first whose match() is true (after reports, before the built-in views); showView() hides it otherwise.
-// Add its element from your file, e.g. $("#content").append(el).
-const views = [];
+// A view of its own (a screen at its own address, like the vault): defineView() in router.js. Add its element from
+// your file, e.g. $("#content").append(el).
 // A tab in Settings, shaped like those in SET_TABS (settings.js), after the tab with key `after` (else last).
 // Its icon is TAB_IC[key], 16×16 path data.
 function addSettingsTab(tab, after) {

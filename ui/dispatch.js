@@ -83,10 +83,6 @@ async function stopAgent(runId) {
 }
 
 /* Words and bits shared by the card, the reader and Settings. */
-const runFor = (from, to) => {
-	const m = Math.round(((to ? parseTime(to) : new Date()) - parseTime(from)) / 60e3);
-	return m < 1 ? "under a minute" : m < 90 ? `${m} min` : `${(m / 60).toFixed(1)} h`;
-};
 const RUN_WORD = { running: "running", done: "done", failed: "failed", stopped: "stopped" };
 // What its tokens come to at Claude API list prices: real money on API credits, plan usage on a subscription.
 const runCost = (r) => (r.cost != null ? `$${r.cost.toFixed(2)} at API prices` : "");
@@ -97,7 +93,7 @@ const runFolder = (i) => state.allProjects.find((p) => p.slug === i.project)?.pa
 hooks.cardMeta.push((i) => {
 	const r = runs.byItem.get(i.id);
 	const out = [];
-	if (r && !r.ended_at) out.push(`<span class="run-chip running" title="An agent the board started is on it. Open the item to watch it">agent running · ${esc(runFor(r.started_at))}</span>`);
+	if (r && !r.ended_at) out.push(`<span class="run-chip running" title="An agent the board started is on it. Open the item to watch it">agent running · ${esc(took(r.started_at))}</span>`);
 	else if (r && OPEN.includes(i.status) && ["failed", "stopped"].includes(r.status) && Date.now() - parseTime(r.ended_at) < 2 * 86400e3)
 		out.push(`<span class="run-chip ${r.status}" title="${esc(r.error || `The agent was ${r.status}`)}">agent ${RUN_WORD[r.status]}</span>`);
 	// It ended, but couldn't do everything: its permissions refused it tools. Open the item for which.
@@ -255,9 +251,9 @@ function feedHtml(r) {
 }
 function headHtml(item, r, list) {
 	const live = !r.ended_at;
-	const state = live ? `<span class="run-chip running">running · ${esc(runFor(r.started_at))}</span>`
+	const state = live ? `<span class="run-chip running">running · ${esc(took(r.started_at))}</span>`
 		: `<span class="run-chip ${r.status}">${r.status === "done" ? "finished" : RUN_WORD[r.status]}</span>`;
-	const facts = [!live && runFor(r.started_at, r.ended_at), runCost(r)].filter(Boolean).join(" · ");
+	const facts = [!live && took(r.started_at, r.ended_at), runCost(r)].filter(Boolean).join(" · ");
 	const where = runWhere(r);
 	const pick = list.length > 1 ? `<span class="run-pick" role="group" aria-label="The item's runs">${list.slice(0, 6).map((x) => `<button type="button" class="${x.id === r.id ? "on" : ""}${x.ended_at ? "" : " live"}" data-run-pick="${x.id}" title="${esc(`${RUN_WORD[x.status]} · ${ago(x.started_at)}`)}"${x.id === r.id ? ' aria-current="true"' : ""}>#${x.id}</button>`).join("")}</span>` : "";
 	return `<div class="run-top"><h3>Agent</h3>${state}${facts ? `<span class="run-muted">${esc(facts)}</span>` : ""}${where ? `<code class="run-where" title="${esc(r.cwd)}">${esc(where)}</code>` : ""}<span class="spacer"></span>${pick}</div>
@@ -405,10 +401,10 @@ TAB_IC.agents = '<rect x="2.25" y="3" width="11.5" height="9.5" rx="1.75"/><path
 addSettingsTab({ key: "agents", label: "Agents", local: true, render: () => runsSettings(), load: () => runsLoad(), poll: () => runsLoad() }, "you");
 
 function runRow(r) {
-	const took = r.ended_at ? `after ${runFor(r.started_at, r.ended_at)}` : `for ${runFor(r.started_at)}`;
+	const howLong = r.ended_at ? `after ${took(r.started_at, r.ended_at)}` : `for ${took(r.started_at)}`;
 	return `<div class="so-wide run-row"><div class="run-row-main">
 		<button type="button" class="run-link" data-run-item="${r.item_id}"><code>wb-${esc(r.ref)}</code> ${esc(r.title)}</button>
-		<small>${esc([`#${r.id}`, ago(r.started_at), `from ${r.started_from}`, took, runCost(r), r.error, r.refused && `refused ${r.refused}`].filter(Boolean).join(" · "))}</small></div>
+		<small>${esc([`#${r.id}`, ago(r.started_at), `from ${r.started_from}`, howLong, runCost(r), r.error, r.refused && `refused ${r.refused}`].filter(Boolean).join(" · "))}</small></div>
 		<span class="run-chip ${r.status}">${RUN_WORD[r.status]}</span>
 		${r.ended_at ? "" : `<button type="button" class="ghost sm danger" data-run-stop-set="${r.id}">Stop</button>`}</div>`;
 }

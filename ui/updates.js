@@ -245,16 +245,12 @@ if (app?.event) {
 /* Settings → Updates (tab "updates"). In the app: the app's own version, checks and skipped version (kept by the
  * app, "This app"), and the board server it shows. In a browser: this board's version, the daily check (a board
  * setting) and how to update. */
-function updWhen(ms) {
-	const d = new Date(ms), today = new Date().toDateString() === d.toDateString();
-	return `${today ? "today" : d.toLocaleDateString([], { day: "numeric", month: "short" })} at ${clockOf(ms)}`;
-}
 function updStatusText() {
 	const fromApp = updFromApp(), at = fromApp ? upd.app.checkedAt : upd.srv?.checkedAt;
 	if (upd.checking || upd.app?.checking) return "Checking…";
 	const err = fromApp ? upd.app.error : upd.srv?.error, o = updOffer();
 	const res = err || (o ? `${o.version} is available${o.skipped ? " (skipped)" : o.later ? " (put off until tomorrow)" : ""}` : at ? "You have the newest version." : "");
-	return `${at ? `Checked ${updWhen(at)}` : "Not checked yet"}${res ? ` · ${res}` : ""}`;
+	return `${at ? `Checked ${when(at)}` : "Not checked yet"}${res ? ` · ${res}` : ""}`;
 }
 const UPD_KIND = {
 	appimage: "An AppImage: Update now replaces it in place.",

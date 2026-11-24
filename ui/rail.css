@@ -1,5 +1,5 @@
-/* Reports and links */
-#rail { border-right: 1px solid var(--line); overflow-y: auto; overflow-x: hidden; background: color-mix(in srgb, var(--rail-bg) 45%, var(--bg)); padding-bottom: 16px; }
+/* The board's side column (rail.js): on its right, folding to 52 px; over the page on a phone. */
+#rail { border-left: 1px solid var(--line); overflow-y: auto; overflow-x: hidden; background: var(--bg); padding-bottom: var(--sp-4); min-height: 0; }
 .rail-head { display: flex; align-items: center; gap: 4px; padding: 12px 8px 6px 14px; }
 .rail-head b { flex: 1; font-size: 12px; color: var(--muted); font-weight: 600; }
 .rail-collapsed .rail-head { padding: 12px 0 6px; justify-content: center; }

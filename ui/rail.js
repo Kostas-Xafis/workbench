@@ -1,4 +1,7 @@
-/* ---------- Rail: reports and links ---------- */
+/* ---------- Rail: the board's side column (trackers, rulings, reports, links, data sources) ---------- */
+
+// It belongs to the board view (#board-view, on its right) and goes with it; on a phone it opens over the page from
+// the board's bar (#rail-open).
 
 // Links with project '' show everywhere; a project's own links show with it (and under All).
 let editingLinks = false;
@@ -68,7 +71,7 @@ const isCurrent = (r) => state.report?.id === r.id;
 function renderRail() {
 	document.body.classList.toggle("rail-collapsed", state.collapsed);
 	const toggle = `<button class="icon-btn" id="rail-toggle" title="${state.collapsed ? "Show reports and links" : "Fold the sidebar"}" aria-label="Toggle sidebar">
-		<svg viewBox="0 0 16 16" fill="none" stroke="currentColor"><g stroke-width="1.5">${state.collapsed ? '<path d="m6 4 4 4-4 4"/>' : '<path d="m10 4-4 4 4 4"/>'}</g></svg></button>`;
+		<svg viewBox="0 0 16 16" fill="none" stroke="currentColor"><g stroke-width="1.5">${state.collapsed ? '<path d="m10 4-4 4 4 4"/>' : '<path d="m6 4 4 4-4 4"/>'}</g></svg></button>`;
 	const reports = railReports();
 	const links = railLinks();
 	let html;
@@ -235,8 +238,8 @@ linkForm.addEventListener("submit", async (e) => {
 		await loadLinks();
 	} catch (err) { $("#link-err").textContent = err.message; }
 });
-$("#link-delete").onclick = async () => {
-	if (!confirm(`Delete "${currentLink.label}"?`)) return;
+$("#link-delete").onclick = async (e) => {
+	if (!(await confirmIn(e.currentTarget, { text: `Delete "${currentLink.label}"?`, yes: "Delete", danger: true }))) return;
 	await api(`/api/links/${currentLink.id}`, { method: "DELETE" });
 	linkDlg.close();
 	await loadLinks();

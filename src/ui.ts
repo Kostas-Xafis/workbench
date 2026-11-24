@@ -23,12 +23,15 @@ import dispatchJs from "../ui/dispatch.js" with { type: "file" };
 import goalsCss from "../ui/goals.css" with { type: "file" };
 import goalsJs from "../ui/goals.js" with { type: "file" };
 import hooksJs from "../ui/hooks.js" with { type: "file" };
+import kitCss from "../ui/kit.css" with { type: "file" };
+import kitJs from "../ui/kit.js" with { type: "file" };
 import linksCss from "../ui/links.css" with { type: "file" };
 import linksJs from "../ui/links.js" with { type: "file" };
+import navCss from "../ui/nav.css" with { type: "file" };
+import navJs from "../ui/nav.js" with { type: "file" };
 import notifyJs from "../ui/notify.js" with { type: "file" };
 import phoneCss from "../ui/phone.css" with { type: "file" };
 import phonesCss from "../ui/phones.css" with { type: "file" };
-import projectsCss from "../ui/projects.css" with { type: "file" };
 import projectsJs from "../ui/projects.js" with { type: "file" };
 import pushJs from "../ui/push.js" with { type: "file" };
 import queueCss from "../ui/queue.css" with { type: "file" };
@@ -39,6 +42,7 @@ import readerCss from "../ui/reader.css" with { type: "file" };
 import readerJs from "../ui/reader.js" with { type: "file" };
 import reportCss from "../ui/report.css" with { type: "file" };
 import reportJs from "../ui/report.js" with { type: "file" };
+import routerJs from "../ui/router.js" with { type: "file" };
 import rulingsCss from "../ui/rulings.css" with { type: "file" };
 import rulingsJs from "../ui/rulings.js" with { type: "file" };
 import searchJs from "../ui/search.js" with { type: "file" };
@@ -57,6 +61,7 @@ import shareJs from "../ui/share.js" with { type: "file" };
 import staleCss from "../ui/stale.css" with { type: "file" };
 import staleJs from "../ui/stale.js" with { type: "file" };
 import swJs from "../ui/sw.js" with { type: "file" };
+import timeJs from "../ui/time.js" with { type: "file" };
 import todayCss from "../ui/today.css" with { type: "file" };
 import todayJs from "../ui/today.js" with { type: "file" };
 import topCss from "../ui/top.css" with { type: "file" };
@@ -86,12 +91,15 @@ export const UI: Record<string, string> = {
 	"goals.css": goalsCss,
 	"goals.js": goalsJs,
 	"hooks.js": hooksJs,
+	"kit.css": kitCss,
+	"kit.js": kitJs,
 	"links.css": linksCss,
 	"links.js": linksJs,
+	"nav.css": navCss,
+	"nav.js": navJs,
 	"notify.js": notifyJs,
 	"phone.css": phoneCss,
 	"phones.css": phonesCss,
-	"projects.css": projectsCss,
 	"projects.js": projectsJs,
 	"push.js": pushJs,
 	"queue.css": queueCss,
@@ -102,6 +110,7 @@ export const UI: Record<string, string> = {
 	"reader.js": readerJs,
 	"report.css": reportCss,
 	"report.js": reportJs,
+	"router.js": routerJs,
 	"rulings.css": rulingsCss,
 	"rulings.js": rulingsJs,
 	"search.js": searchJs,
@@ -120,6 +129,7 @@ export const UI: Record<string, string> = {
 	"stale.css": staleCss,
 	"stale.js": staleJs,
 	"sw.js": swJs,
+	"time.js": timeJs,
 	"today.css": todayCss,
 	"today.js": todayJs,
 	"top.css": topCss,

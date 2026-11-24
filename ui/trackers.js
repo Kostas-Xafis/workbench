@@ -13,10 +13,6 @@ const unitOf = (u) => !u || CURRENCY.includes(u) ? "" : u === "%" ? "%" : ` ${u}
 const withUnit = (n, u) => `${CURRENCY.includes(u) ? u : ""}${fmtNum(n)}`;
 const everyText = (s) => !s ? "only when asked" : s % 86400 === 0 ? (s === 86400 ? "every day" : `every ${s / 86400} days`)
 	: s % 3600 === 0 ? (s === 3600 ? "every hour" : `every ${s / 3600} h`) : s % 60 === 0 ? `every ${s / 60} min` : `every ${s} s`;
-function inDays(iso) {
-	const d = Math.ceil((Date.parse(iso) - Date.now()) / 86400e3);
-	return d <= 0 ? "today" : d === 1 ? "tomorrow" : `in ${d} days`;
-}
 const trkName = (t) => !state.project && t.project ? `${projectName(t.project)} · ${t.title}` : t.title;
 const shownTrackers = () => state.trackers.filter((t) => !t.project || (state.project ? t.project === state.project : !isArchived(t.project)));
 // "12/15 builds" with the number in bold; a state in words as it is.
@@ -30,7 +26,7 @@ function trkTip(t) {
 	return [
 		trkName(t) + (t.project ? "" : " (every project)"),
 		...(r ? r.meters.map(meterPlain) : ["no reading yet"]),
-		r?.resets_at ? `resets ${new Date(r.resets_at).toLocaleDateString()} (${inDays(r.resets_at)})` : "",
+		r?.resets_at ? `resets ${day(r.resets_at)} (${inDays(r.resets_at)})` : "",
 		r?.note ?? "",
 		t.error ? `last read failed: ${t.error}` : "",
 		t.stale ? "stale: it hasn't read for a while" : "",
@@ -86,9 +82,9 @@ function showTrkPop(btn) {
 	if (!t) return hideTrkPop(true);
 	popFor = t.id;
 	paint(trkPop, trackerRow(t, true));
-	// Beside the rail, centred on the ring, kept on screen.
+	// Left of the rail (it's on the right of the board), centred on the ring, kept on screen.
 	const r = btn.getBoundingClientRect(), h = trkPop.offsetHeight;
-	trkPop.style.left = `${$("#rail").getBoundingClientRect().right + 6}px`;
+	trkPop.style.left = `${Math.max(8, $("#rail").getBoundingClientRect().left - trkPop.offsetWidth - 6)}px`;
 	trkPop.style.top = `${Math.max(8, Math.min(r.top + r.height / 2 - h / 2, innerHeight - h - 8))}px`;
 	trkPop.classList.add("show");
 }
@@ -118,6 +114,7 @@ async function loadTrackers() {
 	if (JSON.stringify(list) === JSON.stringify(state.trackers)) return;
 	state.trackers = list;
 	renderRail();
+	renderNav();
 }
 
 const trkDlg = $("#trk-dlg");
@@ -157,7 +154,6 @@ function trackerChart(t) {
 	}).join("");
 	const guides = maxes.map((v) => `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" stroke="var(--muted)" stroke-dasharray="3 3" stroke-width="1" opacity=".6"/>` +
 		`<text class="ax" x="${L - 5}" y="${y(v) + 3}" text-anchor="end">${fmtNum(v)}</text>`).join("");
-	const day = (at) => new Date(at).toLocaleDateString([], { month: "short", day: "numeric" });
 	const svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Readings over time">
 		<line x1="${L}" x2="${W - R}" y1="${y(0)}" y2="${y(0)}" stroke="var(--line)"/>${guides}
 		<text class="ax" x="${L - 5}" y="${y(0) + 3}" text-anchor="end">0</text>${lines}
@@ -187,7 +183,7 @@ function showTrackerView() {
 	}).join("") : `<span class="hint" style="grid-column:1/-1">${t.kind === "manual" ? "No reading yet: record one below." : t.error ? "No reading yet: the last read failed." : "No reading yet."}</span>`;
 	const r = t.reading;
 	$("#tv-info").innerHTML = [
-		r?.resets_at ? `<span>Resets ${esc(new Date(r.resets_at).toLocaleDateString([], { month: "short", day: "numeric" }))} (${inDays(r.resets_at)})</span>` : "",
+		r?.resets_at ? `<span>Resets ${esc(day(r.resets_at))} (${inDays(r.resets_at)})</span>` : "",
 		r?.note ? `<span>${esc(r.note)}</span>` : "",
 		r?.url ? `<a href="${esc(r.url)}" target="_blank" rel="noreferrer">Details ↗</a>` : "",
 	].join("");
@@ -199,9 +195,9 @@ function showTrackerView() {
 	if (manual) $("#tv-reading").value = ms.map((m) => m.value == null ? `${m.label ? `${m.label}: ` : ""}${m.text ?? ""}` : `${m.label ? `${m.label} ` : ""}${m.value}${m.max != null && m.max !== t.max ? `/${m.max}` : ""}`).join("\n");
 	const last = t.history?.at(-1);
 	const how = manual ? "Manual" : t.kind === "command" ? `Runs <code>${esc(t.command)}</code>` : esc(trkPresets?.[t.kind]?.title ?? t.kind) + (Object.keys(t.options).length ? ` (${esc(Object.entries(t.options).map(([k, v]) => `${k} ${v}`).join(", "))})` : "");
-	const when = manual ? (t.read_at ? `recorded ${ago(t.read_at)}${last?.author ? ` by ${esc(last.author)}` : ""}` : "")
-		: [everyText(t.every), t.read_at ? `read ${ago(t.read_at)}` : "", t.due_at && t.every ? `next ${parseTime(t.due_at) > Date.now() ? `at ${parseTime(t.due_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : "soon"}` : ""].filter(Boolean).join(" · ");
-	$("#tv-source").innerHTML = [how, when].filter(Boolean).join(" · ");
+	const read = manual ? (t.read_at ? `recorded ${ago(t.read_at)}${last?.author ? ` by ${esc(last.author)}` : ""}` : "")
+		: [everyText(t.every), t.read_at ? `read ${ago(t.read_at)}` : "", t.due_at && t.every ? `next ${parseTime(t.due_at) > Date.now() ? when(t.due_at) : "soon"}` : ""].filter(Boolean).join(" · ");
+	$("#tv-source").innerHTML = [how, read].filter(Boolean).join(" · ");
 	$("#tv-refresh").hidden = manual;
 	$("#tv-err").textContent = "";
 }
@@ -231,8 +227,8 @@ $("#tv-save").onclick = async () => {
 	} catch (e) { $("#tv-err").textContent = e.message; }
 };
 $("#tv-reading").addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); $("#tv-save").click(); } });
-$("#tv-delete").onclick = async () => {
-	if (!confirm(`Delete the tracker "${trk.title}" and its history?`)) return;
+$("#tv-delete").onclick = async (e) => {
+	if (!(await confirmIn(e.currentTarget, { text: `Delete the tracker "${trk.title}" and its history?`, yes: "Delete", danger: true }))) return;
 	try {
 		await api(`/api/trackers/${trk.id}`, { method: "DELETE" });
 		trkDlg.close();

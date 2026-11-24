@@ -93,7 +93,7 @@ const qPatch = (id, patch) => ({ url: `/api/items/${id}`, method: "PATCH", body:
 // Each action: what it says when done, the call (answer.js), and the same call as a plain request (sent as the page
 // closes).
 function qAction(i, type, arg) {
-	const dayWord = (d) => (d === "tomorrow" ? "tomorrow" : /^\d{4}-/.test(d) ? new Date(`${d}T00:00`).toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" }) : d);
+	const dayWord = (d) => (d === "tomorrow" ? "tomorrow" : /^\d{4}-/.test(d) ? day(new Date(`${d}T00:00`), { weekday: true }) : d);
 	switch (type) {
 		case "answer": {
 			const text = Array.isArray(arg) ? (arg.length ? arg.join("; ") : "none of them") : arg;
@@ -170,7 +170,6 @@ function queueBeacon() {
 }
 addEventListener("pagehide", queueBeacon);
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") queueBeacon(); });
-addEventListener("hashchange", () => { if (location.hash !== "#queue") queueFlush(); });
 
 function queueAfterMove() {
 	qs.open = false;
@@ -191,14 +190,6 @@ function queueMove(by) {
 /* ---------- Drawing ---------- */
 
 const qKey = (k) => `<kbd class="q-k">${esc(k)}</kbd>`;
-function qAge(s) {
-	const h = (Date.now() - parseTime(s)) / 3600e3;
-	return h < 1 ? "just now" : h < 24 ? `${Math.floor(h)} h` : h < 24 * 60 ? `${Math.floor(h / 24)} d` : `${Math.floor(h / 720)} mo`;
-}
-const qDay = (s) => {
-	const d = parseTime(s), t = new Date(Date.now() + 86400e3);
-	return d.toDateString() === t.toDateString() ? "tomorrow" : d.toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" });
-};
 const qIcon = (d) => `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><g stroke-width="1.5">${d}</g></svg>`;
 const Q_IC = {
 	close: '<path d="m4 4 8 8M12 4l-8 8"/>',
@@ -223,7 +214,7 @@ function qGroupText(i) {
 // When each deferred item comes back: those deferred before this pass (from the server) and in it (maybe not sent yet).
 function qDeferred() {
 	const known = new Set(qs.deferred.map((d) => d.id));
-	return [...qs.deferred.map((d) => qDay(d.until)), ...qs.cleared.filter((c) => c.until && !known.has(c.item.id)).map((c) => c.until)];
+	return [...qs.deferred.map((d) => day(d.until, { weekday: true, relative: true })), ...qs.cleared.filter((c) => c.until && !known.has(c.item.id)).map((c) => c.until)];
 }
 function qHead() {
 	const n = qs.cleared.length, left = qs.list.length, all = n + left;
@@ -247,7 +238,7 @@ function qMeta(i) {
 		state.project ? "" : `<span>${esc(projectName(i.project))}</span>`,
 		i.area ? `<span>${esc(i.area)}</span>` : "",
 		i.priority === 1 ? `<span class="p1">P1</span>` : "",
-		`<span title="Since ${esc(i.created_at)} UTC">waiting ${qAge(i.created_at)}</span>`,
+		`<span title="Since ${esc(i.created_at)} UTC">waiting ${ago(i.created_at, { short: true })}</span>`,
 		i.unblocks > 0 ? `<span class="q-tag go" title="Answering this lets agent work go on">unblocks ${i.unblocks}</span>` : "",
 		i.goal ? `<span class="q-tag goal" title="${i.goal.active ? "The active goal" : "A goal of this project"}">${glyph("check")}${esc(i.goal.goal)}</span>` : "",
 		due ? `<span class="q-tag${due.soon ? " soon" : ""}">${esc(due.text)}</span>` : "",
@@ -425,7 +416,7 @@ document.addEventListener("keydown", (e) => {
 	if (typing || document.querySelector("dialog[open]")) return;
 	const k = e.key, low = k.length === 1 ? k.toLowerCase() : k;
 	if (!queueOn()) {
-		if (low === "q" && !mod && !e.shiftKey) { e.preventDefault(); location.hash = "#queue"; }
+		if (low === "q" && !mod && !e.shiftKey) { e.preventDefault(); go("#queue"); }
 		return;
 	}
 	const i = qCurrent();
@@ -508,10 +499,10 @@ hooks.boardTop.push((shown) => {
 	const what = asks ? `${asks} wait${asks === 1 ? "s" : ""} on you${notices ? `, and ${notices} notice${notices === 1 ? "" : "s"}` : ""}` : `${notices} notice${notices === 1 ? "" : "s"}`;
 	return `<div class="q-entry"><button type="button" class="primary" data-queue>${asks ? "Go through them one by one" : "Go through the notices"}</button><span>${what}. One at a time, the most useful first.</span><kbd>Q</kbd></div>`;
 });
-$("#sections").addEventListener("click", (e) => { if (e.target.closest("[data-queue]")) location.hash = "#queue"; });
+$("#sections").addEventListener("click", (e) => { if (e.target.closest("[data-queue]")) go("#queue"); });
 // On a card: deferred in queue mode until a day.
 hooks.cardMeta.push((i) => (i.deferred_until && OPEN.includes(i.status) && parseTime(i.deferred_until) > Date.now()
-	? `<span class="q-deferred" title="Out of queue mode until then">deferred to ${esc(qDay(i.deferred_until))}</span>` : ""));
+	? `<span class="q-deferred" title="Out of queue mode until then">deferred to ${esc(day(i.deferred_until, { weekday: true, relative: true }))}</span>` : ""));
 hooks.shortcuts.push([[["Q"]], "Go through what waits on you, one at a time"]);
 hooks.shortcuts.push([[["1"], ["9"]], "In the queue: answer with that choice (tick it, when several can be picked)"]);
 hooks.shortcuts.push([[["Enter"], ["A"]], "In the queue: the recommended answer, No objections, Got it or Done"]);
@@ -520,13 +511,16 @@ hooks.shortcuts.push([[["→"], ["←"], ["U"]], "In the queue: skip, back, undo
 hooks.refresh.push(() => { if (queueOn() && !qs.sheet) queueLoad(); });
 hooks.readerClosed.push(() => { if (queueOn()) queueLoad(); });
 
-views.push({
+defineView({
 	name: "queue",
 	el: "#queue-view",
-	match: (h) => h === "#queue",
-	title: "One at a time · Workbench",
-	// A new pass each time you come in (and when you pick another project on the left).
-	open() {
+	match: (h) => (h === "#queue" ? {} : null),
+	title: "One at a time",
+	nav: null,
+	// The waiting action goes when you leave.
+	hide: () => queueFlush(),
+	// A new pass each time you come in.
+	show() {
 		queueFlush();
 		qs.loaded = false;
 		qs.list = [];

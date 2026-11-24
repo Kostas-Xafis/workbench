@@ -21,7 +21,6 @@ hooks.start.push(loadRulings);
 hooks.refresh.push(() => { if (!rulingEditing()) loadRulings(); });
 
 const liveRulings = (slug) => state.rulings.filter((r) => !r.retired_at && (slug ? r.project === slug : !isArchived(r.project)));
-const rulingDay = (s) => parseTime(s).toLocaleDateString(undefined, { day: "numeric", month: "short" });
 const rulingsHref = (slug, id) => `#rulings${slug ? `/${encodeURIComponent(slug)}` : ""}${id ? `/${id}` : ""}`;
 
 /* Sidebar */
@@ -54,17 +53,19 @@ $("#content").append(rulingsView);
 const rv = { slug: "", focus: 0, q: "", retired: false, editing: 0, adding: false };
 const rulingEditing = () => !rulingsView.hidden && (rv.editing || rv.adding || rulingsView.contains(document.activeElement) && document.activeElement.matches("input, textarea, select"));
 
-views.push({
+defineView({
 	name: "rulings",
 	el: "#rulings-view",
-	title: "Rulings · Workbench",
-	match: (h) => /^#rulings(\/|$)/.test(h),
-	async open(hash) {
+	title: "Rulings",
+	nav: () => (rv.slug ? `project:${rv.slug}` : null),
+	match: (h) => (/^#rulings(\/|$)/.test(h) ? { hash: h } : null),
+	async show({ hash }) {
 		const [, slug = "", id = ""] = hash.split("/").map(decodeURIComponent);
 		rv.slug = slug && state.allProjects.some((p) => p.slug === slug) ? slug : "";
 		rv.adding = id === "new";
 		rv.focus = Number(id) || 0;
 		rv.editing = 0;
+		retitle();
 		if (rv.focus && state.rulings.find((r) => r.id === rv.focus)?.retired_at) rv.retired = true;
 		if (!rulingsLoaded) await loadRulings();
 		renderRulings();
@@ -90,7 +91,7 @@ function renderRulings() {
 			<div class="ruling-btns"><button class="primary sm" type="submit">Save</button><button class="ghost sm" type="button" data-cancel>Cancel</button></div>
 			<p class="error" data-err></p></form></div>`;
 		const from = r.item_ref ? `<button type="button" class="ruling-ref" data-open-item="${esc(r.item_ref)}" title="${esc(r.question)}">wb-${esc(r.item_ref)}</button>` : "";
-		const meta = [from, esc(rulingDay(r.created_at)), r.drafted ? `<span class="ruling-draft" title="Drafted from the question and its answer. The next agent that picks the item up rewrites it as one clear line; you can too.">draft</span>` : "", r.retired_at ? `retired ${esc(rulingDay(r.retired_at))}` : ""].filter(Boolean).join(" · ");
+		const meta = [from, esc(day(r.created_at)), r.drafted ? `<span class="ruling-draft" title="Drafted from the question and its answer. The next agent that picks the item up rewrites it as one clear line; you can too.">draft</span>` : "", r.retired_at ? `retired ${esc(day(r.retired_at))}` : ""].filter(Boolean).join(" · ");
 		return `<div class="ruling-row${rv.focus === r.id ? " focus" : ""}" data-ruling="${r.id}">
 			<div class="ruling-main"><div class="ruling-text">${esc(r.text)}</div>
 			${r.question && !r.drafted ? `<div class="ruling-q">${esc(r.question)}</div>` : ""}
@@ -205,5 +206,5 @@ hooks.readerProps.push({
 
 /* Search */
 hooks.searchResults.push((data, q) => (data.rulings?.length
-	? `<div class="rgroup">Rulings</div>` + data.rulings.map((r) => `<a class="res" href="${rulingsHref(r.project, r.id)}">${GAVEL}<span class="rt"><div>${hl(r.text, q)}</div><small>${[r.item_ref ? `wb-${esc(r.item_ref)}` : "", esc(rulingDay(r.created_at)), !state.project ? esc(projectName(r.project)) : ""].filter(Boolean).join(" · ")}</small></span></a>`).join("")
+	? `<div class="rgroup">Rulings</div>` + data.rulings.map((r) => `<a class="res" href="${rulingsHref(r.project, r.id)}">${GAVEL}<span class="rt"><div>${hl(r.text, q)}</div><small>${[r.item_ref ? `wb-${esc(r.item_ref)}` : "", esc(day(r.created_at)), !state.project ? esc(projectName(r.project)) : ""].filter(Boolean).join(" · ")}</small></span></a>`).join("")
 	: ""));

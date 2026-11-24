@@ -1,6 +1,6 @@
 /* ---------- Today: a one-screen brief of what needs you, what agents did and what's stuck ---------- */
 
-// Opens from "Today" in the top bar or the T key, at #today, for the project on the left (or all). What waits on you
+// Opens with the T key, at #today, for the project the board showed last (or all). What waits on you
 // comes from the open items; what agents finished (with the finishing note) and the updated reports come from
 // /api/today (today.ts). "Since" is your last visit: kept per browser, a new visit starts after an hour away, a
 // day ago the first time. Staleness (item.stale), what an answer unblocks (item.unblocks) and deadlines
@@ -22,17 +22,6 @@ function todaySince(fresh = false) {
 	localSet("today.since", String(since));
 	localSet("today.last", String(now));
 	return Math.max(since, now - TODAY_MAX);
-}
-function todayWhen(ms) {
-	const d = new Date(ms), t = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-	if (d.toDateString() === new Date().toDateString()) return `today ${t}`;
-	if (Date.now() - ms < 6 * 86400e3) return `${d.toLocaleDateString([], { weekday: "short" })} ${t}`;
-	return `${d.toLocaleDateString([], { day: "numeric", month: "short" })} ${t}`;
-}
-// How long since a database time: "5 h", "9 d", "3 mo".
-function todayAge(s) {
-	const h = (Date.now() - parseTime(s)) / 3600e3;
-	return h < 1 ? "just now" : h < 24 ? `${Math.floor(h)} h` : h < 24 * 60 ? `${Math.floor(h / 24)} d` : `${Math.floor(h / 720)} mo`;
 }
 const todayOn = () => !todayEl.hidden;
 
@@ -64,9 +53,9 @@ function todayNeeds() {
 	const fresh = mine.filter((i) => parseTime(i.created_at) >= today.since);
 	const shown = new Set(), rows = [];
 	const add = (list, n, tag) => list.filter((i) => !shown.has(i.id)).slice(0, n).forEach((i) => { shown.add(i.id); rows.push(todayLine(i, tag(i))); });
-	add(mine.filter((i) => i.unblocks > 0).sort((a, b) => b.unblocks - a.unblocks), 3, (i) => todayTag("", todayAge(i.created_at)));
-	add([...fresh].reverse(), 4, (i) => todayTag("new", "new") + todayTag("", todayAge(i.created_at)));
-	add(mine, 3, (i) => todayTag("", `waiting ${todayAge(i.created_at)}`));
+	add(mine.filter((i) => i.unblocks > 0).sort((a, b) => b.unblocks - a.unblocks), 3, (i) => todayTag("", ago(i.created_at, { short: true })));
+	add([...fresh].reverse(), 4, (i) => todayTag("new", "new") + todayTag("", ago(i.created_at, { short: true })));
+	add(mine, 3, (i) => todayTag("", `waiting ${ago(i.created_at, { short: true })}`));
 	const rest = mine.length - shown.size;
 	// Queue mode (ui/queue.js): all of them, one at a time.
 	const queue = `<button type="button" class="td-more td-queue" data-queue>Go through them one by one</button>`;
@@ -118,16 +107,16 @@ function todayReports() {
 function todayRender() {
 	if (!today.data) return;
 	const parts = [todayNeeds(), todayComingUp(), todayDone(), todayStuck(), todayReports()].filter(Boolean);
-	const head = `<div class="td-head"><h2>Today</h2><small>${esc(state.project ? projectName(state.project) : "All projects")} · since ${todayWhen(today.since)}</small><span class="spacer"></span>
+	const head = `<div class="td-head"><h2>Today</h2><small>${esc(state.project ? projectName(state.project) : "All projects")} · since ${when(today.since)}</small><span class="spacer"></span>
 		<button type="button" class="ghost sm" id="td-fresh" title="Count only what happens from now on">Start from now</button></div>`;
-	paint(todayEl, `${head}${parts.length ? `<div class="td-cols">${parts.join("")}</div>` : `<p class="td-empty">Nothing new since ${todayWhen(today.since)}, and nothing waits on you.</p>`}`);
+	paint(todayEl, `${head}${parts.length ? `<div class="td-cols">${parts.join("")}</div>` : `<p class="td-empty">Nothing new since ${when(today.since)}, and nothing waits on you.</p>`}`);
 }
 
 todayEl.addEventListener("click", (e) => {
 	const it = e.target.closest("[data-item]");
 	if (it) return openItemById(it.dataset.item, { list: () => [...todayEl.querySelectorAll("[data-item]")].map((e) => e.dataset.item) }).catch((err) => toast(err.message));
 	if (e.target.closest("#td-fresh")) return todayLoad(true);
-	if (e.target.closest("[data-queue]")) return (location.hash = "#queue");
+	if (e.target.closest("[data-queue]")) return go("#queue");
 	const b = e.target.closest("[data-board]");
 	if (b) {
 		state.who = b.dataset.board;
@@ -137,36 +126,24 @@ todayEl.addEventListener("click", (e) => {
 	}
 });
 
-const todayBtn = document.createElement("button");
-todayBtn.type = "button";
-todayBtn.className = "ghost vault-btn";
-todayBtn.id = "today-btn";
-todayBtn.title = "Today: what needs you, what agents did, what's stuck (T)";
-todayBtn.setAttribute("aria-label", "Today");
-todayBtn.setAttribute("aria-pressed", "false");
-todayBtn.innerHTML = `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><g stroke-width="1.5"><rect x="2.5" y="3.5" width="11" height="10" rx="1.5"/><path d="M2.5 6.75h11M5.5 2v3M10.5 2v3"/></g></svg><span>Today</span>`;
-$("#usage-btn").before(todayBtn);
-const todaySync = () => todayBtn.setAttribute("aria-pressed", String(location.hash === "#today"));
-todayBtn.onclick = () => (location.hash === "#today" ? goBoard() : (location.hash = "#today"));
-addEventListener("hashchange", todaySync);
 
 document.addEventListener("keydown", (e) => {
 	if (e.key.toLowerCase() !== "t" || e.ctrlKey || e.metaKey || e.altKey) return;
 	if (/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName) || document.activeElement?.isContentEditable || document.querySelector("dialog[open]")) return;
 	e.preventDefault();
-	todayBtn.click();
+	if (location.hash === "#today") goHome(); else go("#today");
 });
 hooks.shortcuts.push([[["T"]], "Today, or back to the board"]);
 hooks.refresh.push(() => { if (todayOn()) todayLoad(); });
 hooks.readerClosed.push(() => { if (todayOn()) todayLoad(); });
 
-views.push({
+defineView({
 	name: "today",
 	el: "#today-view",
-	match: (h) => h === "#today",
-	title: "Today · Workbench",
-	open() {
-		todaySync();
+	match: (h) => (h === "#today" ? {} : null),
+	title: "Today",
+	nav: null,
+	show() {
 		today.data = null;
 		todayEl.innerHTML = "";
 		todayEl._html = "";
