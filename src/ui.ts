@@ -6,6 +6,8 @@
  */
 import { hashOf } from "./fresh";
 import pagePath from "../ui/index.html" with { type: "file" };
+import agentsCss from "../ui/agents.css" with { type: "file" };
+import agentsJs from "../ui/agents.js" with { type: "file" };
 import answerJs from "../ui/answer.js" with { type: "file" };
 import asksCss from "../ui/asks.css" with { type: "file" };
 import asksJs from "../ui/asks.js" with { type: "file" };
@@ -74,6 +76,8 @@ import vaultJs from "../ui/vault.js" with { type: "file" };
 
 /** ui/<name> → the file's path (a path inside the binary when compiled). */
 export const UI: Record<string, string> = {
+	"agents.css": agentsCss,
+	"agents.js": agentsJs,
 	"answer.js": answerJs,
 	"asks.css": asksCss,
 	"asks.js": asksJs,
