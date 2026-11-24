@@ -1,7 +1,7 @@
 /**
  * Phones paired with the board (docs/board.md, "From the phone"). Under `wb serve --lan` the board answers the network, and
  * every request that doesn't come from this computer needs a device token: a random secret the phone gets once, from a
- * short-lived one-time pairing code made in Settings → Privacy and security on this computer, and then sends as an
+ * short-lived one-time pairing code made in Settings → Data on this computer, and then sends as an
  * HttpOnly, SameSite=Strict cookie. The board keeps only the token's hash. Removing a device stops it at once: the gate
  * looks the token up on every request.
  */
@@ -154,7 +154,7 @@ export class Pairing {
 			return Object.assign(new Error(msg), { status: 400 });
 		};
 		const open = this.current(now);
-		if (!open || !this.code) throw fail("No pairing code is open. On the computer, open Settings → Privacy and security and click Pair a phone.");
+		if (!open || !this.code) throw fail("No pairing code is open. On the computer, open Settings → Data and click Pair a phone.");
 		const given = normalCode(input);
 		const want = this.code.value;
 		if (given.length !== want.length || !timingSafe(given, want)) {
@@ -215,7 +215,7 @@ export function phoneGate(
 		open,
 		cookie,
 		bearer = false,
-		unpaired = "This phone isn't paired with the board. On the computer, open Settings → Privacy and security and click Pair a phone.",
+		unpaired = "This phone isn't paired with the board. On the computer, open Settings → Data and click Pair a phone.",
 	}: { port: number; loopback: (req: Request, srv: Server<unknown>) => boolean; open: string[]; cookie?: string; bearer?: boolean; unpaired?: string },
 ) {
 	const seen = new Map<string, number>();

@@ -32,7 +32,7 @@ describe("pairing codes", () => {
 		const { code } = p.open();
 		expect(p.redeem(` ${code.toLowerCase().replace("-", " ")} `, "10.0.0.2")).toBe(true);
 		expect(p.current()).toBeNull();
-		expect(() => p.redeem(code, "10.0.0.2")).toThrow(/No pairing code is open/);
+		expect(() => p.redeem(code, "10.0.0.2")).toThrow(/No pairing code is open.*Settings → Data/);
 	});
 
 	test("expires after 10 minutes", () => {

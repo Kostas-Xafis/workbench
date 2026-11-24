@@ -92,7 +92,7 @@ import { changeText, checkChange, fileItem, Refusal, type Filed } from "./filing
 
 const ATTACH_CLI = 'wb image add <ref> <file> "what to look at"';
 
-/** How long a new default waits, as Settings → You and your day says now. */
+/** How long a new default waits, as Settings → Agents says now. */
 const askDaysText = (db: Db) =>
 	askDays(db) ? `${askDays(db)} day${askDays(db) > 1 ? "s" : ""} for one with a default` : "none";
 
@@ -191,7 +191,7 @@ Items are named wb-xxxx (e.g. wb-k3f9); commands take that, the bare k3f9, or an
   wb project <slug> --icon <file>  use this logo (path in the repo); --icon "" = find one again
   wb project <slug> --archive      take a finished project off the board (--unarchive brings it back)
   wb serve [--lan]                 run the board on http://localhost:${port}; --lan also on your network, for
-                                   phones paired in Settings → Privacy and security (plain http: a trusted network only)
+                                   phones paired in Settings → Data (plain http: a trusted network only)
   wb run <ref>                     start a Claude Code agent on an agent's to-do, in its project's folder, as the
                                    board's Run does (Settings → Agents: off until turned on there, with its limits)
   wb land <ref>                    start an agent that merges a done agent item's branch into the main branch, by the
@@ -1064,7 +1064,7 @@ export async function runCli(ctx: CliCtx): Promise<number> {
 				const { listDevices } = await import("./devices");
 				const list = listDevices(db);
 				if (!list.length)
-					out("no phones paired: pair one in Settings → Privacy and security, with the board under --lan");
+					out("no phones paired: pair one in Settings → Data, with the board under --lan");
 				for (const d of list)
 					out(
 						`${d.id}  ${d.name.padEnd(24)} paired ${d.paired_at}  last seen ${d.last_seen_at ?? "never"}${d.last_ip ? ` from ${d.last_ip}` : ""}`,

@@ -1,6 +1,6 @@
 /**
- * The Today brief: what a person needs when they sit down, in one short read. The board's Today view (ui/today.js)
- * gets what the board can't see by itself from here: what agents finished since a time, with the finishing note, and
+ * The Today brief: what a person needs when they sit down, in one short read, as the MCP prompt `today` and `GET /api/today`
+ * give it: what agents finished since a time, with the finishing note, and
  * the reports updated since (day pages left out, they're the full log). What waits on the person comes from the
  * items the page already has. `briefText` is the same brief as plain text, for the MCP prompt `today`.
  */
@@ -87,7 +87,7 @@ export function briefText(db: Db, project = "", since?: string | null, now = new
 		const unblock = pick(mine.filter((i) => (i.unblocks ?? 0) > 0).sort((a, b) => b.unblocks! - a.unblocks!), 3);
 		const news = pick([...fresh].reverse(), 4);
 		const oldest = pick(mine, 3);
-		out.push("", `Needs you: ${mine.length} waiting${fresh.length ? `, ${fresh.length} new since then` : ""}.`);
+		out.push("", `Waiting on you: ${mine.length}${fresh.length ? `, ${fresh.length} new since then` : ""}.`);
 		for (const i of unblock) out.push(line(i));
 		for (const i of news) out.push(line(i, " (new)"));
 		for (const i of oldest) out.push(line(i, ` (waiting ${plural(days(i.created_at, now), "day")})`));

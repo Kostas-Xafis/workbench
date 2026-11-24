@@ -113,7 +113,7 @@ export function deadlineText(i: Pick<Item, "kind" | "default_answer" | "pick" | 
 /**
  * Cleans the ask fields of a new item or a change to `before`: pick, recommended (options), the default (an option
  * of a decision that has them; a list for pick many) and the deadline. A new default (or a new notice) for Kostas
- * without a deadline gets one: Settings → You and your day, "A default goes ahead after", 3 days unless changed.
+ * without a deadline gets one: Settings → Agents, "A default goes ahead after", 3 days unless changed.
  */
 export function cleanAsk(db: Db, patch: ItemPatch, before?: Item): ItemPatch {
 	const out: ItemPatch = leftBehind(patch, before);
@@ -376,7 +376,7 @@ export function openAsksFromAgents(db: Db, project: string): number {
 
 /**
  * Why an agent may not file this ask now, or undefined when it may: the project already has `asks.cap` open asks
- * from agents (Settings → You and your day, 20 unless changed; 0 = no cap). Notices, agents' own work and priority 1
+ * from agents (Settings → Agents, 20 unless changed; 0 = no cap). Notices, agents' own work and priority 1
  * always get through, and Kostas's own items are never counted or capped (callers only ask for agents).
  */
 export function capRefusal(db: Db, a: { project: string; kind: string; owner: string; priority?: number }): string | undefined {
@@ -385,7 +385,7 @@ export function capRefusal(db: Db, a: { project: string; kind: string; owner: st
 	const n = openAsksFromAgents(db, a.project);
 	if (n < cap) return undefined;
 	const name = yourName(db);
-	return `${a.project} already has ${n} open asks from agents waiting on ${name}, and the board takes at most ${cap} (Settings → You and your day). Nothing was filed. Instead:
+	return `${a.project} already has ${n} open asks from agents waiting on ${name}, and the board takes at most ${cap} (Settings → Agents). Nothing was filed. Instead:
 - Bundle related questions into one decision with pick "many": ${name} ticks the ones they want, in one go.
 - If nothing needs ${name}'s decision, file a notice (kind notice): what changed and what stays if they say nothing. It doesn't wait on them.
 - Decide it yourself, and say what you chose in a notice, so ${name} can still object.

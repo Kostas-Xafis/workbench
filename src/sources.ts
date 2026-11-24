@@ -45,7 +45,7 @@ export type Source = {
 export type Keyring = {
 	prefix: "v1" | "c1";
 	key: (create: boolean) => Buffer;
-	/** Where the key is, for messages and Settings → Privacy and security. */
+	/** Where the key is, for messages and Settings → Data. */
 	where: string;
 };
 
