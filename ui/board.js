@@ -179,8 +179,9 @@ $("#sections").addEventListener("click", async (e) => {
 defineView({
 	name: "board",
 	el: "#board-view",
-	default: true,
+	// Every project's open work at #board (the Inbox is where the board opens, ui/inbox.js).
 	match(h) {
+		if (h === "#board") return {};
 		const p = h.match(/^#project\/([^/]+)$/);
 		if (p) return { slug: decodeURIComponent(p[1]) };
 		const g = h.match(/^#goal\/(\d+)$/);

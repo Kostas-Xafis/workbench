@@ -23,6 +23,8 @@ import dispatchJs from "../ui/dispatch.js" with { type: "file" };
 import goalsCss from "../ui/goals.css" with { type: "file" };
 import goalsJs from "../ui/goals.js" with { type: "file" };
 import hooksJs from "../ui/hooks.js" with { type: "file" };
+import inboxCss from "../ui/inbox.css" with { type: "file" };
+import inboxJs from "../ui/inbox.js" with { type: "file" };
 import kitCss from "../ui/kit.css" with { type: "file" };
 import kitJs from "../ui/kit.js" with { type: "file" };
 import linksCss from "../ui/links.css" with { type: "file" };
@@ -91,6 +93,8 @@ export const UI: Record<string, string> = {
 	"goals.css": goalsCss,
 	"goals.js": goalsJs,
 	"hooks.js": hooksJs,
+	"inbox.css": inboxCss,
+	"inbox.js": inboxJs,
 	"kit.css": kitCss,
 	"kit.js": kitJs,
 	"links.css": linksCss,

@@ -55,6 +55,7 @@ async function settled(id, call) {
 	askTicks.delete(Number(id));
 	await Promise.all([loadItems(), loadProjects()]);
 	refreshReport();
+	hookRun(hooks.settled, item);
 	return item;
 }
 const itemPost = (id, path, body = {}) => api(`/api/items/${id}/${path}`, { method: "POST", body: JSON.stringify(body) });

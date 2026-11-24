@@ -1,6 +1,6 @@
 /* ---------- Today: a one-screen brief of what needs you, what agents did and what's stuck ---------- */
 
-// Opens with the T key, at #today, for the project the board showed last (or all). What waits on you
+// At #today (the T key opens the Inbox now, which says what came since your last visit), for the project the board showed last (or all). What waits on you
 // comes from the open items; what agents finished (with the finishing note) and the updated reports come from
 // /api/today (today.ts). "Since" is your last visit: kept per browser, a new visit starts after an hour away, a
 // day ago the first time. Staleness (item.stale), what an answer unblocks (item.unblocks) and deadlines
@@ -121,7 +121,7 @@ todayEl.addEventListener("click", (e) => {
 	if (b) {
 		state.who = b.dataset.board;
 		localSet("who", state.who);
-		goBoard();
+		go("#board");
 		renderBoard();
 	}
 });
@@ -131,9 +131,9 @@ document.addEventListener("keydown", (e) => {
 	if (e.key.toLowerCase() !== "t" || e.ctrlKey || e.metaKey || e.altKey) return;
 	if (/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName) || document.activeElement?.isContentEditable || document.querySelector("dialog[open]")) return;
 	e.preventDefault();
-	if (location.hash === "#today") goHome(); else go("#today");
+	// The Inbox (ui/inbox.js) took over what Today was for: T opens it. Today itself stays at #today.
+	if (router.view?.name !== "inbox") goHome();
 });
-hooks.shortcuts.push([[["T"]], "Today, or back to the board"]);
 hooks.refresh.push(() => { if (todayOn()) todayLoad(); });
 hooks.readerClosed.push(() => { if (todayOn()) todayLoad(); });
 

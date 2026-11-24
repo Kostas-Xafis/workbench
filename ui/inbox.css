@@ -1,0 +1,101 @@
+/* The Inbox (ui/inbox.js): a list column beside the reader; the list alone below 1101 px; focus mode, the reader
+   alone. Tokens only (base.css). */
+#inbox-view { flex: 1; min-height: 0; display: grid; grid-template-columns: 380px minmax(0, 1fr); }
+.ib-col { display: flex; flex-direction: column; min-height: 0; min-width: 0; background: var(--card); border-right: 1px solid var(--line); }
+
+/* The head: since you were away, the projects. */
+.ib-head { padding: var(--sp-3) var(--sp-4) var(--sp-2); }
+.ib-since { font-size: var(--fs-12); color: var(--muted); }
+.ib-since a { color: var(--accent); text-decoration: none; }
+.ib-since a:hover { text-decoration: underline; text-underline-offset: 2px; }
+.ib-since a.ib-stuck { color: var(--st-stuck); }
+.ib-err { margin: 0; color: var(--st-failed); font-size: var(--fs-13); }
+.ib-chips { display: flex; flex-wrap: wrap; gap: var(--sp-1); margin-top: var(--sp-2); }
+.ib-chip { display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--line); background: transparent; border-radius: var(--r-lg); padding: 2px var(--sp-2);
+	font-size: var(--fs-12); color: var(--muted); white-space: nowrap; }
+.ib-chip:hover { background: var(--hover); color: var(--ink); }
+.ib-chip i { font-style: normal; font-size: var(--fs-11); color: var(--faint); font-variant-numeric: tabular-nums; }
+.ib-chip[aria-pressed="true"] { border-color: var(--ink); color: var(--ink); font-weight: 600; }
+
+/* The tabs, by what you do. */
+.ib-tabs { display: flex; gap: var(--sp-1); padding: var(--sp-1) var(--sp-3) var(--sp-2); border-bottom: 1px solid var(--line); }
+.ib-tab { border: 0; background: transparent; border-radius: var(--r-lg); padding: var(--sp-1) 10px; font-size: var(--fs-13); color: var(--muted); }
+.ib-tab:hover { background: var(--hover); color: var(--ink); }
+.ib-tab i { font-style: normal; font-size: var(--fs-11); opacity: .75; margin-left: var(--sp-1); font-variant-numeric: tabular-nums; }
+.ib-tab[aria-selected="true"] { background: var(--ink); color: var(--bg); font-weight: 600; }
+.ib-tab:focus-visible, .ib-chip:focus-visible, .ib-accept:focus-visible { outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent); outline-offset: 1px; }
+
+/* Accept the recommendations; the keys, once. */
+.ib-tools:empty { display: none; }
+.ib-tools { display: flex; flex-direction: column; gap: var(--sp-1); padding: var(--sp-2) var(--sp-4) 0; }
+.ib-accept { align-self: flex-start; border: 1px solid var(--line); background: transparent; border-radius: var(--r-md); padding: 3px 10px; font-size: var(--fs-12); color: var(--ink); }
+.ib-accept:hover { background: var(--hover); }
+.ib-hint { display: flex; align-items: center; gap: var(--sp-1); font-size: var(--fs-11); color: var(--faint); line-height: 1.8; }
+.ib-hint .icon-btn { width: 22px; height: 22px; margin-left: auto; align-self: flex-start; }
+.ib-hint .icon-btn svg { width: 12px; height: 12px; }
+.ib-k { display: inline-block; min-width: 15px; padding: 0 3px; margin: 0 1px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: var(--r-sm);
+	font: 500 var(--fs-11)/13px var(--mono); color: var(--muted); text-align: center; background: var(--card); }
+
+/* The list. */
+.ib-list { position: relative; flex: 1; min-height: 0; overflow-y: auto; outline: none; padding-bottom: var(--sp-6); overscroll-behavior: contain; }
+.ib-list .k-row { position: relative; z-index: 1; background: var(--card); touch-action: pan-y; }
+.ib-list .k-row:hover { background: var(--hover); }
+.ib-list .k-row.is-sel { background: var(--accent-bg); }
+.ib-grp { font-size: var(--fs-11); font-weight: 600; letter-spacing: .07em; text-transform: uppercase; color: var(--faint); padding: var(--sp-4) var(--sp-4) 6px; }
+.ib-grp + .k-row { border-top: 0; }
+.ib-p1 { color: var(--ink); font-weight: 700; }
+.ib-soon { color: var(--st-stuck); }
+.ib-deferred { padding: var(--sp-3) var(--sp-4); font-size: var(--fs-12); color: var(--faint); border-top: 1px solid var(--line); }
+.ib-empty .k-empty { padding-top: var(--sp-6); }
+
+/* Swiping a row: what letting go would do shows under it. */
+.ib-swipe { position: absolute; left: 0; right: 0; z-index: 0; display: flex; align-items: center; justify-content: space-between; padding: 0 var(--sp-4);
+	background: var(--sunk); color: var(--muted); font-size: var(--fs-13); font-weight: 600; }
+.ib-swipe[data-dir="right"] .no, .ib-swipe[data-dir="left"] .yes { visibility: hidden; }
+.ib-swipe .yes { max-width: 70%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ib-swipe.ib-yes { background: var(--st-done-bg); color: var(--st-done); }
+.ib-swipe.ib-no { background: var(--st-stuck-bg); color: var(--st-stuck); }
+
+/* The reader beside it. */
+.ib-pane { display: flex; flex-direction: column; min-height: 0; min-width: 0; background: var(--card); }
+.ib-reader { flex: 1; }
+.ib-pane [data-rd-close] { display: none; }
+.ib-pane-empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding-bottom: 10vh; }
+.ib-pane-empty:empty { display: none; }
+.ib-calm { color: var(--st-done); }
+.ib-calm .gl { width: 32px; height: 32px; fill: none; stroke: currentColor; stroke-width: 1.2; stroke-linecap: round; stroke-linejoin: round; }
+
+/* Focus mode: one item at a time, the list hidden. */
+#inbox-view.ib-focus { grid-template-columns: minmax(0, 1fr); }
+.ib-focus .ib-col { display: none; }
+.ib-focus-head:empty { display: none; }
+.ib-fh { display: flex; align-items: center; gap: var(--sp-3); padding: var(--sp-2) var(--sp-5); font-size: var(--fs-13); }
+.ib-fh-n { color: var(--muted); font-variant-numeric: tabular-nums; }
+.ib-bar { height: 3px; background: var(--line); }
+.ib-bar i { display: block; height: 100%; background: var(--accent); transition: width .2s; }
+
+/* "Accept N recommendations": the list it asks about. */
+dialog.k-confirm.ib-confirm { width: min(560px, calc(100vw - 16px)); }
+.ib-confirm p { white-space: pre-line; max-height: 55vh; overflow-y: auto; font-size: var(--fs-13); }
+
+/* Narrower: the list alone; a row opens the reader sheet. */
+@media (max-width: 1100px) {
+	#inbox-view { grid-template-columns: minmax(0, 1fr); }
+	#inbox-view:not(.ib-focus) .ib-pane { display: none; }
+	.ib-col { border-right: 0; }
+}
+
+/* A phone: the list full width, the hint gone, the projects in one line that scrolls sideways. */
+@media (max-width: 760px) {
+	.ib-head { padding: var(--sp-2) var(--sp-3) var(--sp-1); }
+	.ib-chips { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; margin-inline: calc(-1 * var(--sp-3)); padding-inline: var(--sp-3); }
+	.ib-tabs { padding: var(--sp-1) var(--sp-3) var(--sp-2); }
+	.ib-tab { flex: 1; padding: 6px var(--sp-2); }
+	.ib-tools { padding: var(--sp-2) var(--sp-3) 0; }
+	.ib-list .k-row { padding: var(--sp-3); }
+	.ib-fh { padding: var(--sp-2) var(--sp-3); }
+	/* The reader full screen (from any list, the Inbox's too): an ask's choices stay docked at the bottom, under the
+	   thumb, until the end of the brief scrolls past them. */
+	dialog.rd-sheet .rd-doc > [data-slot="action"]:has(.rd-act) { position: sticky; bottom: 0; z-index: 1; background: var(--card); margin-inline: -16px; padding: var(--sp-2) var(--sp-4) var(--sp-3);
+		border-top: 1px solid var(--line); box-shadow: 0 -8px 16px -12px rgb(0 0 0 / .25); }
+}
