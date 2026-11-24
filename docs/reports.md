@@ -27,7 +27,7 @@ await wb.items({ status: "open", kind: "check" })   // also owner, q, status: [.
 await wb.item("wb-k3f9")                             // one item with its notes
 await wb.git()                                       // branch, uncommitted, unpushed, unmerged, worktrees
 await wb.links(); await wb.reports(); await wb.projects()
-wb.open("wb-k3f9")                                   // open the item's dialog on the board
+wb.open("wb-k3f9")                                   // open the item in the reader on the board
 await wb.trackers()                                  // this project's status trackers and the global ones ("*": all)
 wb.onRefresh(redraw)                                 // the board refreshes every 10 s
 wb.report                                            // { id, project, name, title, version }

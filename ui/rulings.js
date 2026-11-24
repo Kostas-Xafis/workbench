@@ -1,7 +1,7 @@
 /* ---------- Rulings: a project's standing answers (rulings.ts) ---------- */
 
 // A part of the sidebar (folded, like Links), a view of them by project (#rulings, #rulings/<slug>), the ruling an
-// answered item made in its dialog, and a group in search. Live and retired ones come in one list.
+// answered item made in the reader, and a group in search. Live and retired ones come in one list.
 state.rulings = [];
 const GAVEL = `<svg class="doc-ic" viewBox="0 0 16 16" fill="none" stroke="currentColor"><g stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="m6.2 2.6 4.2 4.2M4.4 4.4l4.2 4.2M5.3 3.5l-1.8 1.8M10.4 6.8l-1.8 1.8M7.5 5.7l6.25 6.25a.9.9 0 0 1-1.3 1.3L6.2 7"/><path d="M2 14h5"/></g></svg>`;
 // The sidebar shows this many; the rest are in the view.
@@ -188,23 +188,20 @@ rulingsView.addEventListener("keydown", (e) => {
 	if (e.key === "Escape") { e.preventDefault(); rv.adding = false; rv.editing = 0; renderRulings(); }
 });
 
-/* The item dialog: the ruling an answer made, under the answer. */
-const itemRulingBox = document.createElement("div");
-itemRulingBox.className = "item-ruling";
-itemRulingBox.hidden = true;
-$("#answer-box").after(itemRulingBox);
-function showItemRuling(item) {
-	const mine = state.rulings.filter((r) => r.item_id === item.id && !r.retired_at);
-	itemRulingBox.hidden = !mine.length;
-	itemRulingBox.innerHTML = mine.map((r) => `<a href="${rulingsHref(r.project, r.id)}" title="Open in Rulings">${GAVEL}<span><b>Ruling</b> ${esc(r.text)}${r.drafted ? ` <small>(draft)</small>` : ""}</span></a>`).join("");
-}
-hooks.itemOpen.push((item, isNew) => {
-	if (isNew) { itemRulingBox.hidden = true; return; }
-	showItemRuling(item);
-	// Just answered: its ruling is new, so look again.
-	if (item.answer) loadRulings().then(() => { if (state.current?.id === item.id) showItemRuling(item); });
+/* The reader: the ruling an answer made, among the item's properties. A link to it in Rulings (which closes the
+   reader, as any view does). */
+const rulingAsked = new Set();
+hooks.readerProps.push({
+	order: 120,
+	html(i, r) {
+		if (r.compose || !i.id) return "";
+		const mine = state.rulings.filter((x) => x.item_id === i.id && !x.retired_at);
+		// Just answered: its ruling is new, so look again (once per answer).
+		const key = `${i.id}:${i.answer}`;
+		if (i.answer && !mine.length && !rulingAsked.has(key)) { rulingAsked.add(key); loadRulings().then(() => r.render()); }
+		return mine.length ? readerProp("Ruling", mine.map((x) => `<a class="item-ruling" href="${rulingsHref(x.project, x.id)}" title="Open in Rulings">${esc(x.text)}${x.drafted ? ` <small>(draft)</small>` : ""}</a>`).join("")) : "";
+	},
 });
-itemRulingBox.addEventListener("click", () => dlg.close());
 
 /* Search */
 hooks.searchResults.push((data, q) => (data.rulings?.length

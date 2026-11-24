@@ -1,8 +1,11 @@
 /* ---------- Reports ---------- */
 
 const frame = $("#r-frame");
+// Whether a view has been shown yet: a page opened on #item/wb-xxxx shows the board under the reader first.
+let viewShown = false;
 
 function showView(name) {
+	viewShown = true;
 	for (const [id, v] of [["#board", "board"], ["#report-view", "report"], ["#vault-view", "vault"], ["#settings-view", "settings"], ["#welcome-view", "welcome"],
 		...views.map((x) => [x.el, x.name])]) $(id).hidden = v !== name;
 	$("#vault-btn").setAttribute("aria-pressed", name === "vault");
@@ -16,6 +19,8 @@ function showView(name) {
 }
 
 function route() {
+	// #item/wb-xxxx: the reader opens over whatever shows (ui/reader.js).
+	if (readerRoute()) return;
 	const m = location.hash.match(/^#report\/(\d+)(?:\/v(\d+))?$/);
 	if (m) return showReport(Number(m[1]), m[2] ? Number(m[2]) : null);
 	const own = views.find((x) => x.match(location.hash));
@@ -80,7 +85,7 @@ $("#r-version").onchange = (e) => {
 window.addEventListener("hashchange", route);
 
 // The page runs sandboxed (origin "null") and asks the board through postMessage. Read-only by design:
-// nothing here changes the board, except opening an item's dialog for Kostas to act on, and the page's
+// nothing here changes the board, except opening an item in the reader for Kostas to act on, and the page's
 // own saved state (stateGet/Set/Clear), which is always that of the report shown in the frame.
 const bridge = {
 	items(f = {}) {

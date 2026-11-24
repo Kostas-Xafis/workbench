@@ -152,9 +152,14 @@ describe("add_item's brief checks", () => {
 		expect(r.data.warnings.some((w: string) => w.includes("docs/welcome.md"))).toBe(true);
 		expect(r.text).toContain("It's saved");
 	});
-	test("a decision without a recommendation gets a warning; options make it a decision", async () => {
-		const r = await call("add_item", { title: "Which colour", options: ["Red", "Blue"], body: "We need a colour for the button. Red is loud and blue is calm; pick one." });
+	test("a decision without a recommendation is refused, or at priority 1 gets a warning; options make it a decision", async () => {
+		const body = "We need a colour for the button. Red is loud and blue is calm; pick one.";
+		const refused = await call("add_item", { title: "Which colour", options: ["Red", "Blue"], body });
+		expect(refused.error).toBe(true);
+		expect(refused.text).toMatch(/Nothing was filed.*recommended.*priority 1/s);
+		const r = await call("add_item", { title: "Which colour", options: ["Red", "Blue"], body, priority: 1 });
 		expect(r.data.item.kind).toBe("decision");
+		expect(r.data.item.default).toBeFalsy();
 		expect(r.data.item.owner).toBe("kostas");
 		expect(r.data.warnings.join(" ")).toContain("recommendation");
 	});
@@ -169,6 +174,7 @@ describe("answer_decision", () => {
 		const added = await call("add_item", {
 			title: "Which colour for the button",
 			options: ["Red", "Blue"],
+			recommended: "Blue",
 			body: "The button needs a colour. Red is loud, blue is calm. I recommend blue because it matches the logo.",
 		});
 		const ref = added.data.item.ref;

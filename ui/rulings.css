@@ -25,11 +25,8 @@
 .ruling-draft { color: var(--warn-ink); background: var(--warn-bg); border-radius: 5px; padding: 0 5px; }
 .ruling-btns { display: flex; gap: 6px; flex: none; align-items: center; flex-wrap: wrap; }
 .ruling-none { padding: 10px 2px; }
-.item-ruling { display: flex; flex-direction: column; gap: 4px; }
-.item-ruling a { display: flex; gap: 8px; align-items: flex-start; color: var(--ink); text-decoration: none; font-size: 13px; background: var(--hover); border-radius: 8px; padding: 7px 10px; }
-.item-ruling a:hover { background: color-mix(in srgb, var(--accent) 12%, var(--hover)); }
-.item-ruling .doc-ic { margin-top: 2px; }
-.item-ruling b { font-size: 11px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); margin-right: 4px; }
+.item-ruling { display: block; color: var(--ink); text-decoration: none; font-size: var(--fs-13, 13px); line-height: 1.45; }
+.item-ruling:hover { text-decoration: underline; text-underline-offset: 2px; }
 .item-ruling small { color: var(--muted); }
 @media (max-width: 760px) {
 	#rulings-view { padding: 10px 12px 48px; }

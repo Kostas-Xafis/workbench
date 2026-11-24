@@ -73,9 +73,11 @@ async function setYouPoll() {
 	renderSettings();
 }
 onSettingsChange((key) => {
-	labelOwner();
-	// A new item's owner follows its kind until you pick one, now with the changed setting.
-	if (dlg.open && !state.current?.id && !ownerPicked) form.owner.value = setting(`owner.${form.kind.value}`) ?? form.owner.value;
+	// The reader names you by the name here; a new item's owner follows its kind until you pick one.
+	if (readerOpen()) {
+		if (sheet.compose && !sheet.ownerPicked) sheet.draft.owner = setting(`owner.${sheet.draft.kind}`) ?? sheet.draft.owner;
+		sheet.render();
+	}
 	// An empty or padded name is refused or trimmed, while the field would keep what was typed.
 	const input = $('#settings-view input[data-setting="name"]');
 	if (key === "name" && input) input.value = youName();

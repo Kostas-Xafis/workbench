@@ -88,6 +88,7 @@ export const COMPUTER_ONLY = new Set([
 	"mcp",
 	"run",
 	"runs",
+	"continue",
 	"stop",
 	"serve",
 	"open",

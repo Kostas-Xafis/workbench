@@ -52,23 +52,21 @@ import { checkBrief, WRITING_GUIDE } from "./brief";
 import { runText } from "./checkruns";
 import {
 	addRuling,
-	ASKING_KINDS,
 	getRuling,
 	itemRulings,
 	listRulings,
 	repeatWarning,
 	retireRuling,
 	rulingSource,
-	similarRulings,
 	updateRuling,
 	type Ruling,
 } from "./rulings";
 import { latestRun, runLine } from "./dispatch";
-import { capRefusal, deadlineText, defaultText, itemRecommended, resolveAsk } from "./asks";
+import { deadlineText, defaultText, itemRecommended, resolveAsk } from "./asks";
 import { staleLabel } from "./stale";
 import { removeLinks, waitOn } from "./links";
 import { addImage, imageData, imageInfo, imageSummary, prepareImage, removeImage } from "./images";
-import { askCap, askDays, dayStartHour, ownerDefaultsText, ownerFor, yourName } from "./settings";
+import { askCap, askDays, dayStartHour, ownerDefaultsText, yourName } from "./settings";
 import {
 	addTracker,
 	cleanReading,
@@ -88,6 +86,9 @@ import {
 	type TrackerPatch,
 } from "./trackers";
 import type { Opts } from "./cliargs";
+import { changeText, checkChange, fileItem, Refusal, type Filed } from "./filing";
+
+const ATTACH_CLI = 'wb image add <ref> <file> "what to look at"';
 
 /** How long a new default waits, as Settings → You and your day says now. */
 const askDaysText = (db: Db) =>
@@ -105,7 +106,7 @@ Items are named wb-xxxx (e.g. wb-k3f9); commands take that, the bare k3f9, or an
   wb ls [--mine | --agents] [--all] [--project P] [--kind K] [-q text]
                                    open items (--all includes done); --mine = what waits on ${name}
                                    (notices, which don't wait, are counted after it: --kind notice lists them)
-                                   ⚠ marks stale ones (doing 2+ days quiet, waiting 7+, on ${name} 14+)
+                                   ⚠ marks stale agent work (doing 2+ days quiet, waiting 7+)
   wb show <ref>                     an item with its history
   wb goals [--project P] [--all]    a project's goals: target date, progress, what waits on ${name}, what blocks them
   wb goal add "Title" [--due YYYY-MM-DD] [--body "markdown"] [--active]   a goal items can serve
@@ -188,7 +189,10 @@ Items are named wb-xxxx (e.g. wb-k3f9); commands take that, the bare k3f9, or an
                                    phones paired in Settings → Privacy and security (plain http: a trusted network only)
   wb run <ref>                     start a Claude Code agent on an agent's to-do, in its project's folder, as the
                                    board's Run does (Settings → Agents: off until turned on there, with its limits)
-  wb runs [--all]                  agents the board started: running ones and the latest (--all: the last 100)
+  wb runs [--all]                  agents the board started: running ones and the latest (--all: the last 100),
+                                   with where each ran, how to carry on, and its Claude Desktop link
+  wb continue <run> "message"      send that run's agent a message: a new run resumes its session (same folder,
+                                   what it knows), as Continue on the board; a done item's too. Limits apply
   wb stop <run>                    stop one (its number from wb runs)
   wb devices                       phones paired with the board, and when each was last seen
   wb unpair <id|all>               remove a phone (or every one): it stops reaching the board at once
@@ -214,11 +218,12 @@ Options for add/edit:
   --blocks wb-xxxx           add only: that item waits on the new one (it becomes waiting)
   --not-on wb-xxxx           edit only: it no longer waits on this one
 
-Kinds: task = code work · check = try it on a device · review = read wording/design ·
+Kinds: task = code work · check = try it on a device · review = something only ${name} can judge ·
 decision = a question only ${name} can answer · setup = accounts, consoles, stores · bug · idea = later/maybe ·
 notice = what changed, for ${name} to see (doesn't wait on them; they say got it or object).
-Agents: don't stop work on ${name}. Nothing to decide → a notice; a safe default → --default; related
-choices → one --pick many decision. A project takes at most ${askCap(db) || "any number of"} open asks from agents.`;
+Agents: decide what you can and keep moving; ask only about money, accounts, stores, what can't be undone
+or what the product should be. Related questions → one --pick many decision, with --recommend (it goes
+ahead by itself). Changed something → a notice, not a review. At most ${askCap(db) || "any number of"} open asks from agents.`;
 
 /** What a command runs on. */
 export type CliCtx = {
@@ -294,9 +299,7 @@ export async function runCli(ctx: CliCtx): Promise<number> {
 
 	/** Only agents get told how to write: an item {{name}} files for themselves can be as short as they like. */
 	const briefOf = (d: Parameters<typeof checkBrief>[0], images: number): ReturnType<typeof checkBrief> =>
-		author === "agent"
-			? checkBrief(d, { name: yourName(db), images, attach: 'wb image add <ref> <file> "what to look at"' })
-			: { warnings: [] };
+		author === "agent" ? checkBrief(d, { name: yourName(db), images, attach: ATTACH_CLI }) : { warnings: [] };
 
 	function warnAbout(warnings: string[]) {
 		if (warnings.length)
@@ -542,61 +545,40 @@ export async function runCli(ctx: CliCtx): Promise<number> {
 				const title = args.slice(1).join(" ") || o.title;
 				if (!title) die('usage: wb add "title" [options]');
 				const patch = patchFromOptions();
-				const kind = patch.kind ?? (patch.options ? "decision" : "task");
 				if ((o.image?.length ?? 0) !== (o.caption?.length ?? 0))
 					die("each --image needs its --caption: what it shows and what to look at");
-				const brief = briefOf(
-					{ title, body: patch.body ?? "", kind, owner: patch.owner ?? ownerFor(db, kind) },
-					o.image?.length ?? 0,
-				);
-				if (brief.refuse) die(brief.refuse);
-				const waitsOn = refIds(o.on);
-				const blocked = o.blocks ? refIds([o.blocks])[0] : undefined;
-				if (blocked !== undefined && waitsOn.includes(blocked))
-					die("the new item can't both wait on that item and block it");
-				// Only agents are capped: what Kostas files for themselves always goes on.
-				const capped =
-					author === "agent"
-						? capRefusal(db, {
-								project: currentProject()!,
-								kind,
-								owner: patch.owner ?? ownerFor(db, kind),
-								priority: patch.priority,
-							})
-						: undefined;
-				if (capped) die(capped);
-				const images = await Promise.all(
-					(o.image ?? []).map(async (path, n) => {
-						const { bytes, label } = await ctx.read(path, "image");
-						return { image: await prepareImage(bytes, label), caption: o.caption![n] };
-					}),
-				);
-				const id = addItem(
-					db,
-					{
-						...patch,
-						title,
-						kind,
-						project: currentProject()!,
-						goal_id: goalOption(currentProject()!),
-					},
-					author,
-				);
-				for (const m of images) addImage(db, id, m.image, m.caption, author);
-				if (waitsOn.length) waitOn(db, id, waitsOn, author);
-				if (blocked !== undefined) waitOn(db, blocked, [id], author);
-				const added = getItem(db, id)!;
-				out(`wb-${added.ref}`);
-				warnAbout(brief.warnings);
-				// An agent's ask that looks like one already answered (rulings.ts): saved, with the ruling it may repeat.
-				if (author === "agent" && ASKING_KINDS.includes(kind)) {
-					const said = repeatWarning(
-						similarRulings(db, added.project, added.title, added.body, { except: id }),
-						yourName(db),
-						`wb drop wb-${added.ref}`,
-					);
-					if (said) err(`wb: ${said}`);
+				let filed: Filed;
+				try {
+					// The same rules as add_item (filing.ts): only agents are checked, capped and given a default.
+					filed = await fileItem(db, {
+						item: { ...patch, title, project: currentProject()!, goal_id: goalOption(currentProject()!) },
+						author,
+						byAgent: author === "agent",
+						attach: ATTACH_CLI,
+						images: {
+							count: o.image?.length ?? 0,
+							read: () =>
+								Promise.all(
+									(o.image ?? []).map(async (path, n) => {
+										const { bytes, label } = await ctx.read(path, "image");
+										return { image: await prepareImage(bytes, label), caption: o.caption![n] };
+									}),
+								),
+						},
+						waitsOn: refIds(o.on),
+						blocks: o.blocks ? refIds([o.blocks])[0] : undefined,
+					});
+				} catch (e) {
+					if (e instanceof Refusal) die(e.message);
+					throw e;
 				}
+				const added = getItem(db, filed.id)!;
+				out(`wb-${added.ref}`);
+				warnAbout(filed.warnings);
+				if (filed.goesAhead) err(`wb: ${filed.goesAhead}`);
+				// An agent's ask that looks like one already answered (rulings.ts): saved, with the ruling it may repeat.
+				const said = repeatWarning(filed.repeats, yourName(db), `wb drop wb-${added.ref}`);
+				if (said) err(`wb: ${said}`);
 				break;
 			}
 			case "goals": {
@@ -741,14 +723,24 @@ export async function runCli(ctx: CliCtx): Promise<number> {
 			}
 			case "edit": {
 				const id = idArg();
-				const patch = patchFromOptions();
+				let patch = patchFromOptions();
+				const goal = goalOption(o.project ?? getItem(db, id)!.project);
+				if (goal !== undefined) patch.goal_id = goal;
+				// Handing it to Kostas, or making it an ask, is filing one: add's rules (filing.ts).
+				let gave = false;
+				try {
+					({ patch, gave } = checkChange(db, getItem(db, id)!, patch, author === "agent"));
+				} catch (e) {
+					if (e instanceof Refusal) die(e.message);
+					throw e;
+				}
 				const on = refIds(o.on);
 				if (on.length) waitOn(db, id, on, author);
 				removeLinks(db, id, refIds(o["not-on"]));
-				const goal = goalOption(o.project ?? getItem(db, id)!.project);
-				if (goal !== undefined) patch.goal_id = goal;
 				updateItem(db, id, patch, author);
 				show(id);
+				const said = changeText(db, id, gave);
+				if (said) err(`wb: ${said}`);
 				if (patch.title !== undefined || patch.body !== undefined) {
 					const i = getItem(db, id)!;
 					const brief = briefOf(i, i.images.length);

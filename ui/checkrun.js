@@ -24,8 +24,13 @@ const ckRef = (ref) => String(ref).replace(/^wb-/i, "");
 
 /** Opens the check for running: its overview, or where you left off. Queue mode and others call this. */
 function openCheckRun(ref) {
-	if (dlg.open) dlg.close();
-	location.hash = `#check/${encodeURIComponent(ckRef(ref))}`;
+	const h = `#check/${encodeURIComponent(ckRef(ref))}`;
+	// From the reader: the check takes its place in the history, so Back goes to where you were before it.
+	if (readerOpen()) {
+		closeSheet({ nav: false });
+		if (/^#item\//.test(location.hash)) { history.replaceState(null, "", location.pathname + location.search + h); return route(); }
+	}
+	location.hash = h;
 }
 
 const ckPlain = (md1) => md(md1).replace(/^<p>|<\/p>$/g, "");
@@ -218,7 +223,7 @@ ckEl.addEventListener("click", async (e) => {
 	const rm = t.closest("[data-ck-rm]");
 	if (rm) { ckStore(); if (await ckCall(`/steps/${ckStepAt() + 1}/photos/${rm.dataset.ckRm}`, "DELETE")) ckRender(); return; }
 	const open = t.closest("[data-ck-open]");
-	if (open) return api(`/api/items/${encodeURIComponent(open.dataset.ckOpen)}`).then(openItem).catch((err) => toast(err.message));
+	if (open) return openItemById(open.dataset.ckOpen).catch((err) => toast(err.message));
 	if (t.closest("[data-ck-reset]")) {
 		if (!ck.sure) { ck.sure = true; ckRender(); return; }
 		ck.sure = false;
@@ -254,7 +259,8 @@ views.push({
 
 /* ---------- Where it starts ---------- */
 
-// A check for you that can be run now gets "Run it" on its card, and in its dialog.
+// A check for you that can be run now gets "Run it" on its card. In the reader, a check lists its steps with how
+// the latest run went on each, and Run it (or Continue) opens the run.
 const ckRunnable = (i) => i.kind === "check" && i.owner === "kostas" && (i.status === "todo" || i.status === "doing");
 hooks.cardActions.push((i) => ckRunnable(i) && !optionsOf(i).length
 	? `<div class="opts card-act"><button type="button" class="opt ck-run" data-ck-run="${esc(i.ref)}" title="Try it step by step: Pass or Fail, photos">Run it</button></div>` : "");
@@ -263,17 +269,35 @@ document.addEventListener("click", (e) => {
 	if (b) openCheckRun(b.dataset.ckRun);
 });
 
-const ckBox = document.createElement("div");
-ckBox.className = "ck-box";
-ckBox.hidden = true;
-$("#code-box").before(ckBox);
-hooks.itemOpen.push((item, isNew) => {
-	ckBox.hidden = isNew || !ckRunnable(item);
-	if (ckBox.hidden) return;
-	const draw = (label, hint) => { ckBox.innerHTML = `<button type="button" class="ghost sm ck-run" data-ck-run="${esc(item.ref)}">${label}</button><p class="hint">${hint}</p>`; };
-	draw("Run it", "Go through it step by step: Pass or Fail, a few words, photos. A failed step becomes a bug.");
-	api(`/api/items/${encodeURIComponent(item.ref)}/check`).then((d) => {
-		const done = d.results.filter((r) => r.result).length;
-		if (state.current?.id === item.id && !ckBox.hidden && done && !d.finished) draw(`Continue (${done} of ${d.steps.length} done)`, "Your answers so far are saved.");
-	}).catch(() => {});
+// The latest run of each check the reader showed, by item and its last change: asked for once per change.
+const ckSeen = new Map();
+const ckFirstOpenOf = (d) => { const n = d.results.findIndex((x) => !x.result); return n < 0 ? 0 : n; };
+function ckReaderList(d) {
+	let group = null;
+	return d.steps.map((s, n) => {
+		const r = d.results[n] ?? {};
+		const head = s.group && s.group !== group ? `<li class="ck-r-grp">${esc(s.group)}</li>` : "";
+		group = s.group ?? group;
+		const why = [r.words, r.images?.length ? `${r.images.length} photo${r.images.length > 1 ? "s" : ""}` : ""].filter(Boolean).join(" · ");
+		return `${head}<li class="ck-r ${r.result || ""}"><span class="ck-r-mark" aria-label="${r.result === "pass" ? "passed" : r.result === "fail" ? "failed" : "not tried"}">${r.result ? ckIc(r.result === "pass" ? "tick" : "cross") : ""}</span>
+			<span class="ck-r-t">${ckPlain(s.title)}${why ? `<small>${esc(why)}</small>` : ""}</span></li>`;
+	}).join("");
+}
+hooks.readerDoc.push({
+	slot: "action",
+	html(i, r) {
+		if (i.kind !== "check" || !i.id || r.compose) return "";
+		const key = `${i.id}:${i.updated_at}`;
+		const d = ckSeen.get(key);
+		if (d === undefined) {
+			ckSeen.set(key, null);
+			api(`/api/items/${i.id}/check`).then((data) => { ckSeen.set(key, data); r.render(); }).catch(() => ckSeen.set(key, false));
+		}
+		if (!d) return d === false ? "" : `<div class="ck-read"><span class="rd-label">Steps</span><p class="rd-muted">Loading…</p></div>`;
+		const done = d.results.filter((x) => x.result).length, failed = d.results.filter((x) => x.result === "fail").length;
+		const said = d.finished ? (d.outcome === "passed" ? "Last run: all passed." : `Last run: ${d.summary}.`)
+			: done ? `${done} of ${d.steps.length} done${failed ? `, ${failed} failed` : ""}. Saved: you can carry on at another device.` : "";
+		const go = ckRunnable(i) ? `<button type="button" class="ghost" data-ck-run="${esc(i.ref)}">${done && !d.finished ? `Continue at step ${ckFirstOpenOf(d) + 1}` : "Run it"}</button><span class="rd-muted">Step by step: Pass or Fail, a few words, photos. A failed step becomes a bug.</span>` : "";
+		return `<div class="ck-read"><span class="rd-label">Steps</span>${said ? `<p class="rd-muted ck-r-state">${esc(said)}</p>` : ""}<ol class="ck-r-list">${ckReaderList(d)}</ol>${go ? `<div class="rd-act-foot">${go}</div>` : ""}</div>`;
+	},
 });

@@ -2,7 +2,7 @@
 
 // Opens from "Go through them one by one" on the board's Needs you and in Today, or the Q key, for the project on
 // the left (or all). The order, the groups of similar asks and the summaries come from GET /api/queue (queue.ts);
-// the answers go through the calls in asks.js (answerAsk, ackAsk, objectAsk) and the item API. Each action shows at
+// the answers go through the calls in answer.js (act.answer, act.ack, act.object, …). Each action shows at
 // once and is sent a moment later, so the last one can be undone: it goes when you act again, leave, put the
 // phone away, or after QUEUE_UNDO_MS. Answer & send (when the board has it) goes at once: it starts an agent.
 const QUEUE_UNDO_MS = 10e3;
@@ -38,7 +38,7 @@ function qPrimary(i) {
 }
 // O: your own words. A decision takes them as the answer; the rest send them back to the agent as an objection.
 const qObjectLabel = (i) => ({ decision: "Own words", check: "Didn't work", setup: "Problem" }[i.kind] ?? "Object");
-const qCanSend = (i) => typeof answerAndSend === "function" && typeof canSend === "function" && (() => { try { return !!canSend(qs.full.get(i.id) ?? i); } catch { return false; } })();
+const qCanSend = (i) => typeof canResume === "function" && (() => { try { return canResume(qs.full.get(i.id) ?? i); } catch { return false; } })();
 
 /* ---------- Loading ---------- */
 
@@ -90,25 +90,22 @@ function queuePrefetch() {
 
 const qPost = (id, path, body) => ({ url: `/api/items/${id}/${path}`, method: "POST", body: JSON.stringify(body) });
 const qPatch = (id, patch) => ({ url: `/api/items/${id}`, method: "PATCH", body: JSON.stringify(patch) });
-// After a call that isn't one of asks.js's (they reload the board themselves).
-const qReload = async () => { await Promise.all([loadItems(), loadProjects()]); refreshReport(); };
-const qCall = (req) => async () => { touched(req.url.split("/")[3]); const r = await api(req.url, { method: req.method, body: req.body }); await qReload(); return r; };
-
-// Each action: what it says when done, the call, and the same call as a plain request (sent as the page closes).
+// Each action: what it says when done, the call (answer.js), and the same call as a plain request (sent as the page
+// closes).
 function qAction(i, type, arg) {
 	const dayWord = (d) => (d === "tomorrow" ? "tomorrow" : /^\d{4}-/.test(d) ? new Date(`${d}T00:00`).toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" }) : d);
 	switch (type) {
 		case "answer": {
 			const text = Array.isArray(arg) ? (arg.length ? arg.join("; ") : "none of them") : arg;
-			return { said: `Answered: ${text}`, run: () => answerAsk(i.id, arg), req: qPost(i.id, "answer", { answer: arg }) };
+			return { said: `Answered: ${text}`, run: () => act.answer(i.id, arg), req: qPost(i.id, "answer", { answer: arg }) };
 		}
-		case "own": return { said: `Answered: ${arg}`, run: () => answerAsk(i.id, arg), req: qPost(i.id, "answer", { answer: arg }) };
-		case "ack": return { said: i.kind === "review" ? "No objections" : "Got it", run: () => ackAsk(i.id), req: qPost(i.id, "ack", {}) };
-		case "object": return { said: `${qObjectLabel(i)}: ${arg}`, run: () => objectAsk(i.id, arg), req: qPost(i.id, "object", { text: arg }) };
-		case "done": { const req = qPatch(i.id, { status: "done" }); return { said: i.kind === "check" ? "It works: done" : "Done", run: qCall(req), req }; }
-		case "drop": { const req = qPatch(i.id, { status: "dropped" }); return { said: "Dropped", run: qCall(req), req }; }
-		case "defer": { const req = qPost(i.id, "defer", { until: arg }); return { said: `Deferred until ${dayWord(arg)}`, run: qCall(req), req, until: dayWord(arg) }; }
-		case "giveback": { const req = qPost(i.id, "give-back", { text: arg }); return { said: "Given back to the agent", run: qCall(req), req }; }
+		case "own": return { said: `Answered: ${arg}`, run: () => act.answer(i.id, arg), req: qPost(i.id, "answer", { answer: arg }) };
+		case "ack": return { said: i.kind === "review" ? "No objections" : "Got it", run: () => act.ack(i.id), req: qPost(i.id, "ack", {}) };
+		case "object": return { said: `${qObjectLabel(i)}: ${arg}`, run: () => act.object(i.id, arg), req: qPost(i.id, "object", { text: arg }) };
+		case "done": return { said: i.kind === "check" ? "It works: done" : "Done", run: () => act.done(i.id), req: qPatch(i.id, { status: "done" }) };
+		case "drop": return { said: "Dropped", run: () => act.drop(i.id), req: qPatch(i.id, { status: "dropped" }) };
+		case "defer": return { said: `Deferred until ${dayWord(arg)}`, run: () => act.defer(i.id, arg), req: qPost(i.id, "defer", { until: arg }), until: dayWord(arg) };
+		case "giveback": return { said: "Given back to the agent", run: () => act.giveBack(i.id, arg), req: qPost(i.id, "give-back", { text: arg }) };
 	}
 }
 
@@ -133,7 +130,7 @@ async function queueSend(i, answer) {
 	qs.list.splice(qs.at, 1);
 	qs.sheet = "";
 	queueAfterMove();
-	try { await answerAndSend(i.id, answer); } catch (err) { queueFailed(entry, qs.at, err); }
+	try { await act.answer(i.id, answer, { send: true }); } catch (err) { queueFailed(entry, qs.at, err); }
 }
 // Sends the action waiting for its undo now.
 function queueFlush() {
@@ -286,7 +283,7 @@ function qCard(i) {
 		<div class="q-more">
 			${hasMore || qs.open ? `<button type="button" class="ghost sm" data-q="read" aria-expanded="${qs.open}">${qs.open ? "Show the summary" : `Read all${i.image_count ? ` · ${i.image_count} picture${i.image_count > 1 ? "s" : ""}` : ""}`} ${qKey("R")}</button>` : ""}
 			${run}
-			<button type="button" class="ghost sm" data-q="item" title="Open it in the item dialog">wb-${esc(i.ref)}</button>
+			<button type="button" class="ghost sm" data-q="item" title="Open the item">wb-${esc(i.ref)}</button>
 		</div>
 	</article>`;
 }
@@ -372,7 +369,7 @@ function queueDo(what) {
 		case "undo": return queueUndo();
 		case "again": qs.at = 0; qs.note = ""; return queueAfterMove();
 		case "read": qs.open = !qs.open; queuePrefetch(); return queueRender();
-		case "item": return i && api(`/api/items/${i.id}`).then(openItem).catch((err) => toast(err.message));
+		case "item": return i && openItemById(i.id, { list: () => qs.list.map((x) => x.id) }).catch((err) => toast(err.message));
 		case "run": return i && openCheckRun(i.ref);
 		case "skip": return queueMove(1);
 		case "back": return queueMove(-1);
@@ -403,7 +400,8 @@ function qHint(text) { qs.note = text; queueRender(); }
 
 queueEl.addEventListener("click", (e) => {
 	const b = e.target.closest("[data-q], [data-q-answer], [data-defer]");
-	if (!b) return;
+	// The second click of a double click would land on the next item, in the same place: it does nothing.
+	if (!b || e.detail > 1) return;
 	if (b.dataset.qAnswer !== undefined) return queueAct("answer", b.dataset.qAnswer);
 	if (b.dataset.defer) return queueAct("defer", b.dataset.defer);
 	queueDo(b.dataset.q);
@@ -432,6 +430,8 @@ document.addEventListener("keydown", (e) => {
 	}
 	const i = qCurrent();
 	const key = (fn) => { e.preventDefault(); fn(); };
+	// A held key repeats: each repeat would settle the next item too. Only the arrows may.
+	if (e.repeat && !/^Arrow/.test(k)) { e.preventDefault(); return; }
 	if (mod) return key(queueUndo);
 	if (qs.sheet === "defer") {
 		if (low === "d" || k === "Enter") return key(() => queueAct("defer", "tomorrow"));
@@ -518,7 +518,7 @@ hooks.shortcuts.push([[["Enter"], ["A"]], "In the queue: the recommended answer,
 hooks.shortcuts.push([[["O"], ["D"], ["G"], ["X"]], "In the queue: object or answer in your words, defer, give back, drop"]);
 hooks.shortcuts.push([[["→"], ["←"], ["U"]], "In the queue: skip, back, undo the last"]);
 hooks.refresh.push(() => { if (queueOn() && !qs.sheet) queueLoad(); });
-dlg.addEventListener("close", () => { if (queueOn()) queueLoad(); });
+hooks.readerClosed.push(() => { if (queueOn()) queueLoad(); });
 
 views.push({
 	name: "queue",

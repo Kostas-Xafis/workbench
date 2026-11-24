@@ -8,12 +8,14 @@
  *   timer does it (server.ts), and so does every `wb` command and MCP call (applyDue), so it works with the board off.
  * - A decision with pick "many" is answered with several ticked options; `recommended` marks the agent's pick(s).
  * - Per project, the board takes at most `asks.cap` open asks from agents (capRefusal).
+ * - Every ask an agent leaves for Kostas has a way out (wayOut): a review without a default closes with no objections,
+ *   a decision's recommendation is its default, and a decision with neither is refused unless it's priority 1.
  *
  * Every way an ask ends (an answer, Got it, an objection, its default at the deadline) goes through resolveAsk, so
  * whatever should follow an answer has one place to hook in.
  */
 import { addNote, getItem, itemOptions, updateItem, type Db, type Item, type ItemPatch } from "./db";
-import { askCap, askDays, yourName } from "./settings";
+import { askCap, askDays, ownerFor, yourName } from "./settings";
 import { draftRuling } from "./rulings";
 
 /** Kinds that can go ahead by themselves: a default answer and a deadline. */
@@ -102,6 +104,7 @@ export const goesAhead = (i: Pick<Item, "kind" | "default_answer">) =>
 export function deadlineText(i: Pick<Item, "kind" | "default_answer" | "pick" | "decide_by">): string {
 	if (!i.decide_by || !goesAhead(i)) return "";
 	const what = defaultText(i);
+	if (i.kind === "review" && what === REVIEW_DEFAULT) return `closes with no objections on ${dayLabel(i.decide_by)}`;
 	return what ? `goes ahead with ${what} on ${dayLabel(i.decide_by)}` : `closes as seen on ${dayLabel(i.decide_by)}`;
 }
 
@@ -113,7 +116,9 @@ export function deadlineText(i: Pick<Item, "kind" | "default_answer" | "pick" | 
  * without a deadline gets one: Settings → You and your day, "A default goes ahead after", 3 days unless changed.
  */
 export function cleanAsk(db: Db, patch: ItemPatch, before?: Item): ItemPatch {
-	const out: ItemPatch = { ...patch };
+	const out: ItemPatch = leftBehind(patch, before);
+	// The default before the change, unless the change leaves it behind (then a new one counts as new).
+	const beforeDefault = before && leftBehind({ ...patch, default_answer: undefined }, before).default_answer !== "" ? before.default_answer : "";
 	const kind = out.kind ?? before?.kind ?? "task";
 	const options = itemOptions({ options: String(out.options ?? before?.options ?? "") });
 	if (out.pick !== undefined) {
@@ -155,7 +160,7 @@ export function cleanAsk(db: Db, patch: ItemPatch, before?: Item): ItemPatch {
 	if (out.decide_by && !DEFAULT_KINDS.includes(kind)) throw new Error(`only decisions, reviews and notices take a deadline; a ${kind} waits until it's done`);
 	// A deadline by itself, when the agent gives none.
 	const after = { kind, default_answer: out.default_answer ?? before?.default_answer ?? "" } as Item;
-	const gained = !before || (!before.default_answer && !!after.default_answer) || (kind === "notice" && before.kind !== "notice");
+	const gained = !before || (!beforeDefault && !!after.default_answer) || (kind === "notice" && before.kind !== "notice");
 	const owner = out.owner ?? before?.owner;
 	if (gained && goesAhead(after) && owner === "kostas" && out.decide_by === undefined && !before?.decide_by) {
 		const days = askDays(db);
@@ -173,6 +178,66 @@ export function askChanges(before: Item, patch: Partial<Item>, fields: readonly 
 	if (fields.includes("default_answer")) out.push(`default: ${defaultText(after) || "—"}`);
 	if (fields.includes("decide_by")) out.push(`deadline: ${after.decide_by ? dayLabel(after.decide_by) : "none"}`);
 	return out;
+}
+
+/** A review's default when the agent gives none: it closes as if Kostas had said No objections. */
+export const REVIEW_DEFAULT = "No objections";
+
+/** A list or a string holds a default: '' and nothing don't; [] (none of them) does. */
+const hasDefault = (v: unknown) => Array.isArray(v) || (v != null && String(v).trim() !== "");
+
+/** Options as given (a list, or as stored) or as stored. */
+const optionList = (v: unknown) => itemOptions({ options: Array.isArray(v) ? JSON.stringify(v) : String(v ?? "") });
+
+/**
+ * The ask fields an item already has that a change leaves behind, cleared ('') so the new kind's way out is worked
+ * out again (wayOut) instead of going ahead with something that no longer fits: a default belongs to its kind (a
+ * review's No objections is no answer to a decision), and a default or recommendation must be among the options.
+ * What the change itself gives is checked as usual (cleanAsk).
+ */
+export function leftBehind(patch: ItemPatch, before?: Item): ItemPatch {
+	if (!before) return patch;
+	const kind = patch.kind ?? before.kind;
+	const options = optionList(patch.options !== undefined ? patch.options : before.options);
+	const among = (l: string[]) => !options.length || l.every((x) => options.includes(x));
+	const out = { ...patch };
+	const d = before.default_answer;
+	if (patch.default_answer === undefined && d) {
+		const picks = (patch.pick ?? before.pick) === "many" && d.startsWith("[") ? jsonList(d) : [d];
+		if (kind !== before.kind || (kind === "decision" && !among(picks))) out.default_answer = "";
+	}
+	const rec = itemRecommended(before);
+	if (patch.recommended === undefined && rec.length && (kind !== "decision" || !options.length || !among(rec))) out.recommended = "";
+	return out;
+}
+
+/**
+ * Gives an agent's ask for Kostas its way out, when it's filed or a change makes it one (another kind, or handed to
+ * him): a review without a default closes with no objections, a decision's recommendation becomes its default, and
+ * cleanAsk then gives it the usual wait. A notice closes as seen by itself. A decision with neither a default nor a
+ * recommendation is refused, unless it's priority 1. Items that were already asks, checks and setup are left alone.
+ * Returns the patch, and whether the board gave the default.
+ */
+export function wayOut(db: Db, given: ItemPatch, before?: Item): { patch: ItemPatch; gave: boolean } {
+	const patch = leftBehind(given, before);
+	const kind = patch.kind ?? before?.kind ?? (patch.options?.length ? "decision" : "task");
+	const owner = patch.owner || before?.owner || ownerFor(db, kind);
+	const none = { patch, gave: false };
+	if (owner !== "kostas" || kind === "notice" || !DEFAULT_KINDS.includes(kind)) return none;
+	// Already an ask for Kostas, unless the change left its default behind: then it's worked out again.
+	const dropped = given.default_answer === undefined && patch.default_answer === "";
+	if (before && before.kind === kind && before.owner === "kostas" && !dropped) return none;
+	if (hasDefault(patch.default_answer !== undefined ? patch.default_answer : before?.default_answer)) return none;
+	if (kind === "review") return { patch: { ...patch, default_answer: REVIEW_DEFAULT }, gave: true };
+	const rec = listArg(patch.recommended !== undefined ? patch.recommended : (before?.recommended ?? ""));
+	if (rec.length) return { patch: { ...patch, default_answer: rec.length > 1 ? rec : rec[0] }, gave: true };
+	if (Number(patch.priority ?? before?.priority) === 1) return none;
+	const name = yourName(db);
+	const days = askDays(db);
+	throw new Error(`A decision needs your recommendation, so it can go ahead if ${name} says nothing. Nothing was filed. Either:
+- Give recommended (one of the options), or default if it has no options. It becomes the default and goes ahead${days ? ` in ${days} days` : ""} unless ${name} says otherwise.
+- Or, if it can't go ahead without ${name} (money, accounts, something that can't be undone), file it as priority 1.
+- Or decide it yourself, and say what you chose in a notice.`);
 }
 
 /* ---------- Ending an ask ---------- */
@@ -244,7 +309,9 @@ export function resolveAsk(db: Db, id: number, how: How, author = "kostas") {
 				if (!isDue(i, how.now ?? new Date())) return undefined;
 				const when = dayLabel(i.decide_by!);
 				const what = defaultText(i);
-				addNote(db, id, what ? `No answer by ${when}: went ahead with ${what}` : `No answer by ${when}: closed as seen`, author);
+				const went =
+					i.kind === "review" && what === REVIEW_DEFAULT ? "closed with no objections" : what ? `went ahead with ${what}` : "closed as seen";
+				addNote(db, id, `No answer by ${when}: ${went}`, author);
 				if (i.kind === "decision") {
 					let a: { answer: string; picks?: string };
 					try {
@@ -321,7 +388,7 @@ export function capRefusal(db: Db, a: { project: string; kind: string; owner: st
 	return `${a.project} already has ${n} open asks from agents waiting on ${name}, and the board takes at most ${cap} (Settings → You and your day). Nothing was filed. Instead:
 - Bundle related questions into one decision with pick "many": ${name} ticks the ones they want, in one go.
 - If nothing needs ${name}'s decision, file a notice (kind notice): what changed and what stays if they say nothing. It doesn't wait on them.
-- Decide it yourself with a safe default, and say what you chose in a notice, so ${name} can still object.
+- Decide it yourself, and say what you chose in a notice, so ${name} can still object.
 - Or drop one of the open asks that no longer matters (list them with owner kostas).
 Priority 1 (a launch blocker) still gets through.`;
 }

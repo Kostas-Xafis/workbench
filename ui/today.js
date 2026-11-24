@@ -125,7 +125,7 @@ function todayRender() {
 
 todayEl.addEventListener("click", (e) => {
 	const it = e.target.closest("[data-item]");
-	if (it) return openItemById(it.dataset.item).catch((err) => toast(err.message));
+	if (it) return openItemById(it.dataset.item, { list: () => [...todayEl.querySelectorAll("[data-item]")].map((e) => e.dataset.item) }).catch((err) => toast(err.message));
 	if (e.target.closest("#td-fresh")) return todayLoad(true);
 	if (e.target.closest("[data-queue]")) return (location.hash = "#queue");
 	const b = e.target.closest("[data-board]");
@@ -158,7 +158,7 @@ document.addEventListener("keydown", (e) => {
 });
 hooks.shortcuts.push([[["T"]], "Today, or back to the board"]);
 hooks.refresh.push(() => { if (todayOn()) todayLoad(); });
-dlg.addEventListener("close", () => { if (todayOn()) todayLoad(); });
+hooks.readerClosed.push(() => { if (todayOn()) todayLoad(); });
 
 views.push({
 	name: "today",

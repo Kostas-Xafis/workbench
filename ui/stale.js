@@ -4,7 +4,6 @@ const staleDays = (s) => Math.max(0, Math.floor((Date.now() - parseTime(s.since)
 const STALE_TIP = {
 	stalled: "In progress with no note or update for a while",
 	waiting: "Waiting for a week or more",
-	sitting: "Open on you for two weeks or more",
 };
 
 hooks.cardMeta.push((i) =>
@@ -12,5 +11,5 @@ hooks.cardMeta.push((i) =>
 
 hooks.sectionMeta.push((kind, items) => {
 	const n = items.filter((i) => i.stale).length;
-	return n ? `<span class="sub stale" title="Stalled, waiting a week or more, or sitting for two weeks">${n} stale</span>` : "";
+	return n ? `<span class="sub stale" title="Agent work that stalled, or has waited a week or more">${n} stale</span>` : "";
 });

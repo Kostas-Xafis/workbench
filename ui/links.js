@@ -1,27 +1,21 @@
 /* ---------- Waiting on another item (links.ts) ---------- */
-// The item dialog lists what the item waits on and what waits on it, and a card for you says how much work answering
-// it frees. The data comes with every item: `waits_on` and `blocks` from GET /api/items/<id>, `unblocks` in the lists.
-const linksBox = document.createElement("div");
-linksBox.className = "links-box";
-linksBox.id = "links-box";
-linksBox.hidden = true;
-$("#code-box").before(linksBox);
+// The reader lists what the item waits on and what waits on it, among its properties (a ref opens that item), and
+// a card for you says how much work answering it frees. The data comes with every item: `waits_on` and `blocks`
+// from GET /api/items/<id>, `unblocks` in the lists.
 
 const linkState = (l) => (l.answer ? "answered" : l.status);
-const linkList = (title, hint, list) => !list.length ? "" : `<h3>${title}</h3><p class="hint">${hint}</p><ul>${list.map((l) =>
-	`<li><button type="button" class="ref" data-link-open="${l.id}" title="Open wb-${esc(l.ref)}">wb-${esc(l.ref)}</button><span class="lk-title">${esc(l.title)}</span><small class="lk-st lk-${linkState(l)}">${linkState(l)}${l.owner === "kostas" && linkState(l) !== "answered" ? " · for you" : ""}</small></li>`).join("")}</ul>`;
+const linkList = (title, list) => !list.length ? "" : readerProp(title, `<ul class="rd-reflist">${list.map((l) =>
+	`<li><button type="button" data-link-open="${l.id}" title="Open wb-${esc(l.ref)}: ${esc(l.title)}">${esc(l.title)}</button><small>wb-${esc(l.ref)} · <span class="lk-${linkState(l)}">${linkState(l)}${l.owner === "kostas" && linkState(l) !== "answered" ? " · for you" : ""}</span></small></li>`).join("")}</ul>`);
 
-function fillLinks(item, isNew) {
-	const waits = isNew ? [] : item.waits_on || [], blocks = isNew ? [] : item.blocks || [];
-	linksBox.hidden = !waits.length && !blocks.length;
-	linksBox.innerHTML = linkList("Waits on", "It carries on by itself once these are answered or finished.", waits) +
-		linkList("Blocks", `Waiting for this${item.owner === "kostas" ? ": answering or finishing it lets them carry on" : ""}.`, blocks);
-}
-hooks.itemOpen.push(fillLinks);
-hooks.itemLoaded.push((item) => fillLinks(item, false));
-linksBox.addEventListener("click", (e) => {
-	const b = e.target.closest("[data-link-open]");
-	if (b) openItemById(b.dataset.linkOpen).catch((err) => toast(err.message));
+hooks.readerProps.push({
+	order: 100,
+	html: (i, r) => r.compose ? "" : linkList("Waits on", i.waits_on || []) + linkList("Blocks", i.blocks || []),
+	wire(el, i, r) {
+		el.addEventListener("click", (e) => {
+			const b = e.target.closest("[data-link-open]");
+			if (b) r.open(b.dataset.linkOpen);
+		});
+	},
 });
 
 // On a card: what answering or doing this item lets carry on.

@@ -142,6 +142,66 @@ describe("server", () => {
 		expect((await post(`/api/items/${a}/defer`, JSON.stringify({ until: "someday" }), "application/json")).status).toBe(400);
 	});
 
+	test("a run's events, and Continue, over HTTP (a fake agent: nothing runs the real claude)", async () => {
+		const fake = join(dir, "fake-agent");
+		const { writeFileSync, chmodSync } = await import("node:fs");
+		writeFileSync(
+			fake,
+			`#!/usr/bin/env bash
+sid="\${WB_RESUME:-$WB_SESSION}"
+echo '{"type":"system","subtype":"init","session_id":"'"$sid"'","model":"m","cwd":"'"$PWD"'"}'
+echo '{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Edit","input":{"file_path":"'"$PWD"'/a.ts"}}]}}'
+echo '{"type":"result","subtype":"success","is_error":false,"total_cost_usd":0.1,"duration_ms":10,"result":"ok","session_id":"'"$sid"'"}'
+`,
+		);
+		chmodSync(fake, 0o755);
+		const json = (b: unknown) => JSON.stringify(b);
+		const patch = await fetch(`${BASE}/api/settings`, {
+			method: "PATCH",
+			headers: { "content-type": "application/json" },
+			body: json({ "agents.on": true, "agents.command": `${fake} -p "$WB_PROMPT" --session-id "$WB_SESSION"` }),
+		});
+		expect(patch.status).toBe(200);
+		const item = (await (await post("/api/items", json({ title: "Run me", project: "demo", owner: "agent" }), "application/json")).json()) as { id: number };
+		type Run = { id: number; ended_at: string | null; session: string; desktop: string; continues: number | null; cwd: string };
+		type Events = { run: Run; events: { n: number; kind: string; text: string }[]; next: number };
+		const started = await post("/api/runs", json({ item: String(item.id) }), "application/json");
+		expect(started.status).toBe(201);
+		const { run } = (await started.json()) as { run: Run };
+		let got: Events | undefined;
+		for (let n = 0; n < 100 && !got?.run.ended_at; n++) {
+			await Bun.sleep(100);
+			got = (await (await fetch(`${BASE}/api/runs/${run.id}/events`)).json()) as Events;
+		}
+		expect(got!.events.map((e) => [e.kind, e.text])).toEqual([
+			["start", `Started with m in ${dir}`],
+			["tool", "Edit a.ts"],
+			["result", "ok"],
+		]);
+		expect(got!.next).toBe(3);
+		expect(got!.run.desktop).toBe(`claude://resume?session=${run.session}`);
+		expect(((await (await fetch(`${BASE}/api/runs/${run.id}/events?after=3`)).json()) as Events).events).toEqual([]);
+		expect((await fetch(`${BASE}/api/runs/99999/events`)).status).toBe(404);
+		// Continue: JSON only, a message needed, then a new run on the same session.
+		expect((await post(`/api/runs/${run.id}/continue`, json({ message: "more" }), "text/plain")).status).toBe(415);
+		expect((await post(`/api/runs/${run.id}/continue`, json({ message: "" }), "application/json")).status).toBe(400);
+		const c = await post(`/api/runs/${run.id}/continue`, json({ message: "And the docs." }), "application/json");
+		expect(c.status).toBe(201);
+		const next = ((await c.json()) as { run: Run }).run;
+		expect(next).toMatchObject({ continues: run.id, session: run.session });
+		let after: Events | undefined;
+		for (let n = 0; n < 100 && !after?.run.ended_at; n++) {
+			await Bun.sleep(100);
+			after = (await (await fetch(`${BASE}/api/runs/${next.id}/events`)).json()) as Events;
+		}
+		expect(after!.events.map((e) => e.kind)).toEqual(["message", "start", "tool", "result"]);
+		expect(after!.events[0].text).toBe("And the docs.");
+		// An item whose session is a Claude Code session carries its Desktop link.
+		expect((await fetch(`${BASE}/api/items/${item.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: json({ session: run.session }) })).status).toBe(200);
+		const i = (await (await fetch(`${BASE}/api/items/${item.id}`)).json()) as { session: string; desktop?: string };
+		expect(i.desktop).toBe(`claude://resume?session=${run.session}`);
+	});
+
 	test("/mcp answers a JSON-RPC call on localhost and refuses another Host", async () => {
 		const body = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping" });
 		const ok = await fetch(`${BASE}/mcp`, { method: "POST", headers: { "content-type": "application/json", host: `localhost:${PORT}` }, body });

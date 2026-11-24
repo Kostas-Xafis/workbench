@@ -125,7 +125,7 @@ function ping(title, body, tag, open, target) {
 }
 // What a notification opens, kept as data so events held through quiet hours can still open it later.
 function openTarget(o) {
-	if (o?.item) api(`/api/items/${o.item}`).then(openItem).catch((e) => toast(e.message));
+	if (o?.item) openItemById(o.item).catch((e) => toast(e.message));
 	else if (o?.report) location.hash = `#report/${o.report}`;
 	else if (o?.tracker) openTracker(o.tracker);
 	else if (o?.today) location.hash = "#today";

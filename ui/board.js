@@ -10,11 +10,11 @@ function codeMeta(i) {
 		(c.commits.length ? `<span class="code-tag" title="Commits that mention wb-${i.ref}">${glyph("commit")}${c.commits.length} commit${c.commits.length > 1 ? "s" : ""}</span>` : "");
 }
 
-// A notice has its own Got it (ui/asks.js) instead of the tick.
-function card(i, { tick = i.owner === "kostas" && OPEN.includes(i.status) && i.kind !== "notice", kind = false } = {}) {
+// Cards carry no answers: what an item asks is answered in the reader, after reading it (ui/reader.js). The tick
+// stays for what you simply do: a check, a setup step.
+function card(i, { tick = i.owner === "kostas" && OPEN.includes(i.status) && (i.kind === "check" || i.kind === "setup"), kind = false } = {}) {
 	const closed = !OPEN.includes(i.status);
 	const actions = closed ? "" : hookHtml(hooks.cardActions, i);
-	const options = !closed && !actions && i.owner === "kostas" ? optionsOf(i) : [];
 	const meta = [
 		`<button class="ref" data-copy="wb-${i.ref}" title="Copy wb-${i.ref}">wb-${i.ref}</button>`,
 		kind ? `<span class="kind k-${i.kind}">${i.kind}</span>` : "",
@@ -32,10 +32,11 @@ function card(i, { tick = i.owner === "kostas" && OPEN.includes(i.status) && i.k
 	].join("");
 	return `<article class="card ${i.status} ${closed ? "closed" : ""}" data-id="${i.id}">
 		${tick ? `<button class="tick" data-tick="${i.id}" title="Mark done" aria-label="Mark done">✓</button>` : ""}
-		<div class="main"><div class="title">${esc(i.title)}</div><div class="meta">${meta}</div>
-		${actions}${options.length ? `<div class="opts">${options.map((o) => `<button class="opt" data-answer="${i.id}" data-choice="${esc(o)}" title="Answer: ${esc(o)}">${esc(o)}</button>`).join("")}</div>` : ""}</div></article>`;
+		<div class="main"><div class="title">${esc(i.title)}</div><div class="meta">${meta}</div>${actions}</div></article>`;
 }
 
+// The cards in the order they show, for J and K in the reader.
+const boardOrder = () => [...document.querySelectorAll("#sections .card[data-id]")].map((c) => c.dataset.id);
 const section = (key, def, summary, body) =>
 	`<details class="sec fold" data-key="${key}"${isOpen(key, def)}><summary>${summary}</summary>${body}</details>`;
 const cards = (list, opts) => `<div class="cards">${list.map((i) => card(i, opts)).join("")}</div>`;
@@ -110,7 +111,7 @@ function renderBoard() {
 
 // Each loader draws the board again only when its answer changed: api() gives back the same object when the board
 // answered 304 (ui/core.js), which is most polls. Closed items come without their details (bodies=open), which the
-// item dialog loads when one is opened.
+// reader loads when one is opened.
 const drawn = {};
 async function loadItems() {
 	const items = await api(`/api/items?bodies=open${state.project ? `&project=${encodeURIComponent(state.project)}` : ""}`);
@@ -131,17 +132,6 @@ async function loadCode() {
 	if (code === state.code) return;
 	state.code = code;
 	renderBoard();
-}
-
-// Items this tab just changed, so it doesn't notify about its own doing.
-const localChanges = new Map();
-const touched = (id) => localChanges.set(Number(id), Date.now());
-async function answer(id, text) {
-	touched(id);
-	const item = await api(`/api/items/${id}/answer`, { method: "POST", body: JSON.stringify({ answer: text }) });
-	await Promise.all([loadItems(), loadProjects()]);
-	refreshReport();
-	return item;
 }
 
 $("#who").addEventListener("click", (e) => {
@@ -174,19 +164,11 @@ document.addEventListener("toggle", (e) => { if (e.target.matches?.("#sections d
 $("#sections").addEventListener("click", async (e) => {
 	// Buttons a feature put on a card (hooks.cardActions) handle their own clicks.
 	if (e.target.closest(".card-act")) return;
-	const opt = e.target.closest("[data-answer]");
-	if (opt) {
-		e.stopPropagation();
-		opt.classList.add("picked");
-		return answer(opt.dataset.answer, opt.dataset.choice).catch((err) => toast(err.message));
-	}
 	const tick = e.target.closest("[data-tick]");
 	if (tick) {
 		e.stopPropagation();
-		touched(tick.dataset.tick);
-		await api(`/api/items/${tick.dataset.tick}`, { method: "PATCH", body: JSON.stringify({ status: "done" }) });
-		return Promise.all([loadItems(), loadProjects()]);
+		return act.done(tick.dataset.tick).catch((err) => toast(err.message));
 	}
 	const c = e.target.closest(".card");
-	if (c) openItemById(c.dataset.id);
+	if (c) openItemById(c.dataset.id, { list: boardOrder }).catch((err) => toast(err.message));
 });

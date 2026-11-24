@@ -59,6 +59,6 @@ describe("attention round, together", () => {
 		expect(s.blockers.map((b) => b.kind)).toEqual(["decision"]);
 		const old = "2020-01-01 00:00:00";
 		expect(staleOf({ kind: "notice", owner: "kostas", status: "todo", created_at: old, updated_at: old })).toBeNull();
-		expect(staleOf({ kind: "decision", owner: "kostas", status: "todo", created_at: old, updated_at: old })?.why).toBe("sitting");
+		expect(staleOf({ kind: "decision", owner: "kostas", status: "todo", created_at: old, updated_at: old })).toBeNull();
 	});
 });
