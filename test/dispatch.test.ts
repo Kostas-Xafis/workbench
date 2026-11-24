@@ -7,15 +7,23 @@ import { addItem, addProject, getItem, updateItem } from "../src/db";
 import { resolveAsk } from "../src/asks";
 import { waitOn } from "../src/links";
 import {
+	AGENT_COMMAND,
 	costs,
+	desktop,
+	desktopLink,
 	forgetRuns,
+	inWorktree,
+	openInDesktop,
 	getRun,
 	itemRefusal,
 	latestRun,
 	newLive,
 	pollRuns,
 	readLine,
+	refusedText,
+	refusedTool,
 	runLine,
+	runPrompt,
 	runsInfo,
 	sendUnblocked,
 	startRefusal,
@@ -25,7 +33,7 @@ import {
 	type From,
 	type Run,
 } from "../src/dispatch";
-import { updateSettings } from "../src/settings";
+import { createSettingsTable, getSetting, updateSettings } from "../src/settings";
 import { freshDb } from "./helpers";
 
 const dir = mkdtempSync(join(process.env.WB_TEST_DIR!, "dispatch-"));
@@ -356,5 +364,102 @@ describe("dispatch", () => {
 		});
 		expect(await p.exited).toBe(1);
 		expect(await new Response(p.stderr).text()).toContain("agents don't start agents");
+	});
+});
+
+describe("what a run couldn't do, and where it shows", () => {
+	test("tools its permissions refused: counted by tool, on the run, its line and the item's history", async () => {
+		set({ "agents.on": true, "agents.command": cmd(), "agents.per-day": 50 });
+		const t = task("Refused");
+		const r = await ended((await startRun(db, t, here)).id);
+		expect(r.status).toBe("done");
+		expect(r.refused).toBe("Edit");
+		expect(runLine(r)).toContain("refused Edit");
+		expect(getItem(db, t)!.notes.some((n) => n.text.includes("Its permissions refused Edit (Settings → Agents → The command)"))).toBe(true);
+	});
+
+	test("which tool a refusal names; other failures aren't refusals", () => {
+		expect(refusedTool("Permission to use Bash has been denied because Claude Code is running in don't ask mode. IMPORTANT: …")).toBe("Bash");
+		expect(refusedTool("Permission to use Bash with git push has been denied.")).toBe("Bash");
+		expect(refusedTool("This action was blocked by auto mode: it deletes files outside the project.", "Bash")).toBe("Bash");
+		expect(refusedTool("File does not exist.", "Read")).toBeUndefined();
+		const l = newLive();
+		readLine(l, '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"Write","input":{"file_path":"/a"}}]}}');
+		readLine(l, '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","is_error":true,"content":"Denied by auto mode."}]}}');
+		for (let n = 0; n < 3; n++)
+			readLine(l, '{"type":"user","message":{"content":[{"type":"tool_result","is_error":true,"content":"Permission to use Edit has been denied."}]}}');
+		expect(l.refused).toEqual({ Write: 1, Edit: 3 });
+		expect(refusedText(l.refused)).toBe("Edit ×3, Write");
+	});
+
+	test("an item a run leaves doing, or waiting on nothing, is back in to-do; one waiting on an item stays", async () => {
+		set({ "agents.command": cmd("FAKE_SLEEP=0.5") });
+		const a = task("Left doing");
+		const ra = await startRun(db, a, here);
+		updateItem(db, a, { status: "doing" }, "agent");
+		await ended(ra.id);
+		expect(getItem(db, a)!.status).toBe("todo");
+		expect(getItem(db, a)!.notes.at(-1)!.text).toBe(`Run #${ra.id} left it doing, and nothing would bring it back: it's in to-do again.`);
+
+		const b = task("Left waiting");
+		const rb = await startRun(db, b, here);
+		updateItem(db, b, { status: "waiting" }, "agent");
+		await ended(rb.id);
+		expect(getItem(db, b)!.status).toBe("todo");
+
+		const c = task("Waits on an ask");
+		const rc = await startRun(db, c, here);
+		const ask = addItem(db, { title: "Try it on the tablet", project: "repo", kind: "check", owner: "kostas" });
+		waitOn(db, c, [ask], "agent");
+		await ended(rc.id);
+		expect(getItem(db, c)!.status).toBe("waiting");
+	});
+
+	test("Open in Claude Desktop: the resume link, once the run has ended, on this computer only", async () => {
+		const opened: string[] = [];
+		const open = desktop.open;
+		desktop.open = (url) => void opened.push(url);
+		try {
+			set({ "agents.command": cmd("FAKE_SLEEP=1") });
+			const run = await startRun(db, task("Desktop"), here);
+			expect(() => openInDesktop(db, run.id)).toThrow("still going");
+			const r = await ended(run.id);
+			openInDesktop(db, r.id);
+			expect(opened).toEqual([`claude://resume?session=${r.session}`]);
+			expect((await runsInfo(db, here)).desktop).toBe(true);
+			expect((await runsInfo(db, phone)).desktop).toBe(false);
+			desktop.here = false;
+			expect(() => openInDesktop(db, r.id)).toThrow("cloud board");
+			expect((await runsInfo(db, here)).desktop).toBe(false);
+		} finally {
+			desktop.open = open;
+			desktop.here = true;
+		}
+		expect(desktopLink("not-a-session; rm -rf ~")).toBe("");
+	});
+});
+
+describe("the command", () => {
+	test("the default lets the agent work, in a worktree of its own; the prompt says so", () => {
+		expect(AGENT_COMMAND).toContain("--permission-mode auto");
+		expect(inWorktree(AGENT_COMMAND)).toBe(true);
+		expect(inWorktree(cmd())).toBe(false);
+		expect(inWorktree("claude -p x --worktree=fix")).toBe(true);
+		const i = { ref: "abcd", title: "T" };
+		expect(runPrompt(db, i, AGENT_COMMAND)).toContain("git worktree of your own");
+		expect(runPrompt(db, i, cmd())).not.toContain("worktree");
+		expect(runPrompt(db, i, cmd())).toContain("Don't leave it waiting on nothing");
+	});
+
+	test("a board with the former default saved gets today's; a command of your own stays", () => {
+		const d = freshDb();
+		const former =
+			'claude -p "$WB_PROMPT" --output-format stream-json --verbose --permission-mode dontAsk --allowedTools mcp__wb --session-id "$WB_SESSION" --name "$WB_TITLE"';
+		d.query("INSERT INTO settings (key, value) VALUES ('agents.command', ?)").run(JSON.stringify(former));
+		createSettingsTable(d);
+		expect(getSetting(d, "agents.command")).toBe(AGENT_COMMAND);
+		updateSettings(d, { "agents.command": `${former} --max-budget-usd 5` });
+		createSettingsTable(d);
+		expect(getSetting(d, "agents.command")).toBe(`${former} --max-budget-usd 5`);
 	});
 });

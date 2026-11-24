@@ -94,6 +94,9 @@ hooks.cardMeta.push((i) => {
 	if (r && !r.ended_at) out.push(`<span class="run-chip running" title="An agent the board started is on it. Open the item to watch it">agent running · ${esc(runFor(r.started_at))}</span>`);
 	else if (r && OPEN.includes(i.status) && ["failed", "stopped"].includes(r.status) && Date.now() - parseTime(r.ended_at) < 2 * 86400e3)
 		out.push(`<span class="run-chip ${r.status}" title="${esc(r.error || `The agent was ${r.status}`)}">agent ${RUN_WORD[r.status]}</span>`);
+	// It ended, but couldn't do everything: its permissions refused it tools. Open the item for which.
+	else if (r && OPEN.includes(i.status) && r.refused && Date.now() - parseTime(r.ended_at) < 2 * 86400e3)
+		out.push(`<span class="run-chip failed" title="${esc(`The agent's permissions refused ${r.refused}`)}">agent refused tools</span>`);
 	if (!runs.info?.on || !OPEN.includes(i.status)) return out.join("");
 	const kind = sendKind(i);
 	if (kind === "run" && canSend(i))
@@ -173,6 +176,7 @@ function runBoxFill(item) {
 	else if (r)
 		html += `<div class="run-head"><span class="run-chip ${r.status}">${RUN_WORD[r.status]}</span><span>${esc([`after ${runFor(r.started_at, r.ended_at)}`, runCost(r), `${ago(r.started_at)} from ${r.started_from}`].filter(Boolean).join(" · "))}</span></div>`
 			+ (r.error ? `<p class="run-err">${esc(r.error)}</p>` : "")
+			+ (r.refused ? `<p class="run-err">Its permissions refused ${esc(r.refused)}. What a run may do is in Settings → Agents → The command.</p>` : "")
 			+ (r.result ? `<div class="run-result">${md(r.result)}</div>` : "");
 	if (r?.tail !== undefined) {
 		const tail = `<pre class="run-tail" id="run-tail">${esc(r.tail || "No output yet.")}</pre>`;
@@ -180,7 +184,8 @@ function runBoxFill(item) {
 	}
 	if (r?.session) {
 		const cmd = `claude --resume ${r.session}`;
-		html += `<div class="run-resume"><span class="run-muted">${r.ended_at ? "Carry on in Claude Code, in" : "Its session, in"} <code>${esc(runFolder(item))}</code>:</span><div class="row"><code class="cmd">${esc(cmd)}</code><button type="button" class="ghost sm" data-copy="${esc(cmd)}">Copy</button></div></div>`;
+		const desk = r.ended_at && runs.info?.desktop ? `<button type="button" class="ghost sm" data-run-desktop="${r.id}">Open in Claude Desktop</button>` : "";
+		html += `<div class="run-resume"><span class="run-muted">${r.ended_at ? "Carry on in Claude Code, in" : "Its session, in"} <code>${esc(runFolder(item))}</code>:</span><div class="row"><code class="cmd">${esc(cmd)}</code><button type="button" class="ghost sm" data-copy="${esc(cmd)}">Copy</button></div>${desk ? `<div class="row">${desk}<small class="run-muted">It shows in Claude Desktop's sidebar from then on.</small></div>` : ""}</div>`;
 	}
 	if (offer && !(r && !r.ended_at)) {
 		const why = sendWhy(item);
@@ -227,6 +232,16 @@ dlg.addEventListener("close", () => clearTimeout(runs.timer));
 runBox.addEventListener("click", async (e) => {
 	const stop = e.target.closest("[data-run-stop]");
 	const start = e.target.closest("[data-run-start]");
+	const desk = e.target.closest("[data-run-desktop]");
+	if (desk) {
+		desk.disabled = true;
+		try {
+			await api(`/api/runs/${desk.dataset.runDesktop}/desktop`, { method: "POST", body: "{}" });
+			toast("Opening it in Claude Desktop");
+		} catch (err) { toast(err.message); }
+		desk.disabled = false;
+		return;
+	}
 	if (!stop && !start) return;
 	const item = state.current;
 	try {
@@ -286,7 +301,7 @@ function runRow(r) {
 	const took = r.ended_at ? `after ${runFor(r.started_at, r.ended_at)}` : `for ${runFor(r.started_at)}`;
 	return `<div class="so-wide run-row"><div class="run-row-main">
 		<button type="button" class="run-link" data-run-item="${r.item_id}"><code>wb-${esc(r.ref)}</code> ${esc(r.title)}</button>
-		<small>${esc([`#${r.id}`, ago(r.started_at), `from ${r.started_from}`, took, runCost(r), r.error].filter(Boolean).join(" · "))}</small></div>
+		<small>${esc([`#${r.id}`, ago(r.started_at), `from ${r.started_from}`, took, runCost(r), r.error, r.refused && `refused ${r.refused}`].filter(Boolean).join(" · "))}</small></div>
 		<span class="run-chip ${r.status}">${RUN_WORD[r.status]}</span>
 		${r.ended_at ? "" : `<button type="button" class="ghost sm danger" data-run-stop-set="${r.id}">Stop</button>`}</div>`;
 }
@@ -313,7 +328,7 @@ function runsSettings() {
 			<textarea data-setting="agents.command" data-type="string" rows="3" spellcheck="false" aria-label="The command that starts an agent">${esc(setting("agents.command"))}</textarea>
 			<div class="row"><button type="button" class="ghost sm" data-run-test${runs.testing ? " disabled" : ""}>Test the command</button>${JSON.stringify(setting("agents.command")) !== JSON.stringify(state.settingDefs["agents.command"]?.default) ? `<button type="button" class="ghost sm" data-reset="setting:agents.command">Back to the default</button>` : ""}${testOut}</div>
 			<p class="hint">Runs with bash in the project's folder, with your shell's PATH, and gets <code>$WB_PROMPT</code> (what the agent is told, below), <code>$WB_ITEM</code> (wb-xxxx), <code>$WB_TITLE</code>, <code>$WB_PROJECT</code> and <code>$WB_SESSION</code> (a new session id, so you can carry on with <code>claude --resume</code>). Test the command only asks the program its version and its flags: no agent starts.</p>
-			<p class="hint"><b>What it may do unattended.</b> <code>--permission-mode dontAsk</code>: only what your Claude Code settings already allow (the <code>permissions.allow</code> rules in <code>~/.claude/settings.json</code> and the project's <code>.claude/settings.json</code>), plus the board's own tools (<code>--allowedTools mcp__wb</code>). Anything else is refused, never asked, and no permission check is skipped. To let it do more, add to the command yourself, for example <code>--allowedTools "Edit" "Bash(git *)" "Bash(bun test)"</code>, or <code>--permission-mode acceptEdits</code> in place of <code>dontAsk</code> to let it edit files. <code>--max-budget-usd 5</code> caps one run's cost.</p>
+			<p class="hint"><b>What it may do unattended.</b> <code>--permission-mode auto</code>: it edits files and runs commands, and Claude Code's own checks refuse what looks risky, since nobody is there to ask. The board's tools are always allowed (<code>--allowedTools mcp__wb</code>). <code>-w</code>: it works in a git worktree of its own, on a new branch, so your checkout isn't touched; the branch stays until it's merged. To let it do less, use <code>--permission-mode dontAsk</code> in place of <code>auto</code>: then only what your Claude Code settings already allow (<code>permissions.allow</code> in <code>~/.claude/settings.json</code> and the project's <code>.claude/settings.json</code>) runs, and the rest is refused. A run whose tools were refused says so on its card. <code>--max-budget-usd 5</code> caps one run's cost.</p>
 			<details class="fold run-prompt" data-key="run-prompt"${isOpen("run-prompt")}><summary>What the agent is told</summary><pre>${esc(info.prompt)}</pre></details></div>`],
 			"The default is Claude Code's print mode with streaming output, so the board can show what the agent does as it goes.")}
 		${optGroup("Recent runs", info.runs.length ? info.runs.map(runRow) : [`<div class="so-wide set-empty">No agent has been started yet.</div>`])}

@@ -18,7 +18,8 @@ import { createHash } from "node:crypto";
 import { closeSync, existsSync, fstatSync, mkdirSync, openSync, readFileSync, readSync, rmSync } from "node:fs";
 import { tmpdir, userInfo } from "node:os";
 import { join } from "node:path";
-import { addNote, getItem, getProject, type Db, type Item } from "./db";
+import { addNote, getItem, getProject, updateItem, type Db, type Item } from "./db";
+import { blockersOf } from "./links";
 import { resolveAsk } from "./asks";
 import { AGENT_COMMAND, dayStartHour, getSetting, yourName } from "./settings";
 import { runShell, shellPath } from "./trackers";
@@ -45,6 +46,8 @@ export type Run = {
 	tail: string;
 	/** What the agent said at the end. */
 	result: string;
+	/** The tool calls its permissions refused, "Edit ×4, Bash ×6"; '' when none were. */
+	refused: string;
 	error: string;
 	/** kostas, or board when it started by itself (unblocked work). */
 	started_by: string;
@@ -80,8 +83,11 @@ export function createRunTables(db: Db) {
 		command TEXT NOT NULL DEFAULT '',
 		pid INTEGER NOT NULL DEFAULT 0,
 		unit TEXT NOT NULL DEFAULT '',
-		tag TEXT NOT NULL DEFAULT ''
+		tag TEXT NOT NULL DEFAULT '',
+		refused TEXT NOT NULL DEFAULT ''
 	)`);
+	const cols = (db.query("PRAGMA table_info(runs)").all() as { name: string }[]).map((c) => c.name);
+	if (!cols.includes("refused")) db.run("ALTER TABLE runs ADD COLUMN refused TEXT NOT NULL DEFAULT ''");
 	db.run("CREATE INDEX IF NOT EXISTS runs_item ON runs(item_id, id)");
 	db.run("CREATE INDEX IF NOT EXISTS runs_started ON runs(started_at)");
 }
@@ -141,6 +147,7 @@ export function runLine(r: Run): string {
 		`${r.ended_at ? "" : "for "}${minutes(end - fromSql(r.started_at).getTime())}`,
 		r.cost != null && `$${r.cost.toFixed(2)}`,
 		r.error,
+		r.refused && `refused ${r.refused}`,
 		r.session && `claude --resume ${r.session}`,
 	]
 		.filter(Boolean)
@@ -200,14 +207,19 @@ function countRefusal(db: Db, from: From, now = new Date()): Refusal | undefined
 /* ---------- Starting one ---------- */
 
 /** What the agent is told. Its brief is the item: it reads it with get_item. */
-export function runPrompt(db: Db, i: Pick<Item, "ref" | "title">): string {
+export function runPrompt(db: Db, i: Pick<Item, "ref" | "title">, command = limits(db).command): string {
 	const name = yourName(db);
+	const own = inWorktree(command)
+		? `\nYou work in a git worktree of your own, on a new branch: commit your work there, and name the branch in finish_item. Merge it only if this project's rules say you do.`
+		: "";
 	return `Work on wb-${i.ref} (${i.title}) from the workbench. ${name} sent it to you from the board; nobody watches this session, so don't ask questions here.
 1. Read it with the wb MCP server's get_item: its body, answer and notes are the brief. Then start_item it.
 2. Do it, by this project's own rules (its CLAUDE.md or AGENTS.md).
-3. Done: finish_item with a note on what changed and where (commit, branch). Need ${name} for a decision, a check or a review: file it as its own item and wait on it (add_item with blocks: wb-${i.ref}). Blocked otherwise: wait_item, saying on what.
+3. Done: finish_item with a note on what changed and where (commit, branch). Need ${name} for anything (a decision, a check on a device, a review, a setup step, a permission you don't have): file it as its own item and wait on it (add_item with blocks: wb-${i.ref}), so the board brings this item back when it's dealt with. Don't leave it waiting on nothing: nobody would bring it back.${own}
 Without the MCP server, the wb command does the same: wb show, wb start, wb done, wb wait.`;
 }
+/** Whether a run's command gives the agent a git worktree of its own (Claude Code's -w / --worktree). */
+export const inWorktree = (command: string) => /(^|\s)(-w|--worktree)(?=\s|=|$)/.test(command);
 
 const WINDOWS = process.platform === "win32";
 // Runtime files (gone at reboot, like the runs themselves), named by the run's tag: its database and number. Read
@@ -276,7 +288,7 @@ export async function startRun(
 		tag,
 		command,
 		cwd,
-		vars: { WB_PROMPT: runPrompt(db, i), WB_ITEM: `wb-${i.ref}`, WB_TITLE: i.title, WB_PROJECT: i.project, WB_SESSION: session, WB_RUN: String(id) },
+		vars: { WB_PROMPT: runPrompt(db, i, command), WB_ITEM: `wb-${i.ref}`, WB_TITLE: i.title, WB_PROJECT: i.project, WB_SESSION: session, WB_RUN: String(id) },
 	};
 	try {
 		const { pid, unit } = await launcher.launch(spec, (e) => {
@@ -322,7 +334,17 @@ export const launcher = { launch: launchRun };
 /* ---------- Following them ---------- */
 
 /** What this process has read of a run's log so far. */
-export type Live = { offset: number; partial: string; lines: string[]; session: string; cost: number | null; result: string; isError: boolean };
+export type Live = {
+	offset: number;
+	partial: string;
+	lines: string[];
+	session: string;
+	cost: number | null;
+	result: string;
+	isError: boolean;
+	/** The tool calls its permissions refused, by tool: { Edit: 4, Bash: 6 }. */
+	refused: Record<string, number>;
+};
 const live = new Map<number, Live>();
 /** For tests: forget what was read, as a board that just started knows nothing. */
 export const forgetRuns = () => live.clear();
@@ -366,13 +388,18 @@ export function readLine(l: Live, line: string) {
 	else if (d.type === "assistant")
 		for (const c of d.message?.content ?? []) {
 			if (c?.type === "text" && typeof c.text === "string") push(l, c.text);
-			else if (c?.type === "tool_use") push(l, `→ ${c.name}${toolWhat(c.input)}`);
+			else if (c?.type === "tool_use") {
+				push(l, `→ ${c.name}${toolWhat(c.input)}`);
+				if (typeof c.id === "string") toolsOf(l).set(c.id, String(c.name));
+			}
 		}
 	else if (d.type === "user")
 		for (const c of d.message?.content ?? []) {
 			if (c?.type !== "tool_result" || !c.is_error) continue;
 			const text = typeof c.content === "string" ? c.content : Array.isArray(c.content) ? c.content.map((x: any) => x?.text ?? "").join(" ") : "";
 			push(l, `  ✗ ${oneLine(text) || "refused"}`);
+			const tool = refusedTool(text, toolsOf(l).get(c.tool_use_id));
+			if (tool) l.refused[tool] = (l.refused[tool] ?? 0) + 1;
 		}
 	else if (d.type === "result") {
 		if (typeof d.total_cost_usd === "number") l.cost = d.total_cost_usd;
@@ -387,7 +414,28 @@ export function readLine(l: Live, line: string) {
 	}
 	// Other stream events (partial messages, hooks, …) aren't worth a line.
 }
-export const newLive = (): Live => ({ offset: 0, partial: "", lines: [], session: "", cost: null, result: "", isError: false });
+export const newLive = (): Live => ({ offset: 0, partial: "", lines: [], session: "", cost: null, result: "", isError: false, refused: {} });
+
+// Which tool each call was, to name the one a refusal answers. Not part of Live: it doesn't go to the cloud board.
+const callTools = new WeakMap<Live, Map<string, string>>();
+function toolsOf(l: Live) {
+	let m = callTools.get(l);
+	if (!m) callTools.set(l, (m = new Map()));
+	return m;
+}
+/** The tool a failed call's result says its permissions refused ("Permission to use Edit has been denied…", or Claude
+ * Code's auto mode blocking it), or undefined when it failed for another reason. */
+export function refusedTool(text: string, called?: string): string | undefined {
+	const named = /Permission to use (\S+?)(?: with .*?)? (?:has been|was) denied/.exec(text)?.[1];
+	if (named) return named;
+	if (/\bauto mode\b/i.test(text) && /\b(denied|blocked|refused|not allowed)\b/i.test(text)) return called || "a tool";
+}
+/** "Edit ×4, Bash ×6": the most refused first. */
+export const refusedText = (refused: Record<string, number> = {}) =>
+	Object.entries(refused)
+		.sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+		.map(([tool, n]) => (n > 1 ? `${tool} ×${n}` : tool))
+		.join(", ");
 
 /** Reads what the log got since the last look. */
 export function readLog(r: Pick<Run, "id" | "tag">): Live {
@@ -446,15 +494,12 @@ export const exitCode = (r: Pick<Run, "tag">): number | null => {
 
 /** Writes what was read to the run. Nothing when this process read nothing (the log may be gone: another one
  * finished the run meanwhile, and its tail stays). */
-export function save(db: Db, r: Pick<Run, "id">, l: Pick<Live, "offset" | "lines" | "session" | "cost">) {
+export function save(db: Db, r: Pick<Run, "id">, l: Pick<Live, "offset" | "lines" | "session" | "cost"> & { refused?: Live["refused"] }) {
 	if (!l.offset) return;
-	db.query("UPDATE runs SET tail = ?, session = CASE WHEN ? != '' THEN ? ELSE session END, cost = COALESCE(?, cost) WHERE id = ?").run(
-		l.lines.join("\n"),
-		l.session,
-		l.session,
-		l.cost,
-		r.id,
-	);
+	const refused = refusedText(l.refused);
+	db.query(
+		"UPDATE runs SET tail = ?, session = CASE WHEN ? != '' THEN ? ELSE session END, cost = COALESCE(?, cost), refused = CASE WHEN ? != '' THEN ? ELSE refused END WHERE id = ?",
+	).run(l.lines.join("\n"), l.session, l.session, l.cost, refused, refused, r.id);
 }
 
 /** Ends a run whose process is gone: its status from how it ended, a line in the item's history, its files away. */
@@ -500,9 +545,22 @@ export function endRun(db: Db, r: Pick<Run, "id" | "item_id" | "status" | "error
 	addNote(
 		db,
 		r.item_id,
-		`Agent run #${r.id} ${word} after ${took}${done.cost != null ? ` · $${done.cost.toFixed(2)}` : ""}${error ? ` · ${error}` : ""}`,
+		`Agent run #${r.id} ${word} after ${took}${done.cost != null ? ` · $${done.cost.toFixed(2)}` : ""}${error ? ` · ${error}` : ""}${
+			done.refused ? ` · Its permissions refused ${done.refused} (Settings → Agents → The command)` : ""
+		}`,
 		"workbench",
 	);
+	unpark(db, r.item_id, r.id);
+}
+
+/** After a run: an item it left doing, or waiting on nothing, would sit there with nobody to bring it back (nobody
+ * watched the run). It goes back to to-do, where Run is, with why in its history. */
+function unpark(db: Db, itemId: number, runId: number) {
+	const i = getItem(db, itemId);
+	if (!i) return;
+	const how = i.status === "doing" ? "doing" : i.status === "waiting" && !blockersOf(db, i.id).length ? "waiting on nothing" : "";
+	if (!how) return;
+	updateItem(db, i.id, { status: "todo" }, "workbench", `Run #${runId} left it ${how}, and nothing would bring it back: it's in to-do again.`);
 }
 
 /**
@@ -553,6 +611,34 @@ export async function terminate(r: Pick<Run, "pid" | "tag" | "unit">) {
 	for (let n = 0; n < 30 && alive(r); n++) await Bun.sleep(100);
 	if (alive(r)) kill("SIGKILL");
 	for (let n = 0; n < 10 && alive(r); n++) await Bun.sleep(100);
+}
+
+/* ---------- In Claude Desktop ---------- */
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** The link that brings a Claude Code session into Claude Desktop's sidebar (it imports it) and opens it there. */
+export const desktopLink = (session: string) => (UUID.test(session) ? `claude://resume?session=${session}` : "");
+/** Opening a link with the desktop's handler for it. Here: the board runs on the computer the runs run on. The
+ * cloud board has no desktop of its own (worker/src/helper.ts turns it off); tests put their own `open` here. */
+export const desktop = {
+	here: true,
+	open(url: string) {
+		const argv = process.platform === "darwin" ? ["open", url] : WINDOWS ? ["cmd", "/c", "start", "", url] : ["xdg-open", url];
+		const child = spawn(argv[0], argv.slice(1), { detached: true, stdio: "ignore", windowsHide: true });
+		child.on("error", () => {});
+		child.unref();
+	},
+};
+/** Opens a run's session in Claude Desktop, once the run has ended (a session that's still going is the run's). */
+export function openInDesktop(db: Db, id: number): Run {
+	const r = getRun(db, id);
+	if (!r) throw new Error(`no run #${id}`);
+	if (!desktop.here) throw new Error("the cloud board can't open Claude Desktop: use claude --resume on the computer it ran on");
+	if (!r.ended_at) throw new Error(`run #${id} is still going: open it in Claude Desktop once it ends`);
+	const link = desktopLink(r.session);
+	if (!link) throw new Error(`run #${id} has no Claude Code session to open`);
+	desktop.open(link);
+	return r;
 }
 
 /* ---------- Unblocked work ---------- */
@@ -622,6 +708,8 @@ export async function runsInfo(db: Db, from: From | null) {
 		allowed: !!l.on && !(from?.where === "phone" && !l.phone) && !!from,
 		why: no?.why ?? "",
 		limited: !!no?.limit,
+		// Whether this client can have a run opened in Claude Desktop: the board's own page, on this computer.
+		desktop: desktop.here && from?.where === "local",
 		running: active.length,
 		today,
 		spent: Math.round(spent * 100) / 100,
