@@ -80,7 +80,7 @@ $("#settings-view").addEventListener("click", async (e) => {
 	const act = b.dataset.phones;
 	try {
 		if (act === "pair" || act === "new") {
-			// From Health's Phone card too: over to Data with the code showing.
+			// From About → Health's Phone card too: over to Data with the code showing.
 			folds["set-data-phones"] = true;
 			localSet("folds", JSON.stringify(folds));
 			if (settings.tab !== "data") location.hash = "#settings/data";
@@ -90,12 +90,12 @@ $("#settings-view").addEventListener("click", async (e) => {
 			phones.info = await api("/api/devices/pairing", { method: "DELETE" });
 		} else if (act === "remove") {
 			const d = phones.info?.devices.find((x) => x.id === b.dataset.id);
-			if (!confirm(`Remove “${d?.name ?? "this phone"}”? It stops reaching the board at once, and has to pair again to come back.`)) return;
+			if (!(await confirmIn(b, { text: `Remove “${d?.name ?? "this phone"}”? It stops reaching the board at once, and has to pair again to come back.`, yes: "Remove", danger: true }))) return;
 			phones.info = await api(`/api/devices/${encodeURIComponent(b.dataset.id)}`, { method: "DELETE" });
 			toast("Removed");
 		} else if (act === "remove-all") {
 			const n = phones.info?.devices.length ?? 0;
-			if (!confirm(`Remove all ${n} phones? They stop reaching the board at once, and each has to pair again.`)) return;
+			if (!(await confirmIn(b, { text: `Remove all ${n} phones? They stop reaching the board at once, and each has to pair again.`, yes: "Remove all", danger: true }))) return;
 			phones.info = await api("/api/devices", { method: "DELETE" });
 			toast("Removed every phone");
 		} else return;

@@ -42,3 +42,17 @@ dialog.k-confirm.k-anchored::backdrop { background: transparent; }
 .k-confirm p { margin: 0; font-size: var(--fs-14); line-height: 1.45; overflow-wrap: anywhere; }
 .k-confirm-row { display: flex; justify-content: flex-end; gap: var(--sp-2); }
 .k-confirm .k-danger { background: var(--st-failed); color: var(--card); }
+
+/* Small shared marks (they were the board's): line glyphs, P1, a copyable ref, a quiet "nothing here", a warning badge. */
+/* Stroke widths go on an icon's shapes, never on its <svg>: WebKitGTK (2.52) applies the page zoom to an outer <svg>'s
+   stroke-width and its shapes inherit that zoomed width, so at 200% in the app the strokes come out twice as thick. */
+.gl { width: 13px; height: 13px; flex: none; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; vertical-align: -2px; }
+.gl > * { stroke-width: 1.6; }
+.p1 { color: var(--p1); font-weight: 700; }
+.ref { font: 600 11.5px ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--muted); background: var(--hover); border: 0; border-radius: 5px; padding: 1px 5px; cursor: copy; }
+.ref:hover { color: var(--accent); }
+.ref.copied { color: var(--check); }
+.empty { color: var(--muted); font-size: 13px; padding: 18px 2px; }
+.warn { background: var(--warn-bg); color: var(--warn-ink); border-radius: 6px; padding: 0 6px; margin-left: 4px; white-space: nowrap; font-size: 12px; font-weight: 500; }
+/* In a row's meta line: stalled, or waiting a week (stale.ts). */
+.k-meta .k-stale { color: var(--st-stuck); font-weight: 600; }

@@ -56,7 +56,7 @@ async function ckLoad(ref) {
 	ck.need = false;
 	ckEl.innerHTML = '<div class="ck-wrap"><div class="ck-main"><p class="ck-intro">Loading…</p></div></div>';
 	try { ck.data = await api(`/api/items/${encodeURIComponent(ref)}/check`); }
-	catch (e) { ck.data = null; toast(e.message); return goBoard(); }
+	catch (e) { ck.data = null; toast(e.message); return goHome(); }
 	ckRender();
 }
 
@@ -216,7 +216,7 @@ ckEl.addEventListener("click", async (e) => {
 	const t = e.target;
 	const step = t.closest("[data-ck-step]");
 	if (step) { ckStore(); return ckGo(step.dataset.ckStep); }
-	if (t.closest("[data-ck-back]")) return goBoard();
+	if (t.closest("[data-ck-back]")) return goHome();
 	if (t.closest("[data-ck-over]")) { ckStore(); return ckGo(""); }
 	const set = t.closest("[data-ck-set]");
 	if (set) return ckSet(set.dataset.ckSet);
@@ -260,11 +260,9 @@ defineView({
 
 /* ---------- Where it starts ---------- */
 
-// A check for you that can be run now gets "Run it" on its card. In the reader, a check lists its steps with how
-// the latest run went on each, and Run it (or Continue) opens the run.
+// In the reader, a check for you lists its steps with how the latest run went on each, and Run it (or Continue)
+// opens the run.
 const ckRunnable = (i) => i.kind === "check" && i.owner === "kostas" && (i.status === "todo" || i.status === "doing");
-hooks.cardActions.push((i) => ckRunnable(i) && !optionsOf(i).length
-	? `<div class="opts card-act"><button type="button" class="opt ck-run" data-ck-run="${esc(i.ref)}" title="Try it step by step: Pass or Fail, photos">Run it</button></div>` : "");
 document.addEventListener("click", (e) => {
 	const b = e.target.closest("[data-ck-run]");
 	if (b) openCheckRun(b.dataset.ckRun);

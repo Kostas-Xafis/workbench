@@ -1,7 +1,0 @@
-/* What's left of queue mode (ui/queue.js): the way into the Inbox's focus mode on the board's Needs you, and
-   "deferred to …" on a card. One at a time itself is the Inbox's focus mode now (ui/inbox.js, inbox.css). */
-.q-entry { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 2px 0 12px; padding: 10px 12px; border-radius: 12px; background: var(--card); border: 1px solid var(--line); }
-.q-entry span { color: var(--muted); font-size: 13px; flex: 1; min-width: 180px; }
-.q-entry kbd { font: 600 11px system-ui, sans-serif; color: var(--muted); border: 1px solid var(--line); border-radius: 5px; padding: 1px 6px; }
-.q-deferred { color: var(--muted); font-style: italic; }
-@media (max-width: 760px), (pointer: coarse) { .q-entry kbd { display: none; } }

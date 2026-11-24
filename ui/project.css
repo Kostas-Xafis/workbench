@@ -102,7 +102,7 @@
 .pj-none { color: var(--muted); font-size: var(--fs-13); margin: var(--sp-2) 0; }
 .pj-more { display: flex; align-items: center; gap: var(--sp-3); margin-top: var(--sp-3); font-size: var(--fs-12); }
 
-/* Pages: reports on the left, links and data sources on the right; rail.js draws their lines. */
+/* Pages: reports on the left, links and data sources on the right; pages.js draws their lines. */
 .pj-pages { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: var(--sp-6); align-items: start; }
 .pj-col .pj-h:first-child { margin-top: 0; }
 .pj-plain { margin: 0 calc(-1 * var(--sp-2)); }

@@ -112,7 +112,6 @@ const TAB_IC = {
 // In order. render() returns the tab's HTML; load() runs when the tab opens; poll() runs every 10 s while it's open.
 // local: only for the owner (this computer, or the cloud board). A tab whose code is in a later file (settings-*.js,
 // setup.js, updates.js, dispatch.js) is called through an arrow: that file hasn't run yet when this list is made.
-// Agents is also added by dispatch.js (addSettingsTab): setTabs() keeps the first of each key, which is this one.
 const SET_TABS = [
 	{ key: "projects", label: "Projects", local: true, render: projectsTab, load: loadSettingsProjects, poll: loadSettingsProjects },
 	{ key: "agents", label: "Agents", local: true, render: () => setAgentsRender(), load: () => setAgentsLoad(), poll: () => setAgentsPoll() },
@@ -136,7 +135,6 @@ const SLIDERS = '<path d="M2.5 4.5h6M11.5 4.5h2M2.5 11.5h2M7.5 11.5h6"/><circle 
 const cmdRow = (cmd, multi = false) => `<div class="row">${multi ? `<pre class="cmd">${esc(cmd)}</pre>` : `<code class="cmd">${esc(cmd)}</code>`}<button type="button" class="ghost sm" data-copy="${esc(cmd)}">Copy</button></div>`;
 const fmtBytes = (n) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1e3))} KB`);
 const slugify = (s) => s.replace(/([a-z0-9])([A-Z])/g, "$1-$2").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40);
-const clockOf = (ms) => new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 function runningFor(ms) {
 	const m = Math.round((Date.now() - ms) / 60e3);
 	return m < 60 ? `${m} min` : m < 2880 ? `${Math.round(m / 60)} h` : `${Math.round(m / 1440)} days`;
@@ -336,7 +334,7 @@ function renderSettings() {
 	// On a phone the tabs scroll sideways: a redraw keeps where they were, and a newly opened tab comes into view.
 	const scrolled = el.querySelector(".set-tabs")?.scrollLeft ?? 0;
 	paint(el, `<div class="set-wrap">
-		<div class="vault-head"><button type="button" class="ghost sm" data-act="board">← Board</button><div><h2>Settings</h2><small>For the whole workbench</small></div></div>
+		<div class="vault-head"><button type="button" class="ghost sm" data-act="board">← Inbox</button><div><h2>Settings</h2><small>For the whole workbench</small></div></div>
 		<div class="set-layout"><nav class="set-tabs" aria-label="Settings sections">${nav}</nav>
 		<div class="set-panel">${settings.error ? `<p class="error">${esc(settings.error)}</p>` : ""}${body}</div></div></div>`);
 	const tabs = el.querySelector(".set-tabs");

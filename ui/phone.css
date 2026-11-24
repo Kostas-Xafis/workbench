@@ -1,14 +1,33 @@
-/* Phones. The nav is a bar at the bottom (nav.css); the board's side column opens over the page from its bar. */
+/* Phones. The nav is a bar at the bottom (nav.css), a row of the page's grid, so it never covers what's above it. */
 @media (max-width: 760px) {
-	#board-view, .rail-collapsed #board-view { grid-template-columns: minmax(0, 1fr); }
-	#rail { position: fixed; z-index: 6; right: 0; top: 0; bottom: 0; width: min(300px, calc(100vw - 48px)); box-shadow: var(--shadow); border-left: 1px solid var(--line); }
-	body.rail-collapsed #rail { display: none; }
-	#rail-open { display: grid; }
-	/* One line: the switch scrolls sideways, the buttons stay at the right. */
-	.board-bar { flex-wrap: nowrap; }
-	.board-bar .seg { min-width: 0; flex: 0 1 auto; }
-	#board, #vault-view { padding: var(--sp-2) var(--sp-3) var(--sp-6); }
+	/* Safe areas (the page asks for the whole screen: viewport-fit=cover in index.html): the top bar and the reader's
+	   bar stay under the status bar, the docked choices above the home indicator, the sides clear of a notch. */
+	header.top { padding-top: env(safe-area-inset-top, 0px); height: calc(52px + env(safe-area-inset-top, 0px)); }
+	#content { padding-left: env(safe-area-inset-left, 0px); padding-right: env(safe-area-inset-right, 0px); }
+	#tabbar { padding-left: env(safe-area-inset-left, 0px); padding-right: env(safe-area-inset-right, 0px); }
+	dialog.rd-sheet .rd-bar { padding-top: calc(8px + env(safe-area-inset-top, 0px)); }
+	dialog.rd-sheet .rd-doc { padding-top: calc(52px + env(safe-area-inset-top, 0px)); }
+	dialog.rd-sheet { padding-left: env(safe-area-inset-left, 0px); padding-right: env(safe-area-inset-right, 0px); }
+	body dialog.rd-sheet .rd-doc > [data-slot="action"]:has(.rd-act) { padding-bottom: calc(var(--sp-3) + env(safe-area-inset-bottom, 0px)); }
+	dialog.rd-sheet .rd-side { padding-bottom: calc(40px + env(safe-area-inset-bottom, 0px)); }
+	#vault-view { padding: var(--sp-2) var(--sp-3) var(--sp-6); }
 	#usage-btn { display: none; } /* Usage opens only on this computer */
 	.secret { grid-template-columns: minmax(0, 1fr) auto; }
 	.s-val { grid-column: 1 / -1; grid-row: 2; }
+
+	/* Touch targets, 40 px at least. Controls in a row of their own grow to it; small marks in a line of text keep
+	   their look and get a taller hit area instead (an empty ::after, centred, 40 px high and at least 40 wide). */
+	#search, header.top .primary, button.primary:not(.sm), .ghost:not(.sm), .ib-tab, .pj-tabs [role="tab"], .set-tabs a,
+	select, input[type="text"], input[type="number"], input[type="time"], input[type="date"], input[type="password"], input[type="search"],
+	summary, .ritem, .radios label, .radios button, label.switch { min-height: 40px; }
+	.pj-tabs [role="tab"] { min-width: 40px; }
+	/* A project's Next up: the drag handle is a thumb wide. */
+	#project-view .pj-item { grid-template-columns: 40px minmax(0, 1fr); }
+	.ghost:not(.sm), button.primary:not(.sm), .set-tabs a, .ritem, .radios label, label.switch { display: inline-flex; align-items: center; }
+	.set-tabs a, .ritem { display: flex; }
+	.icon-btn { min-width: 40px; min-height: 40px; }
+	.nav-sheet .nav-warn { min-height: 40px; }
+	.sm, .ib-chip, .ag-filter, .setup-chips a, .ib-since a, .pj-head a:not(.ghost), .ruling-ref, .reset-btn, .ib-accept, .ag-more, .rd-link { position: relative; }
+	:is(.sm, .ib-chip, .ag-filter, .setup-chips a, .ib-since a, .pj-head a:not(.ghost), .ruling-ref, .reset-btn, .ib-accept, .ag-more, .rd-link)::after {
+		content: ""; position: absolute; top: calc(50% - 20px); bottom: calc(50% - 20px); left: min(0px, calc(50% - 20px)); right: min(0px, calc(50% - 20px)); }
 }

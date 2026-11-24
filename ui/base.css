@@ -23,10 +23,10 @@
 	/* Older names, still read by files that haven't moved to the tokens above. */
 	--decision: #7c3aed; --setup: #2563eb; --check: #15803d; --review: #b45309; --bug: #dc2626; --task: #0b6b3a; --idea: #ca8a04;
 	--warn-bg: #fff4dc; --warn-ink: #8a5300; --p1: #c2410c;
-	--rail-bg: #edebe6; --shadow: 0 1px 2px rgb(0 0 0 / .05), 0 10px 30px rgb(0 0 0 / .12);
+	--shadow: 0 1px 2px rgb(0 0 0 / .05), 0 10px 30px rgb(0 0 0 / .12);
 	color-scheme: light;
 }
-/* Dark follows the system unless Settings → Appearance picks one (data-theme on <html>). */
+/* Dark follows the system unless Settings → About → Look picks one (data-theme on <html>). */
 @media (prefers-color-scheme: dark) {
 	:root:not([data-theme="light"]) {
 		--bg: #151514; --card: #1f1f1d; --sunk: #191918; --ink: #ecebe8; --muted: #a29e96; --faint: #75716a; --line: #33322f; --hover: #2a2a27;
@@ -38,7 +38,7 @@
 		--st-done: #5fcf86; --st-done-bg: #13301d;
 		--decision: #b794f6; --setup: #7aa7ff; --check: #5fcf86; --review: #f0b45a; --bug: #ff7b7b; --task: #2fa765; --idea: #facc15;
 		--warn-bg: #3a2c10; --warn-ink: #ffcf7a; --p1: #ff9a5c;
-		--rail-bg: #10100f; --shadow: 0 1px 2px rgb(0 0 0 / .3), 0 12px 32px rgb(0 0 0 / .45);
+		--shadow: 0 1px 2px rgb(0 0 0 / .3), 0 12px 32px rgb(0 0 0 / .45);
 		color-scheme: dark;
 	}
 }
@@ -52,7 +52,7 @@
 	--st-done: #5fcf86; --st-done-bg: #13301d;
 	--decision: #b794f6; --setup: #7aa7ff; --check: #5fcf86; --review: #f0b45a; --bug: #ff7b7b; --task: #2fa765; --idea: #facc15;
 	--warn-bg: #3a2c10; --warn-ink: #ffcf7a; --p1: #ff9a5c;
-	--rail-bg: #10100f; --shadow: 0 1px 2px rgb(0 0 0 / .3), 0 12px 32px rgb(0 0 0 / .45);
+	--shadow: 0 1px 2px rgb(0 0 0 / .3), 0 12px 32px rgb(0 0 0 / .45);
 	color-scheme: dark;
 }
 * { box-sizing: border-box; }

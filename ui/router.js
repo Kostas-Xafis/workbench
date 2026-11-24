@@ -5,13 +5,14 @@
 // reader.js), and a page opened on it shows the default view under it.
 //
 // defineView({
-//   name: "today",                       unique; also what navCount() and a nav entry go by
-//   el: "#today-view",                   the view's element (or a selector): shown while it's current, hidden otherwise
+//   name: "agents",                      unique; also what navCount() and a nav entry go by
+//   el: "#agents-view",                  the view's element (or a selector): shown while it's current, hidden otherwise
 //   match: (hash) => params | null,      hash with its "#" ("" for none); an object of params takes it, null passes
 //   default: true,                       optional: shown for "" and for any address nobody takes (one view says so)
-//   show(params, { from }),              each time it's shown, also again with new params (from: the view before)
+//   show(params, { from, fromHash }),    each time it's shown, also again with new params (from: the view before,
+//                                        fromHash: its address)
 //   hide(),                              optional: another view took over
-//   title: (params) => "Today",          the top bar's title, and the tab's ("Today · Workbench"); a string works too
+//   title: (params) => "Agents",         the top bar's title, and the tab's ("Agents · Workbench"); a string works too
 //   nav: (params) => "inbox" | "agents" | "project:<slug>" | "settings" | "vault" | null,   what the nav highlights
 //   entry: { label: "Inbox", icon: "<path …/>", order: 10 },   optional: a row of its own at the top of the nav (and a
 //                                        tab in the phone's bar); icon is 16×16 SVG path data, stroked
@@ -45,9 +46,8 @@ function go(hash, { replace = false } = {}) {
 	if (hash) location.hash = hash; // the hashchange below routes
 	else { history.pushState(null, "", url); route(); }
 }
-// Back to where the board opens (the default view). Settings and the setup guide call it by its old name.
+// Back to where the board opens (the default view, the Inbox).
 const goHome = () => go("");
-const goBoard = goHome;
 
 function route() {
 	const hash = location.hash === "#" ? "" : location.hash;
@@ -67,13 +67,13 @@ function route() {
 }
 
 function showView(view, params) {
-	const from = router.view;
+	const from = router.view, fromHash = router.hash ?? "";
 	if (from && from !== view) try { from.hide?.(); } catch (e) { console.error(e); }
 	for (const v of VIEWS) { const el = viewEl(v); if (el) el.hidden = v !== view; }
 	Object.assign(router, { view, params, hash: location.hash });
 	retitle();
 	try {
-		const shown = view.show?.(params, { from: from?.name ?? null });
+		const shown = view.show?.(params, { from: from?.name ?? null, fromHash });
 		if (shown?.catch) shown.catch((e) => console.error(e));
 	} catch (e) { console.error(e); }
 	retitle();

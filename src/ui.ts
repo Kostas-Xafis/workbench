@@ -12,8 +12,6 @@ import answerJs from "../ui/answer.js" with { type: "file" };
 import asksCss from "../ui/asks.css" with { type: "file" };
 import asksJs from "../ui/asks.js" with { type: "file" };
 import baseCss from "../ui/base.css" with { type: "file" };
-import boardCss from "../ui/board.css" with { type: "file" };
-import boardJs from "../ui/board.js" with { type: "file" };
 import bootJs from "../ui/boot.js" with { type: "file" };
 import copyJs from "../ui/copy.js" with { type: "file" };
 import checkrunCss from "../ui/checkrun.css" with { type: "file" };
@@ -34,16 +32,14 @@ import linksJs from "../ui/links.js" with { type: "file" };
 import navCss from "../ui/nav.css" with { type: "file" };
 import navJs from "../ui/nav.js" with { type: "file" };
 import notifyJs from "../ui/notify.js" with { type: "file" };
+import pagesCss from "../ui/pages.css" with { type: "file" };
+import pagesJs from "../ui/pages.js" with { type: "file" };
 import phoneCss from "../ui/phone.css" with { type: "file" };
 import phonesCss from "../ui/phones.css" with { type: "file" };
 import projectCss from "../ui/project.css" with { type: "file" };
 import projectJs from "../ui/project.js" with { type: "file" };
 import projectsJs from "../ui/projects.js" with { type: "file" };
 import pushJs from "../ui/push.js" with { type: "file" };
-import queueCss from "../ui/queue.css" with { type: "file" };
-import queueJs from "../ui/queue.js" with { type: "file" };
-import railCss from "../ui/rail.css" with { type: "file" };
-import railJs from "../ui/rail.js" with { type: "file" };
 import readerCss from "../ui/reader.css" with { type: "file" };
 import readerJs from "../ui/reader.js" with { type: "file" };
 import reportCss from "../ui/report.css" with { type: "file" };
@@ -64,12 +60,8 @@ import settingsJs from "../ui/settings.js" with { type: "file" };
 import setupCss from "../ui/setup.css" with { type: "file" };
 import setupJs from "../ui/setup.js" with { type: "file" };
 import shareJs from "../ui/share.js" with { type: "file" };
-import staleCss from "../ui/stale.css" with { type: "file" };
-import staleJs from "../ui/stale.js" with { type: "file" };
 import swJs from "../ui/sw.js" with { type: "file" };
 import timeJs from "../ui/time.js" with { type: "file" };
-import todayCss from "../ui/today.css" with { type: "file" };
-import todayJs from "../ui/today.js" with { type: "file" };
 import topCss from "../ui/top.css" with { type: "file" };
 import trackersCss from "../ui/trackers.css" with { type: "file" };
 import trackersJs from "../ui/trackers.js" with { type: "file" };
@@ -86,8 +78,6 @@ export const UI: Record<string, string> = {
 	"asks.css": asksCss,
 	"asks.js": asksJs,
 	"base.css": baseCss,
-	"board.css": boardCss,
-	"board.js": boardJs,
 	"boot.js": bootJs,
 	"checkrun.css": checkrunCss,
 	"checkrun.js": checkrunJs,
@@ -108,16 +98,14 @@ export const UI: Record<string, string> = {
 	"nav.css": navCss,
 	"nav.js": navJs,
 	"notify.js": notifyJs,
+	"pages.css": pagesCss,
+	"pages.js": pagesJs,
 	"phone.css": phoneCss,
 	"phones.css": phonesCss,
 	"project.css": projectCss,
 	"project.js": projectJs,
 	"projects.js": projectsJs,
 	"push.js": pushJs,
-	"queue.css": queueCss,
-	"queue.js": queueJs,
-	"rail.css": railCss,
-	"rail.js": railJs,
 	"reader.css": readerCss,
 	"reader.js": readerJs,
 	"report.css": reportCss,
@@ -138,12 +126,8 @@ export const UI: Record<string, string> = {
 	"setup.css": setupCss,
 	"setup.js": setupJs,
 	"share.js": shareJs,
-	"stale.css": staleCss,
-	"stale.js": staleJs,
 	"sw.js": swJs,
 	"time.js": timeJs,
-	"today.css": todayCss,
-	"today.js": todayJs,
 	"top.css": topCss,
 	"trackers.css": trackersCss,
 	"trackers.js": trackersJs,
@@ -157,7 +141,7 @@ const TYPES: Record<string, string> = { css: "text/css; charset=utf-8", js: "tex
 
 let versions: Promise<Record<string, string>> | null = null;
 /**
- * Each file's version, a hash of its bytes, for the page's links (/ui/board.js?v=…, fresh.ts). Worked out once in
+ * Each file's version, a hash of its bytes, for the page's links (/ui/core.js?v=…, fresh.ts). Worked out once in
  * the compiled server, whose files never change; from the files as they are now otherwise, so an edit shows on the
  * next reload (a few ms for all of them).
  */

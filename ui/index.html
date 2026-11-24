@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Workbench</title>
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <!-- On a phone, "Add to Home Screen" makes the board an app with its own icon (docs/board.md, "From the phone"). -->
@@ -13,16 +13,15 @@
 <meta name="apple-mobile-web-app-title" content="Workbench">
 <meta name="theme-color" content="#f6f5f2" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#151514" media="(prefers-color-scheme: dark)">
-<!-- Settings → Appearance: the theme picked in this browser, set before the first paint so a reload doesn't flash. -->
+<!-- Settings → About → Look: the theme picked in this browser, set before the first paint so a reload doesn't flash. -->
 <script>try { const t = JSON.parse(localStorage.getItem("wb.pref.look.theme")); if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; } catch {}</script>
 <!-- The board's styles and scripts are in ui/ (docs/development.md, "The board's page"); the server sends each file listed in ui.ts. -->
 <link rel="stylesheet" href="/ui/base.css">
 <link rel="stylesheet" href="/ui/kit.css">
 <link rel="stylesheet" href="/ui/nav.css">
-<link rel="stylesheet" href="/ui/rail.css">
+<link rel="stylesheet" href="/ui/pages.css">
 <link rel="stylesheet" href="/ui/trackers.css">
 <link rel="stylesheet" href="/ui/top.css">
-<link rel="stylesheet" href="/ui/board.css">
 <link rel="stylesheet" href="/ui/report.css">
 <link rel="stylesheet" href="/ui/updates.css">
 <link rel="stylesheet" href="/ui/vault.css">
@@ -32,15 +31,12 @@
 <link rel="stylesheet" href="/ui/reader.css">
 <link rel="stylesheet" href="/ui/phone.css">
 <!-- features (after the core's styles) -->
-<link rel="stylesheet" href="/ui/stale.css">
-<link rel="stylesheet" href="/ui/today.css">
 <link rel="stylesheet" href="/ui/links.css">
 <link rel="stylesheet" href="/ui/rulings.css">
 <link rel="stylesheet" href="/ui/goals.css">
 <link rel="stylesheet" href="/ui/phones.css">
 <link rel="stylesheet" href="/ui/asks.css">
 <link rel="stylesheet" href="/ui/checkrun.css">
-<link rel="stylesheet" href="/ui/queue.css">
 <link rel="stylesheet" href="/ui/inbox.css">
 <link rel="stylesheet" href="/ui/dispatch.css">
 <link rel="stylesheet" href="/ui/agents.css">
@@ -76,22 +72,9 @@
 			<button class="primary" id="new">New</button>
 		</div>
 	</header>
-	<section id="board-view" aria-label="Board">
-		<main id="board">
-			<div class="board-bar">
-				<div class="seg" id="who" role="group" aria-label="Who acts"></div>
-				<span class="spacer"></span>
-				<button class="icon-btn" id="fold-toggle" title="Fold all sections" aria-label="Fold all sections"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor"><g stroke-width="1.5"><path d="m4.5 2.5 3.5 3.5 3.5-3.5M4.5 13.5 8 10l3.5 3.5"/></g></svg></button>
-				<button class="icon-btn" id="rail-open" title="Trackers, rulings, reports and links" aria-label="Trackers, rulings, reports and links"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor"><g stroke-width="1.5"><rect x="2.25" y="2.75" width="11.5" height="10.5" rx="1.5"/><path d="M9.75 2.75v10.5"/></g></svg></button>
-			</div>
-			<div id="setup-card"></div>
-			<div id="sections"></div>
-		</main>
-		<aside id="rail" aria-label="Trackers, rulings, reports and links"></aside>
-	</section>
 	<section id="report-view" hidden>
 		<div class="rbar">
-			<button type="button" class="ghost sm" id="r-back">← Board</button>
+			<button type="button" class="ghost sm" id="r-back">← Back</button>
 			<a class="ghost sm" id="r-home" hidden>Open in workbench</a>
 			<div class="r-title"><b id="r-title"></b><small id="r-sub"></small></div>
 			<select id="r-version" title="Version" aria-label="Version"></select>
@@ -262,9 +245,8 @@
 <script src="/ui/router.js"></script>
 <script src="/ui/nav.js"></script>
 <script src="/ui/projects.js"></script>
-<script src="/ui/rail.js"></script>
+<script src="/ui/pages.js"></script>
 <script src="/ui/trackers.js"></script>
-<script src="/ui/board.js"></script>
 <script src="/ui/answer.js"></script>
 <script src="/ui/reader.js"></script>
 <script src="/ui/search.js"></script>
@@ -283,15 +265,12 @@
 <script src="/ui/copy.js"></script>
 <script src="/ui/updates.js"></script>
 <!-- features -->
-<script src="/ui/stale.js"></script>
-<script src="/ui/today.js"></script>
 <script src="/ui/links.js"></script>
 <script src="/ui/rulings.js"></script>
 <script src="/ui/goals.js"></script>
 <script src="/ui/settings-phones.js"></script>
 <script src="/ui/asks.js"></script>
 <script src="/ui/checkrun.js"></script>
-<script src="/ui/queue.js"></script>
 <script src="/ui/inbox.js"></script>
 <script src="/ui/dispatch.js"></script>
 <script src="/ui/agents.js"></script>

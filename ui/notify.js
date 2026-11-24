@@ -25,7 +25,7 @@ function zoomStep(e) {
 	if (e.key === "0" || e.code === "Numpad0" || e.code === "Digit0") return 0;
 	return null;
 }
-// The app's zoom level as last seen (null until asked, or outside the app), shown in Settings → Appearance.
+// The app's zoom level as last seen (null until asked, or outside the app), shown in Settings → About → Look.
 let zoomLevel = null;
 function appZoom(step) {
 	if (!app?.core || ![1, -1, 0].includes(step)) return;
@@ -128,7 +128,8 @@ function openTarget(o) {
 	if (o?.item) openItemById(o.item).catch((e) => toast(e.message));
 	else if (o?.report) location.hash = `#report/${o.report}`;
 	else if (o?.tracker) openTracker(o.tracker);
-	else if (o?.today) location.hash = "#today";
+	// "While you were away" (held events and pushes from before may still say `today`, for Today's brief).
+	else if (o?.inbox || o?.today) location.hash = "#inbox";
 }
 // Events that happened during quiet hours, newest per item/report/tracker, until one summary when they end.
 function heldGet() { try { return JSON.parse(localGet("notify.held") || "[]"); } catch { return []; } }
@@ -150,7 +151,7 @@ function summarise(held) {
 		n("trackers") && `${n("trackers")} tracker${s(n("trackers"))} to look at`,
 	].filter(Boolean);
 	const first = held.find((h) => h.kind === "needs");
-	ping("While you were away", parts.join(" · ") + (first ? `\n${first.body}` : ""), "wb-away", () => openTarget({ today: 1 }), { today: 1 });
+	ping("While you were away", parts.join(" · ") + (first ? `\n${first.body}` : ""), "wb-away", () => openTarget({ inbox: 1 }), { inbox: 1 });
 }
 async function notifyCheck() {
 	// Push notifications come from the board itself (push.js): none from here as well.

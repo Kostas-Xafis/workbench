@@ -9,6 +9,8 @@
 const ASK_KINDS = ["decision", "review", "notice"];
 const askList = (s) => { try { const v = JSON.parse(s || "[]"); return Array.isArray(v) ? v.map(String) : []; } catch { return []; } };
 const askRecommended = (i) => askList(i.recommended);
+// An item's choices, from its options (a JSON list).
+const optionsOf = (i) => { try { const l = JSON.parse(i.options || "[]"); return Array.isArray(l) ? l.map(String) : []; } catch { return []; } };
 const askMany = (i) => i.pick === "many" && optionsOf(i).length > 0;
 // What happens if you say nothing, in words ('' = nothing happens by itself). Same as defaultText in asks.ts.
 function askDefaultText(i) {

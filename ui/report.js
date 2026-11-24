@@ -1,11 +1,16 @@
 /* ---------- Reports: the report view (#report/<id>, #report/<id>/v<n>) ---------- */
 
 const frame = $("#r-frame");
+// ← Back goes to the place the report was opened from (a project's Pages, the search), else where the board opens.
+let reportFrom = "";
 defineView({
 	name: "report",
 	el: "#report-view",
 	match: (h) => { const m = h.match(/^#report\/(\d+)(?:\/v(\d+))?$/); return m ? { id: Number(m[1]), v: m[2] ? Number(m[2]) : null } : null; },
-	show: (p) => showReport(p.id, p.v),
+	show(p, { from, fromHash }) {
+		if (from !== "report") reportFrom = from && from !== "welcome" ? fromHash : "";
+		return showReport(p.id, p.v);
+	},
 	hide() {
 		state.report = null;
 		frame.removeAttribute("src");
@@ -35,7 +40,7 @@ async function showReport(id, v) {
 	if (frame.dataset.src !== src) { frame.dataset.src = src; frame.src = src; }
 	frame.dataset.version = shown;
 	retitle();
-	renderRail();
+	redraw();
 	refreshShares();
 }
 
@@ -49,7 +54,7 @@ function checkNewerReport() {
 }
 $("#r-newer").onclick = () => { delete frame.dataset.src; showReport(state.report.id, null); };
 $("#r-reload").onclick = () => { frame.src = frame.dataset.src; };
-$("#r-back").onclick = goBoard;
+$("#r-back").onclick = () => go(reportFrom);
 $("#r-version").onchange = (e) => {
 	const n = Number(e.target.value);
 	go(`#report/${state.report.id}${n === state.report.version ? "" : `/v${n}`}`);
