@@ -102,7 +102,7 @@ import { etagRoutes, IMMUTABLE, versionedPage } from "./fresh";
 import { addStepPhoto, finishRun, removeStepPhoto, runState, saveStep, startOver } from "./checkruns";
 import { addImage, imageData, prepareImage, removeImage, setImageCaption } from "./images";
 import { mcpHttp } from "./mcp";
-import { getRun, listRuns, openInDesktop, runPrompt, runsInfo, startRun, stopRun, testCommand, type From } from "./dispatch";
+import { continueRun, getRun, listRuns, openInDesktop, runEvents, runPrompt, runsInfo, startRun, stopRun, testCommand, type From } from "./dispatch";
 import { refreshUsage, usageData } from "./usage";
 import { agentFiles, integratePrompt, integrateSummary } from "./integrate";
 import { setupStatus } from "./setup";
@@ -1125,6 +1125,31 @@ export function boardRoutes(h: BoardHost) {
 		"/api/runs/:id": (req) => {
 			const r = getRun(db, Number(req.params.id));
 			return r ? json(r) : json({ error: "no such run" }, 404);
+		},
+		// What the agent said and did, parsed from its output (dispatch.ts RunEvent), while it runs and after: the run
+		// (without its tail) and its events after number `after` (none given: from the start).
+		"/api/runs/:id/events": (req) => {
+			const r = getRun(db, Number(req.params.id));
+			if (!r) return json({ error: "no such run" }, 404);
+			const raw = new URL(req.url).searchParams.get("after");
+			const after = raw === null || raw === "" || !Number.isFinite(Number(raw)) ? -1 : Number(raw);
+			const events = runEvents(db, r.id, after);
+			const { tail: _, command: __, ...run } = r;
+			return json({ run, events, next: events.at(-1)?.n ?? after });
+		},
+		// Continue: a new run that resumes this run's Claude Code session with { message } as the prompt.
+		"/api/runs/:id/continue": {
+			POST: jsonOnly(async (req, srv) => {
+				const from = runFrom(req, srv);
+				if (!from) return json({ error: "agents start only from the board on this computer, or a phone paired with it" }, 403);
+				try {
+					const { message } = await req.json();
+					const run = await continueRun(db, Number(req.params.id), String(message ?? ""), from);
+					return json({ run, item: getItem(db, run.item_id) }, 201);
+				} catch (e) {
+					return fail(e);
+				}
+			}),
 		},
 		"/api/runs/:id/stop": {
 			POST: jsonOnly(async (req, srv) => {

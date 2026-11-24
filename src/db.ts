@@ -10,7 +10,7 @@ import { createSettingsTable, getSetting, getSettings, ownerFor } from "./settin
 import { createTables as createTrackerTables } from "./trackers";
 import { backfillRulings, createTables as createRulingTables, draftRuling, listRulings } from "./rulings";
 import { createDeviceTables } from "./devices";
-import { createRunTables } from "./dispatch";
+import { createRunTables, desktopLink } from "./dispatch";
 import { askChanges, cleanAsk, resolveAsk } from "./asks";
 import { createCheckRunTables } from "./checkruns";
 
@@ -59,6 +59,8 @@ export type Item = {
 	image_count?: number;
 	/** Quiet for too long (see stale.ts), or null (listItems and getItem). */
 	stale?: Stale | null;
+	/** The link that opens its agent session in Claude Desktop (dispatch.ts desktopLink), when `session` is one (listItems and getItem). */
+	desktop?: string;
 	/** How many waiting items this open one holds up, and how many items it waits on (listItems and getItem; see links.ts). */
 	unblocks?: number;
 	waiting_on?: number;
@@ -523,7 +525,10 @@ export function listItems(db: Db, f: ItemFilter = {}): Item[] {
 		(db.query("SELECT item_id, MAX(at) AS at FROM notes GROUP BY item_id").all() as { item_id: number; at: string }[]).map((r) => [r.item_id, r.at]),
 	);
 	const now = Date.now();
-	for (const i of items) i.stale = staleOf(i, last.get(i.id), now);
+	for (const i of items) {
+		i.stale = staleOf(i, last.get(i.id), now);
+		if (i.session && desktopLink(i.session)) i.desktop = desktopLink(i.session);
+	}
 	return items;
 }
 
@@ -536,7 +541,8 @@ export function getItem(
 	if (!item) return undefined;
 	const notes = db.query("SELECT * FROM notes WHERE item_id = ? ORDER BY at, id").all(id) as Note[];
 	const images = itemImages(db, id);
-	return { ...item, notes, images, image_count: images.length, stale: staleOf(item, notes.at(-1)?.at), waits_on: blockersOf(db, id), blocks: waitersOf(db, id) };
+	const desktop = item.session ? desktopLink(item.session) : "";
+	return { ...item, ...(desktop ? { desktop } : {}), notes, images, image_count: images.length, stale: staleOf(item, notes.at(-1)?.at), waits_on: blockersOf(db, id), blocks: waitersOf(db, id) };
 }
 
 export function addItem(db: Db, item: ItemPatch & { title: string; project: string }, author = ""): number {

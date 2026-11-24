@@ -9,7 +9,7 @@ import { cloudCommand, cloudFirst } from "./cloudcli";
 import { parseWb, needsComputer } from "./cliargs";
 import { cliHelpers, runCli, type CliCtx } from "./cli";
 import { resolveHeaderSpecs } from "./sourceheaders";
-import { startRun, listRuns, pollRuns, runLine, stopRun } from "./dispatch";
+import { continueRun, startRun, listRuns, pollRuns, runsText, stopRun } from "./dispatch";
 import { integrationGuide } from "./integrate";
 import { imageBytes } from "./images";
 
@@ -143,9 +143,19 @@ else
 			}
 			case "runs": {
 				pollRuns(db);
-				const list = listRuns(db, { limit: o.all ? 100 : 15 });
-				if (!list.length) console.log("no agent runs yet (wb run <ref>, or Run on the board)");
-				for (const r of list) console.log(`wb-${r.ref}  ${r.title}\n  ${runLine(r)}`);
+				console.log(runsText(listRuns(db, { limit: o.all ? 100 : 15 })));
+				break;
+			}
+			case "continue": {
+				// Agents don't start agents, and don't continue one either.
+				if (process.env.WB_RUN || process.env.CLAUDECODE)
+					die("agents don't start agents: leave it for the board (Continue on the run)");
+				const n = Number(String(args[1] ?? "").replace(/^#/, ""));
+				const message = args.slice(2).join(" ").trim();
+				if (!Number.isInteger(n) || n < 1 || !message) die('usage: wb continue <run> "message" (its number from wb runs)');
+				pollRuns(db);
+				const r = await continueRun(db, n, message, { where: "cli", label: "wb continue" });
+				console.log(`run #${r.id} continues run #${n}'s session on wb-${r.ref}${r.cwd ? ` in ${r.cwd}` : ""}. wb runs shows how it goes; wb stop ${r.id} stops it`);
 				break;
 			}
 			case "stop": {

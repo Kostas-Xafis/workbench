@@ -18,7 +18,24 @@
  *   asked again in the background when it's old, so the page never waits on a computer twice.
  */
 import { getItem, logVaultAccess, projects, resolveItem, type Db, type VaultAccess } from "../../src/db";
-import { costs, desktop, endRun, getRun, launcher, places, runsInfo, save, sendUnblocked, startRun, type From, type Launch, type Launched, type Live } from "../../src/dispatch";
+import {
+	cleanEvents,
+	continueRun,
+	costs,
+	desktop,
+	endRun,
+	getRun,
+	launcher,
+	places,
+	runsInfo,
+	save,
+	sendUnblocked,
+	startRun,
+	type From,
+	type Launch,
+	type Launched,
+	type ReadLog,
+} from "../../src/dispatch";
 import { reader, RUN_TIMEOUT_MS, runDue, type Reading } from "../../src/trackers";
 import { getSetting } from "../../src/settings";
 
@@ -33,7 +50,7 @@ const POLL_MS = 25e3;
 
 /** What a helper sends. */
 type Hello = { t: "hello"; name?: unknown; version?: unknown; folders?: unknown };
-type Wire = Omit<Live, "partial">;
+type Wire = ReadLog;
 type FromHelper =
 	| Hello
 	| { t: "done"; id: number; ok?: unknown; error?: string }
@@ -77,6 +94,9 @@ export class Helpers {
 			cache TEXT NOT NULL DEFAULT '', created INTEGER NOT NULL, expires INTEGER NOT NULL, taken_at INTEGER)`);
 		db.run("CREATE TABLE IF NOT EXISTS helper_seen (device TEXT PRIMARY KEY, name TEXT NOT NULL, version TEXT NOT NULL, folders TEXT NOT NULL, seen INTEGER NOT NULL)");
 		db.run("CREATE TABLE IF NOT EXISTS helper_runs (run_id INTEGER PRIMARY KEY, device TEXT NOT NULL)");
+		// Which computer each run ran on, kept after it ends (helper_runs is only the live ones): a continuation goes
+		// to the computer that has the session.
+		db.run("CREATE TABLE IF NOT EXISTS helper_ran (run_id INTEGER PRIMARY KEY, device TEXT NOT NULL)");
 		db.run("CREATE TABLE IF NOT EXISTS helper_cache (key TEXT PRIMARY KEY, value TEXT NOT NULL, at INTEGER NOT NULL)");
 		// A helper's keep-alive, answered without waking the board.
 		ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair("ping", "pong"));
@@ -202,10 +222,16 @@ export class Helpers {
 
 	/** dispatch.ts's launcher: the run's process starts on a computer that has its folder. */
 	private async launch(spec: Launch): Promise<Launched> {
-		const h = this.pick({ need: spec.cwd });
+		// A continuation: on the computer the session ran on, when it's online; else one with the project's folder.
+		const before = spec.resume
+			? (this.db.query("SELECT h.device FROM helper_ran h JOIN runs r ON r.id = h.run_id WHERE r.session = ? ORDER BY h.run_id DESC LIMIT 1").get(spec.resume) as { device: string } | null)?.device
+			: undefined;
+		const folder = spec.folder || spec.cwd;
+		const h = before && this.online().some((x) => x.device === before && x.folders.includes(folder)) ? this.pick({ device: before }) : this.pick({ need: folder });
 		this.db.query("INSERT OR REPLACE INTO helper_runs (run_id, device) VALUES (?, ?)").run(spec.id, h.device);
+		this.db.query("INSERT OR REPLACE INTO helper_ran (run_id, device) VALUES (?, ?)").run(spec.id, h.device);
 		const out = await this.ask<Launched>("run", spec, { device: h.device, timeout: 30e3 });
-		return { pid: Number(out?.pid) || 0, unit: String(out?.unit ?? "") };
+		return { pid: Number(out?.pid) || 0, unit: String(out?.unit ?? ""), cwd: typeof out?.cwd === "string" ? out.cwd.slice(0, 1000) : "" };
 	}
 
 	/** What sessions cost, from Claude Code's transcripts on a computer: asked at most once a minute. */
@@ -270,6 +296,20 @@ export class Helpers {
 					const name = c.device?.name || "the cloud board";
 					const who: From = from === "cli" ? { where: "cli", label: `wb run on ${name}` } : { where: "local", label: name };
 					const run = await startRun(db, id, who, how);
+					return json({ run, item: getItem(db, run.item_id) }, 201);
+				} catch (e) {
+					return json({ error: (e as Error).message }, 400);
+				}
+			}
+			case "/api/runs/:id/continue": {
+				if (!post) return null;
+				if (!c.boardOnly) return refuse("agents start only from the board's own page or a tool with this board's token");
+				if (!this.online().length) return refuse(NO_COMPUTER_AGENTS, 503);
+				try {
+					const { message, from } = (await req.json()) as { message?: unknown; from?: unknown };
+					const name = c.device?.name || "the cloud board";
+					const who: From = from === "cli" ? { where: "cli", label: `wb continue on ${name}` } : { where: "local", label: name };
+					const run = await continueRun(db, Number(url.pathname.split("/")[3]), String(message ?? ""), who);
 					return json({ run, item: getItem(db, run.item_id) }, 201);
 				} catch (e) {
 					return json({ error: (e as Error).message }, 400);
@@ -366,7 +406,7 @@ export class Helpers {
 		const now = getRun(db, id)!;
 		// Its computer is gone: what's known is how it ended. (If it comes back, its helper is told to stop it.)
 		if (!now.ended_at && !there)
-			endRun(db, { ...now, status: "stopped" }, null, { offset: 1, lines: now.tail ? now.tail.split("\n") : [], session: now.session, cost: now.cost, result: "", isError: false, refused: {} });
+			endRun(db, { ...now, status: "stopped" }, null, { offset: 1, lines: now.tail ? now.tail.split("\n") : [], session: now.session, cost: now.cost, result: "", isError: false, refused: {}, cwd: now.cwd });
 		return json(getRun(db, id));
 	}
 
@@ -579,5 +619,8 @@ function wire(l: Partial<Wire> | undefined): Wire {
 				.slice(0, 50)
 				.map(([k, n]) => [k, Math.floor(n as number)]),
 		),
+		// The folder it runs in, and what it said and did (an older helper sends neither).
+		cwd: typeof l?.cwd === "string" ? l.cwd.slice(0, 1000) : "",
+		events: cleanEvents(l?.events),
 	};
 }
