@@ -83,7 +83,8 @@ const runFor = (from, to) => {
 	return m < 1 ? "under a minute" : m < 90 ? `${m} min` : `${(m / 60).toFixed(1)} h`;
 };
 const RUN_WORD = { running: "running", done: "done", failed: "failed", stopped: "stopped" };
-const runCost = (r) => (r.cost != null ? `$${r.cost.toFixed(2)}` : "");
+// What its tokens come to at Claude API list prices: real money on API credits, plan usage on a subscription.
+const runCost = (r) => (r.cost != null ? `$${r.cost.toFixed(2)} at API prices` : "");
 const runFolder = (i) => state.allProjects.find((p) => p.slug === i.project)?.path ?? "its folder";
 
 /* ---------- On the board ---------- */
@@ -313,7 +314,7 @@ function runsSettings() {
 		: t ? `<small class="${t.ok ? "run-ok" : "run-bad"}">${t.ok ? `Found ${esc(t.path)}: ${esc(t.version)}. Every flag is one it knows.` : esc(t.problem)}${!t.ok && t.version ? ` (${esc(t.version)})` : ""}</small>` : "";
 	const spent = info.cap ? `$${info.spent.toFixed(2)} of $${info.cap} so far today` : info.spent ? `$${info.spent.toFixed(2)} so far today` : "";
 	const off = !setting("agents.on");
-	return `<div class="agents-tab"><p class="set-intro">The board can start a Claude Code agent on an item: <b>Run</b> on an agent's to-do, <b>Answer &amp; send</b> on a decision (and <b>Object &amp; send</b> on a review or notice). It runs headless in the project's folder, with your Claude account, so it costs what any session costs, and nobody watches it while it works: it reads the item, does it, then finishes it or files what it needs from you and waits. Off until you turn it on.</p>
+	return `<div class="agents-tab"><p class="set-intro">The board can start a Claude Code agent on an item: <b>Run</b> on an agent's to-do, <b>Answer &amp; send</b> on a decision (and <b>Object &amp; send</b> on a review or notice). It runs headless in the project's folder, with your Claude account, so it uses your plan's limits (or API credits) as any session does, and nobody watches it while it works: it reads the item, does it, then finishes it or files what it needs from you and waits. Off until you turn it on.</p>
 		${optGroup("Starting agents", [
 			optRow({ label: "Let the board start agents", hint: "Off: Run and Answer &amp; send don't show, and nothing starts by itself.", bind: { setting: "agents.on" }, control: ctlToggle({ setting: "agents.on" }, { label: "Let the board start agents" }) }),
 			optRow({ label: "From a paired phone too", hint: "Off: a phone can answer, but only this computer starts agents.", bind: { setting: "agents.phone" }, control: ctlToggle({ setting: "agents.phone" }, { label: "A paired phone may start agents" }), off }),
@@ -322,7 +323,7 @@ function runsSettings() {
 		${optGroup("Limits", [
 			optRow({ label: "At once, at most", hint: `${info.running} running now.`, bind: { setting: "agents.at-once" }, control: ctlNumber({ setting: "agents.at-once" }, { min: 1, max: 10, unit: "agents", label: "Agents running at once, at most" }), off }),
 			optRow({ label: "Per day, at most", hint: `${info.today} started today. A day starts at ${String(setting("day.start")).padStart(2, "0")}:00 (You and your day).`, bind: { setting: "agents.per-day" }, control: ctlNumber({ setting: "agents.per-day" }, { min: 1, max: 200, unit: "agents", label: "Agents started per day, at most" }), off }),
-			optRow({ label: "A day's cost, at most", hint: `No new agent once the ones started today cost this much, as <a href="/usage">Usage</a> counts their sessions (or what they reported, if more). A run already going isn't stopped. 0: no cap.${spent ? ` <b>${esc(spent)}</b>.` : ""}`, bind: { setting: "agents.day-dollars" }, control: ctlNumber({ setting: "agents.day-dollars" }, { min: 0, max: 10000, unit: "dollars", label: "No new agent once today's cost this many dollars (0 for no cap)" }), off }),
+			optRow({ label: "A day's usage, at most", hint: `No new agent once the ones started today come to this much at Claude API list prices, as <a href="/usage">Usage</a> counts their sessions (or what they reported, if more). On a subscription you don't pay it: it's a measure of how much of your plan's limits they take. A run already going isn't stopped. 0: no cap.${spent ? ` <b>${esc(spent)}</b> at API prices.` : ""}`, bind: { setting: "agents.day-dollars" }, control: ctlNumber({ setting: "agents.day-dollars" }, { min: 0, max: 10000, unit: "dollars", label: "No new agent once today's runs come to this many dollars at API prices (0 for no cap)" }), off }),
 		])}
 		${optGroup("The command", [`<div class="so-wide run-cmd">
 			<textarea data-setting="agents.command" data-type="string" rows="3" spellcheck="false" aria-label="The command that starts an agent">${esc(setting("agents.command"))}</textarea>

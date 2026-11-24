@@ -217,7 +217,7 @@ const AGENTS: Defs = {
 	"agents.at-once": { about: "Agents running at once, at most", default: 1, check: int(1, 10) },
 	"agents.per-day": { about: "Agents started per day, at most", default: 5, check: int(1, 200) },
 	// Whole dollars, as the Usage page counts them for the sessions the board started. 0 = no cap.
-	"agents.day-dollars": { about: "No new agent once today's cost this many dollars", default: 0, check: int(0, 10000) },
+	"agents.day-dollars": { about: "No new agent once today's runs come to this many dollars at API prices", default: 0, check: int(0, 10000) },
 	"agents.phone": { about: "A paired phone may start agents", default: false, check: bool },
 	"agents.unblocked": { about: "When an agent's work is unblocked", default: "tell", check: oneOf("tell", "send") },
 };
