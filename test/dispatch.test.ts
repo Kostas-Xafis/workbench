@@ -8,6 +8,9 @@ import { resolveAsk } from "../src/asks";
 import { waitOn } from "../src/links";
 import {
 	AGENT_COMMAND,
+	helperContinues,
+	launchRun,
+	places,
 	cleanEvents,
 	endRun,
 	save,
@@ -45,6 +48,7 @@ import {
 	type Run,
 } from "../src/dispatch";
 import { createSettingsTable, getSetting, updateSettings } from "../src/settings";
+import { wire, WIRE_MAX } from "../src/helper";
 import { freshDb } from "./helpers";
 
 const dir = mkdtempSync(join(process.env.WB_TEST_DIR!, "dispatch-"));
@@ -558,6 +562,65 @@ describe("watching a run: what the agent said and did", () => {
 		expect(getRun(db, id)!.desktop).toBe("");
 	});
 
+	test("a read from the start gives the newest 500, with a continuation's message before them", () => {
+		const t = task("Long");
+		const { id } = db.query("INSERT INTO runs (item_id, project, pid, tag) VALUES (?, 'repo', 1, 'wb-run-x-long') RETURNING id").get(t) as { id: number };
+		db.query("INSERT INTO run_events (run_id, n, at, kind, text) VALUES (?, 0, datetime('now'), 'message', 'go on')").run(id);
+		const l = newLive();
+		for (let n = 0; n < 530; n++) readLine(l, `{"type":"assistant","message":{"content":[{"type":"text","text":"step ${n}"}]}}`);
+		save(db, { id }, { ...l, offset: 1 });
+		const all = runEvents(db, id);
+		expect(all).toHaveLength(501);
+		expect(all[0]).toMatchObject({ n: 0, kind: "message" });
+		expect(all[1].n).toBe(31);
+		expect(all.at(-1)).toMatchObject({ n: 530, text: "step 529" });
+		expect(runEvents(db, id, 520).map((e) => e.n)).toEqual([521, 522, 523, 524, 525, 526, 527, 528, 529, 530]);
+		db.query("DELETE FROM runs WHERE id = ?").run(id);
+	});
+
+	test("what a helper sends about a run stays small, whatever the run did", () => {
+		const l = newLive();
+		const big = "x".repeat(3990);
+		for (let n = 0; n < 600; n++) readLine(l, `{"type":"assistant","message":{"content":[{"type":"text","text":"${n} ${big}"}]}}`);
+		for (let n = 0; n < 300; n++) readLine(l, `${"y".repeat(600)}`);
+		expect(JSON.stringify({ ...l }).length).toBeGreaterThan(WIRE_MAX * 3);
+		const live = wire(l, l.seq - 3);
+		expect(live.events.map((e) => e.n)).toEqual([l.seq - 2, l.seq - 1, l.seq]);
+		const end = wire(l, l.seq - 3, { fill: true });
+		expect(JSON.stringify(end).length).toBeLessThanOrEqual(WIRE_MAX);
+		// The ones the board doesn't have go first; older ones fill what room is left, newest first.
+		expect(end.events.at(-1)!.n).toBe(l.seq);
+		expect(end.events.length).toBeGreaterThan(10);
+		expect(end.lines.length).toBeGreaterThan(0);
+		expect(end.events.map((e) => e.n)).toEqual([...end.events.map((e) => e.n)].sort((a, b) => a - b));
+	});
+
+	test("a Launch spec's variables: only the run's own, set last", async () => {
+		const out = join(dir, "env.txt");
+		const before = process.env.WB_ITEM;
+		process.env.WB_ITEM = "inherited";
+		try {
+			await launchRun({
+				id: 999001,
+				tag: "wb-run-env-test",
+				command: `printf '%s|%s|%s|%s|%s' "$WB_ITEM" "$BASH_ENV" "$LD_PRELOAD" "$WB_DB" "$PATH" > ${out}`,
+				cwd: folder,
+				vars: { WB_ITEM: "wb-abcd", BASH_ENV: "/tmp/evil", LD_PRELOAD: "/tmp/evil.so", WB_DB: "/tmp/other.db", PATH: "/nowhere" },
+			});
+			for (let n = 0; n < 50 && !existsSync(out); n++) await Bun.sleep(50);
+			await Bun.sleep(100);
+			const [item, bashEnv, preload, wbDb, path] = readFileSync(out, "utf8").split("|");
+			expect(item).toBe("wb-abcd");
+			expect(bashEnv).toBe(process.env.BASH_ENV ?? "");
+			expect(preload).toBe(process.env.LD_PRELOAD ?? "");
+			expect(wbDb).toBe(process.env.WB_DB ?? "");
+			expect(path).not.toBe("/nowhere");
+		} finally {
+			if (before === undefined) delete process.env.WB_ITEM;
+			else process.env.WB_ITEM = before;
+		}
+	});
+
 	test("the last 500 are kept, each one's text capped", () => {
 		const l = newLive();
 		for (let n = 0; n < 620; n++) readLine(l, `{"type":"assistant","message":{"content":[{"type":"text","text":"${n === 619 ? "x".repeat(9000) : `step ${n}`}"}]}}`);
@@ -584,6 +647,59 @@ describe("continuing a session", () => {
 		expect(continueCommand(d)).toBe('claude --resume "$WB_RESUME" -p "$WB_PROMPT" --max-budget-usd 5');
 		updateSettings(d, { "agents.continue-command": 'claude -r "$WB_RESUME" -p "$WB_PROMPT"' });
 		expect(continueCommand(d)).toBe('claude -r "$WB_RESUME" -p "$WB_PROMPT"');
+	});
+
+	test("made from shell words: -w / --worktree with its name, --session-id with its value, --tmux; never inside quotes", () => {
+		const r = '--resume "$WB_RESUME"';
+		expect(resumeCommand('claude -p "$WB_PROMPT" -w "$WB_ITEM" --session-id "$WB_SESSION"')).toBe(`claude ${r} -p "$WB_PROMPT"`);
+		expect(resumeCommand('claude --worktree fix-it -p "$WB_PROMPT"')).toBe(`claude ${r} -p "$WB_PROMPT"`);
+		expect(resumeCommand('claude -p "$WB_PROMPT" --worktree=fix-it --tmux=classic')).toBe(`claude ${r} -p "$WB_PROMPT"`);
+		// -w followed by a flag takes no name.
+		expect(resumeCommand('claude -w -p "$WB_PROMPT" --verbose')).toBe(`claude ${r} -p "$WB_PROMPT" --verbose`);
+		expect(resumeCommand('claude --session-id=abc -p x')).toBe(`claude ${r} -p x`);
+		// Quoted text stays as it is, flags and all.
+		expect(resumeCommand('claude -p "$WB_PROMPT" --append-system-prompt "never use -w or -p" -w')).toBe(
+			`claude ${r} -p "$WB_PROMPT" --append-system-prompt "never use -w or -p"`,
+		);
+		expect(resumeCommand("claude -p 'it -w --session-id x' --tmux")).toBe(`claude ${r} -p 'it -w --session-id x'`);
+		expect(resumeCommand('claude -p "$WB_PROMPT" --name "a \\"quoted\\" -w"')).toBe(`claude ${r} -p "$WB_PROMPT" --name "a \\"quoted\\" -w"`);
+		// What can't be split safely makes none: the continue command has to be set.
+		for (const c of ['claude -p "$WB_PROMPT" | tee log', "cd x && claude -p y", "claude -p y; rm z", 'claude -p "$(cat f)"', "claude -p 'open", "claude -p y > out", "(claude -p y)"])
+			expect(resumeCommand(c)).toBe("");
+	});
+
+	test("a command the board can't make a continue command from: Continue says to set one", async () => {
+		await clear();
+		set({ "agents.command": `${cmd()} | cat` });
+		const first = await ended((await startRun(db, task("Piped"), here)).id);
+		expect(first.status).toBe("done");
+		expect(continueRun(db, first.id, "more", here)).rejects.toThrow("set the continue command there");
+		set({ "agents.continue-command": `${fake} -p "$WB_PROMPT" --resume "$WB_RESUME" --output-format stream-json --verbose` });
+		expect((await ended((await continueRun(db, first.id, "more", here)).id)).status).toBe("done");
+		set({ "agents.continue-command": null, "agents.command": cmd() });
+	});
+
+	test("a computer whose app is too old to continue: refused in plain words, before anything starts", async () => {
+		expect(helperContinues("0.4.1")).toBe(false);
+		expect(helperContinues("0.4.2-nightly.202611241630+abc")).toBe(false);
+		expect(helperContinues("0.4.2-nightly.202611241630+abc", ["continue"])).toBe(true);
+		expect(helperContinues("0.5.0-rc.1")).toBe(false);
+		expect(helperContinues("0.5.0")).toBe(true);
+		expect(helperContinues("1.0.0")).toBe(true);
+		expect(helperContinues("")).toBe(false);
+		await clear();
+		set({ "agents.command": cmd() });
+		const t = task("Old app");
+		const first = await ended((await startRun(db, t, here)).id);
+		const real = places.continueWhy;
+		places.continueWhy = () => "Update the Workbench app on Laptop to continue sessions from the board.";
+		try {
+			expect(continueRun(db, first.id, "more", here)).rejects.toThrow("Update the Workbench app on Laptop to continue sessions from the board.");
+			expect(latestRun(db, t)!.id).toBe(first.id);
+			expect(getItem(db, t)!.notes.some((n) => n.text === "more")).toBe(false);
+		} finally {
+			places.continueWhy = real;
+		}
 	});
 
 	test("Continue: a new run resumes the session, in the worktree it ran in, with the message", async () => {

@@ -264,6 +264,7 @@ describe("the computer helper", () => {
 	let item = { id: 0, ref: "" };
 	let slow = { id: 0, ref: "" };
 	let tracker = 0;
+	let sessionRun = 0;
 
 	test("with no computer online, the board says so in words", async () => {
 		// A real repository, with a commit that names an item and a logo.
@@ -372,6 +373,7 @@ echo '{"type":"result","subtype":"success","is_error":false,"num_turns":1,"total
 		expect(first.events.map((e) => e.kind)).toEqual(["start", "text", "tool", "result"]);
 		expect(first.events[2]).toMatchObject({ text: "Bash: git status", tool: "Bash" });
 		expect(first.next).toBe(4);
+		sessionRun = run.id;
 		expect(first.run.cwd).toBe(repo);
 		expect(first.run.desktop).toBe(`claude://resume?session=${first.run.session}`);
 		expect((await get<Events>(`/api/runs/${run.id}/events?after=2`)).events.map((e) => e.n)).toEqual([3, 4]);
@@ -493,6 +495,22 @@ echo '{"type":"result","subtype":"success","is_error":false,"num_turns":1,"total
 		});
 		expect(done.status).toBe("done");
 		expect(c.log()).toContain(`run #${run.id} started`);
+		c.proc.kill();
+	}, 150e3);
+
+	test("Continue is refused, in plain words, when the computer's app is too old to continue a session", async () => {
+		await until("C gone", async () => !(await get<{ computers: unknown[] }>("/api/helper")).computers.length, 100e3);
+		// A helper as the 0.4.1 app has it: no "continue" in what it says it can do.
+		const claimed = await json<{ token: string }>(api("/api/sync/claim", { method: "POST", body: JSON.stringify({ key: KEY, name: "Old laptop" }) }, ""));
+		const hello = { name: "Old laptop", version: "0.4.1", folders: [repo] };
+		const poll = () => fetch(`${BASE}/api/helper/poll`, { method: "POST", headers: { authorization: `Bearer ${claimed.token}`, "content-type": "application/json" }, body: JSON.stringify({ hello, wait: 0 }) });
+		expect((await poll()).status).toBe(200);
+		const res = await post(`/api/runs/${sessionRun}/continue`, { message: "One more" });
+		expect(res.status).toBe(400);
+		expect(((await res.json()) as { error: string }).error).toBe("Update the Workbench app on Old laptop to continue sessions from the board.");
+		// A fresh run still goes to it, as before.
+		const panel = await get<{ allowed: boolean }>("/api/runs");
+		expect(panel.allowed).toBe(true);
 	}, 150e3);
 });
 

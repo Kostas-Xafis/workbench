@@ -33,7 +33,33 @@ type Mine = { id: number; tag: string; pid: number; unit: string; sent: number; 
 
 /** What goes to the cloud board: everything read, but only the events after `after` (all of them at the end, so
  * one that a lost message missed gets there too). */
-const wire = ({ partial: _, ...l }: Live, after = 0): Wire => ({ ...l, events: l.events.filter((e) => e.n > after) });
+/** The most JSON one message about a run carries, whatever the run did: far under what a Durable Object takes in a
+ * WebSocket message (32 MiB, Cloudflare's limit for received messages) and under what goes over the WebSocket here
+ * (512 KB; more goes over https). */
+export const WIRE_MAX = 256 * 1024;
+/**
+ * What goes to the cloud board about a run, within `max` bytes of JSON: everything read, the tail cut from its start
+ * to half of it at most, then the events after `after` (the ones the board doesn't have yet), newest first, and with
+ * `fill` (the last message, which also fills what a lost one missed) the older ones in the room that's left.
+ */
+export function wire({ partial: _, ...l }: Live, after = 0, { fill = false, max = WIRE_MAX } = {}): Wire {
+	const lines = [...l.lines];
+	const base = { ...l, lines, events: [] as Live["events"] };
+	let size = JSON.stringify(base).length;
+	while (lines.length && size > max / 2) size -= JSON.stringify(lines.shift()).length + 1;
+	if (size > max / 2) base.result = base.result.slice(0, 1000);
+	size = JSON.stringify(base).length;
+	const fresh = l.events.filter((e) => e.n > after).reverse();
+	const old = fill ? l.events.filter((e) => e.n <= after).reverse() : [];
+	const picked: Live["events"] = [];
+	for (const e of [...fresh, ...old]) {
+		const s = JSON.stringify(e).length + 1;
+		if (size + s > max) continue;
+		picked.push(e);
+		size += s;
+	}
+	return { ...base, events: picked.sort((a, b) => a.n - b.n) };
+}
 
 /* ---------- Commands allowed on this computer ---------- */
 
@@ -108,7 +134,8 @@ export function startHelper(cfg: SyncConfig, o: HelperOptions = {}) {
 	const asking = new Set<string>();
 	const timers: ReturnType<typeof setInterval>[] = [];
 
-	const hello = () => ({ t: "hello", name, version: pkg.version, folders });
+	// caps: what this helper can do that its version may not say (a nightly's version is the last release's next patch).
+	const hello = () => ({ t: "hello", name, version: pkg.version, folders, caps: ["continue"] });
 
 	/** Sends a message: over the WebSocket when it's up (and the message isn't big), else over https, whose answer is read here. */
 	async function send(m: Msg) {
@@ -275,7 +302,8 @@ export function startHelper(cfg: SyncConfig, o: HelperOptions = {}) {
 		code ??= exitCode(r);
 		const last = readLog(r);
 		flushLog(last);
-		r.ending = { code, live: wire(last) };
+		// Bounded (wire): the events it hasn't sent first. Sent again on each look until the board says it has it.
+		r.ending = { code, live: wire(last, r.sentEvents ?? 0, { fill: true }) };
 		log(`run #${r.id} ended${code === null ? "" : ` (exit ${code})`}`);
 		await send({ t: "ended", id: r.id, ...r.ending });
 	}
