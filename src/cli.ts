@@ -215,11 +215,12 @@ Options for add/edit:
   --blocks wb-xxxx           add only: that item waits on the new one (it becomes waiting)
   --not-on wb-xxxx           edit only: it no longer waits on this one
 
-Kinds: task = code work · check = try it on a device · review = read wording/design ·
+Kinds: task = code work · check = try it on a device · review = something only ${name} can judge ·
 decision = a question only ${name} can answer · setup = accounts, consoles, stores · bug · idea = later/maybe ·
 notice = what changed, for ${name} to see (doesn't wait on them; they say got it or object).
-Agents: don't stop work on ${name}. Nothing to decide → a notice; a safe default → --default; related
-choices → one --pick many decision. A project takes at most ${askCap(db) || "any number of"} open asks from agents.`;
+Agents: decide what you can and keep moving; ask only about money, accounts, stores, what can't be undone
+or what the product should be. Related questions → one --pick many decision, with --recommend (it goes
+ahead by itself). Changed something → a notice, not a review. At most ${askCap(db) || "any number of"} open asks from agents.`;
 
 /** What a command runs on. */
 export type CliCtx = {

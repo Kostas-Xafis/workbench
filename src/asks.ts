@@ -358,7 +358,7 @@ export function capRefusal(db: Db, a: { project: string; kind: string; owner: st
 	return `${a.project} already has ${n} open asks from agents waiting on ${name}, and the board takes at most ${cap} (Settings → You and your day). Nothing was filed. Instead:
 - Bundle related questions into one decision with pick "many": ${name} ticks the ones they want, in one go.
 - If nothing needs ${name}'s decision, file a notice (kind notice): what changed and what stays if they say nothing. It doesn't wait on them.
-- Decide it yourself with a safe default, and say what you chose in a notice, so ${name} can still object.
+- Decide it yourself, and say what you chose in a notice, so ${name} can still object.
 - Or drop one of the open asks that no longer matters (list them with owner kostas).
 Priority 1 (a launch blocker) still gets through.`;
 }
