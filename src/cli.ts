@@ -106,7 +106,7 @@ Items are named wb-xxxx (e.g. wb-k3f9); commands take that, the bare k3f9, or an
   wb ls [--mine | --agents] [--all] [--project P] [--kind K] [-q text]
                                    open items (--all includes done); --mine = what waits on ${name}
                                    (notices, which don't wait, are counted after it: --kind notice lists them)
-                                   ⚠ marks stale ones (doing 2+ days quiet, waiting 7+, on ${name} 14+)
+                                   ⚠ marks stale agent work (doing 2+ days quiet, waiting 7+)
   wb show <ref>                     an item with its history
   wb goals [--project P] [--all]    a project's goals: target date, progress, what waits on ${name}, what blocks them
   wb goal add "Title" [--due YYYY-MM-DD] [--body "markdown"] [--active]   a goal items can serve
