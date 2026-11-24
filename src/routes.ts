@@ -96,7 +96,7 @@ import { findIcon } from "./icons";
 import { forgetLogo, projectLogo } from "./logo";
 import { REPORT_CSP, withBridge } from "./reports";
 import { checkShare, extendShare, listShares, shareLimits, startShare, stopAllShares, stopShare } from "./share";
-import { KEY_PATH, listSources, sourceFetch } from "./sources";
+import { currentKeyring, KEY_PATH, listSources, sourceFetch } from "./sources";
 import { existsSync } from "node:fs";
 import { addStepPhoto, finishRun, removeStepPhoto, runState, saveStep, startOver } from "./checkruns";
 import { addImage, imageData, prepareImage, removeImage, setImageCaption } from "./images";
@@ -570,7 +570,8 @@ export function boardRoutes(h: BoardHost) {
 				port: h.port,
 				vault: v ? { changed_at: v.changed_at, secrets: listSecrets(db).length } : null,
 				sources: listSources(db),
-				sourcesKey: { path: KEY_PATH, exists: existsSync(KEY_PATH) },
+				// On the cloud board the key comes from its Worker's secrets (sources.ts cloudKeyring), never a file.
+				sourcesKey: currentKeyring().prefix === "c1" ? { path: currentKeyring().where, exists: true, cloud: true } : { path: KEY_PATH, exists: existsSync(KEY_PATH) },
 				share: shareLimits(db),
 			});
 		},

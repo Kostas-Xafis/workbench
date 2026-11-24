@@ -4,9 +4,11 @@
  *
  * `wb source add` keeps the base URL in `workbench.db` and the headers sealed with AES-256-GCM under a key in
  * `~/.config/workbench/sources.key` (0600), outside the database, so the database and its backups hold no
- * usable secret. The board reads the key when a page calls `wb.fetch`.
+ * usable secret. The board reads the key when a page calls `wb.fetch`. The cloud board has no such file: it seals
+ * with a key derived from a secret of its Worker instead (cloudKeyring), and `wb sync` seals the computer's rows
+ * again with the other key when the board goes up or comes down (resealSources).
  */
-import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
+import { createCipheriv, createDecipheriv, createHmac, randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
@@ -35,6 +37,18 @@ export type Source = {
 
 /* ---------- The key and sealing ---------- */
 
+/**
+ * Which key seals the headers. On a computer it's the key file (prefix v1). The cloud board has no home folder, so
+ * it uses a key it derives from a secret of its Worker (cloudKey, prefix c1). The prefix tells which key sealed a
+ * row, so a row sealed by the other one says so instead of failing to open.
+ */
+export type Keyring = {
+	prefix: "v1" | "c1";
+	key: (create: boolean) => Buffer;
+	/** Where the key is, for messages and Settings → Privacy and security. */
+	where: string;
+};
+
 function readKey(create: boolean): Buffer {
 	if (!existsSync(KEY_PATH)) {
 		if (!create) throw new Error(`no key at ${KEY_PATH}; add the source again with wb source add`);
@@ -47,27 +61,85 @@ function readKey(create: boolean): Buffer {
 	return key;
 }
 
+export const fileKeyring: Keyring = { prefix: "v1", key: readKey, where: KEY_PATH };
+
+/** A computer's key as given (base64), for resealing between it and the cloud board (wb sync). */
+export function givenKeyring(b64: string): Keyring {
+	const key = Buffer.from(String(b64 ?? ""), "base64");
+	if (key.length !== 32) throw new Error("the computer's data source key isn't a 32-byte key");
+	return { prefix: "v1", key: () => key, where: "the key file on the computer that added it" };
+}
+
+/** The cloud board's key: derived from a secret of its Worker (WB_SOURCES_KEY, or else the owner key). */
+export function cloudKeyring(secret: string | undefined): Keyring {
+	return {
+		prefix: "c1",
+		key: () => {
+			if (!secret) throw new Error("the cloud board has no WB_OWNER_KEY secret to make its data source key from");
+			return createHmac("sha256", secret).update("wb-sources-v1").digest();
+		},
+		where: "the cloud board's Worker secret",
+	};
+}
+
+let keyring: Keyring = fileKeyring;
+/** Sets the key this board seals and opens headers with (the cloud board calls this with cloudKeyring). */
+export function useKeyring(k: Keyring) {
+	keyring = k;
+}
+export const currentKeyring = () => keyring;
+
 // Bound to project + name, so sealed headers can't be moved to another source in the database.
 const aad = (project: string, name: string) => Buffer.from(`wb-source:${project}/${name}`);
 
-function seal(key: Buffer, project: string, name: string, headers: Record<string, string>) {
+function seal(k: Keyring, project: string, name: string, headers: Record<string, string>) {
 	const iv = randomBytes(12);
-	const c = createCipheriv("aes-256-gcm", key, iv).setAAD(aad(project, name));
+	const c = createCipheriv("aes-256-gcm", k.key(true), iv).setAAD(aad(project, name));
 	const ct = Buffer.concat([c.update(JSON.stringify(headers), "utf8"), c.final(), c.getAuthTag()]);
-	return `v1.${iv.toString("base64")}.${ct.toString("base64")}`;
+	return `${k.prefix}.${iv.toString("base64")}.${ct.toString("base64")}`;
 }
 
-function unseal(key: Buffer, project: string, name: string, sealed: string): Record<string, string> {
+/** Which key sealed a row's headers: "v1" a computer's key file, "c1" the cloud board's. */
+export const sealedBy = (sealed: string) => sealed.split(".")[0];
+
+function unseal(k: Keyring, project: string, name: string, sealed: string): Record<string, string> {
 	const [v, iv, ct] = sealed.split(".");
-	if (v !== "v1" || !iv || !ct) throw new Error("bad sealed headers");
+	if (!iv || !ct || (v !== "v1" && v !== "c1")) throw new Error("bad sealed headers");
+	if (v !== k.prefix)
+		throw new Error(
+			v === "v1"
+				? `source "${name}" was sealed with a computer's key: run wb sync sources on that computer, or add it again`
+				: `source "${name}" was sealed by the cloud board: wb sync off brings it back opened, or add it again`,
+		);
 	const data = Buffer.from(ct, "base64");
-	const d = createDecipheriv("aes-256-gcm", key, Buffer.from(iv, "base64")).setAAD(aad(project, name));
+	const d = createDecipheriv("aes-256-gcm", k.key(false), Buffer.from(iv, "base64")).setAAD(aad(project, name));
 	d.setAuthTag(data.subarray(data.length - 16));
 	try {
 		return JSON.parse(Buffer.concat([d.update(data.subarray(0, data.length - 16)), d.final()]).toString("utf8"));
 	} catch {
-		throw new Error(`can't open the headers of source "${name}" (was ${KEY_PATH} replaced?); add it again`);
+		throw new Error(`can't open the headers of source "${name}" (was ${k.where} replaced?); add it again`);
 	}
+}
+
+/**
+ * Seals again, with `to`, every source's headers that `from` sealed (wb sync: a computer's key and the cloud
+ * board's). With `write` false nothing changes and the new values come back, for a database elsewhere.
+ */
+export function resealSources(db: Db, from: Keyring, to: Keyring, write = true) {
+	const rows = db.query("SELECT project, name, headers FROM sources ORDER BY project, name").all() as { project: string; name: string; headers: string }[];
+	const resealed: { project: string; name: string; headers: string }[] = [];
+	const failed: { project: string; name: string; error: string }[] = [];
+	for (const r of rows) {
+		if (sealedBy(r.headers) !== from.prefix) continue;
+		try {
+			const headers = seal(to, r.project, r.name, unseal(from, r.project, r.name, r.headers));
+			if (write) db.query("UPDATE sources SET headers = ? WHERE project = ? AND name = ?").run(headers, r.project, r.name);
+			resealed.push({ project: r.project, name: r.name, headers });
+		} catch (e) {
+			failed.push({ project: r.project, name: r.name, error: (e as Error).message });
+		}
+	}
+	return { resealed, failed };
 }
 
 /* ---------- Storage ---------- */
@@ -119,7 +191,6 @@ export function addSource(
 		if (RESERVED.has(k.toLowerCase())) throw new Error(`the board sets ${k} itself`);
 		if (/[\r\n\0]/.test(v)) throw new Error(`the value of ${k} has a line break`);
 	}
-	const key = readKey(true);
 	const replaced = !!db.query("SELECT 1 FROM sources WHERE project = ? AND name = ?").get(s.project, s.name);
 	db.query(
 		`INSERT INTO sources (project, name, base_url, write, header_names, headers) VALUES ($project, $name, $base, $write, $names, $headers)
@@ -131,7 +202,7 @@ export function addSource(
 		base,
 		write: s.write ? 1 : 0,
 		names: Object.keys(s.headers).join("\n"),
-		headers: seal(key, s.project, s.name, s.headers),
+		headers: seal(keyring, s.project, s.name, s.headers),
 	});
 	return { replaced };
 }
@@ -221,7 +292,7 @@ export async function sourceFetch(db: Db, reportId: number, name: unknown, path:
 		if (WRITE.includes(method) && !row.write)
 			return failed(`source "${row.name}" is read-only (GET); add it with --write to allow ${method}`);
 		const url = sourceUrl(row.base_url, String(path ?? ""), opts?.query);
-		const headers = new Headers(unseal(readKey(false), row.project, row.name, row.headers));
+		const headers = new Headers(unseal(keyring, row.project, row.name, row.headers));
 		let body: string | undefined;
 		if (opts?.body != null) {
 			if (READ.includes(method)) return failed(`${method} takes no body`);

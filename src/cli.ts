@@ -46,7 +46,7 @@ import {
 	type GoalInfo,
 	type GoalStatus,
 } from "./goals";
-import { listSources, removeSource } from "./sources";
+import { addSource, currentKeyring, listSources, removeSource } from "./sources";
 import { PRESETS } from "./presets";
 import { checkBrief, WRITING_GUIDE } from "./brief";
 import { runText } from "./checkruns";
@@ -871,6 +871,29 @@ export async function runCli(ctx: CliCtx): Promise<number> {
 				const id = Number(args[1]);
 				if (!Number.isInteger(id)) die("usage: wb unreport <id>");
 				removeReport(db, id);
+				break;
+			}
+			// wb.ts (and cloudcli.ts, for the cloud board) fill in the headers' {env:…} and {stdin} before this runs.
+			case "source": {
+				const [, sub, name, base] = args;
+				if (sub !== "add" || !name || !base)
+					die('usage: wb source add <name> <baseUrl> [--project P] [--write] --header "Authorization: Bearer {env:TOKEN}"');
+				const project = currentProject()!;
+				const headers: Record<string, string> = {};
+				for (const spec of o.header ?? []) {
+					const at = spec.indexOf(":");
+					if (at < 1) die(`--header "Name: value", got "${spec}"`);
+					const value = spec.slice(at + 1).trim();
+					if (/\{env:|\{stdin\}/.test(value)) die("{env:…} and {stdin} are filled in by wb on the computer: update wb");
+					headers[spec.slice(0, at).trim()] = value;
+				}
+				const { replaced } = addSource(db, { project, name, base_url: base, write: !!o.write, headers });
+				const names = Object.keys(headers);
+				out(
+					`source ${name} ${replaced ? "replaced" : "added"} in ${project}: ${o.write ? "read and write" : "GET only"}` +
+						`${names.length ? `, headers ${names.join(", ")} (sealed, key: ${currentKeyring().where})` : ", no headers"}`,
+				);
+				out(`in a report of ${project}: await wb.fetch("${name}", "/path")`);
 				break;
 			}
 			case "sources": {

@@ -14,6 +14,7 @@
 import { chmodSync, existsSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { hostname } from "node:os";
 import { DB_PATH, open, PART_CHARS, splitPage, type Db } from "./db";
+import { fileKeyring } from "./sources";
 
 /** The /api/sync/* format. A computer and a cloud board with different numbers refuse to move rows. */
 export const SYNC_FORMAT = 1;
@@ -345,6 +346,15 @@ export async function syncOn(input: string, o: SyncOnOptions): Promise<{ cfg: Sy
 		throw e;
 	}
 	writeSync(cfg);
+	// Data sources: the cloud board can't open headers sealed with this computer's key file, so they're sealed again
+	// with its own (a board that was already up keeps its own; rows another computer sealed are left for it).
+	if (existsSync(fileKeyring.where))
+		try {
+			const r = await resealUp(cfg);
+			if (r.resealed.length) log(`Data sources sealed again with the cloud board's key: ${r.resealed.length}.`);
+		} catch (e) {
+			log(`(data sources weren't sealed again for the cloud board: ${(e as Error).message}; run wb sync sources)`);
+		}
 	return { cfg, uploaded };
 }
 
@@ -367,6 +377,11 @@ export async function syncOff(o: SyncOffOptions = {}): Promise<{ kept?: string }
 		const db = open(fresh);
 		try {
 			await download(db, cfg, log);
+			// Data sources come down sealed with the cloud board's key: they're sealed again with this computer's.
+			const back = await cloudJson<{ resealed: { project: string; name: string; headers: string }[]; failed: { project: string; name: string; error: string }[] }>(
+				cfg, "/api/sync/sources/export", { method: "POST", body: JSON.stringify({ key: fileKeyring.key(true).toString("base64") }) });
+			for (const r of back.resealed) db.query("UPDATE sources SET headers = ? WHERE project = ? AND name = ?").run(r.headers, r.project, r.name);
+			for (const f of back.failed) log(`(data source ${f.project}/${f.name} couldn't be opened: ${f.error})`);
 		} catch (e) {
 			db.close();
 			for (const f of [fresh, `${fresh}-wal`, `${fresh}-shm`]) rmSync(f, { force: true });
@@ -387,6 +402,15 @@ export async function syncOff(o: SyncOffOptions = {}): Promise<{ kept?: string }
 	}
 	rmSync(syncFile(), { force: true });
 	return { kept };
+}
+
+/**
+ * Seals the cloud board's data sources that a computer's key file sealed (v1) again with the cloud board's own key,
+ * so reports' wb.fetch works there. This computer's key goes along for the call, over https, and isn't kept.
+ */
+export async function resealUp(cfg: SyncConfig) {
+	return cloudJson<{ resealed: { project: string; name: string }[]; failed: { project: string; name: string; error: string }[] }>(
+		cfg, "/api/sync/sources/reseal", { method: "POST", body: JSON.stringify({ key: fileKeyring.key(false).toString("base64") }) });
 }
 
 /** A one-minute, one-time address that signs a browser in to the cloud board (the cloud board's /login). */

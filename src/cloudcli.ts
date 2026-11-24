@@ -14,7 +14,8 @@
 import { existsSync } from "node:fs";
 import { CLI_BODY_MAX, filesNamed, needsComputer, type CliReply, type CliRequest, type Opts } from "./cliargs";
 import { imageBytes } from "./images";
-import { cloudFetch, cloudLogin, cloudPairing, readSync, syncOff, syncOn, type SyncConfig } from "./sync";
+import { cloudFetch, cloudLogin, cloudPairing, readSync, resealUp, syncOff, syncOn, type SyncConfig } from "./sync";
+import { resolveHeaderSpecs } from "./sourceheaders";
 import { DB_PATH } from "./db";
 
 type Options = Opts;
@@ -24,6 +25,8 @@ export const SYNC_HELP = `wb sync on <url> --key <owner key>     this computer u
 wb sync on <url> --code <XXXX-XXXX>   the same with a pairing code from a device already on it
 wb sync status                        where the board is, and the cloud board's counts
 wb sync pair                          a code (and link) to pair a phone or a browser with the cloud board
+wb sync sources                       seal this computer's data sources again with the cloud board's key, so
+                                      reports' wb.fetch works there (wb sync on does it by itself)
 wb sync off [--keep-local]            back to this computer: the cloud board's data comes down first
                                       (--keep-local: back to this computer's board as it was, the cloud one stays as it is)`;
 
@@ -75,7 +78,6 @@ const COMPUTER_ONLY_SAYS: Record<string, string> = {
 	backups: "the cloud board keeps 30 days of every change instead of backup files (Cloudflare's point-in-time recovery)",
 	day: "wb day reads each project's git history on this computer: the board publishes each day's page by itself, or run it after wb sync off",
 	integrate: "wb integrate looks at the project's folder on this computer: run it after wb sync off, or follow wb guide and `claude mcp add -s user wb -- wb mcp` by hand",
-	source: "a data source's headers are sealed with a key on a computer: add one after wb sync off",
 };
 
 /** Runs one board command on the cloud board and prints what it printed, as it would here. Returns its exit code. */
@@ -135,6 +137,12 @@ export async function cloudCommand(cmd: string, args: string[], o: Options): Pro
 			if (!cfg) throw new Error("this computer doesn't sync (wb sync on first)");
 			const p = await cloudPairing(cfg);
 			out(`Pairing code ${p.code}, for ${p.minutes} minutes and one device. On the phone or browser open:\n  ${p.url}`);
+		} else if (sub === "sources") {
+			if (!cfg) throw new Error("this computer doesn't sync (wb sync on first)");
+			const r = await resealUp(cfg);
+			out(r.resealed.length ? `Sealed again with the cloud board's key: ${r.resealed.map((x) => `${x.project}/${x.name}`).join(", ")}.` : "No data source sealed with a computer's key is left on the cloud board.");
+			for (const f of r.failed) out(`Not opened with this computer's key: ${f.project}/${f.name} (${f.error}). Run wb sync sources on the computer that added it, or wb source add it again.`);
+			return r.failed.length ? 1 : 0;
 		} else throw new Error(`usage:\n${SYNC_HELP}`);
 		return 0;
 	}
@@ -196,6 +204,9 @@ export async function cloudCommand(cmd: string, args: string[], o: Options): Pro
 			return 0;
 		}
 		// ---- end of the computer helper ----
+		case "source":
+			// The headers' {env:…} and {stdin} are filled in here; the cloud board seals them with its own key.
+			return runOnCloud(cfg, args, { ...o, header: await resolveHeaderSpecs(o.header ?? []) });
 		case "help":
 		case undefined: {
 			out(`The board is in the cloud: ${cfg.url}. Every board command below runs on it; wb mcp is relayed to it.\n`);

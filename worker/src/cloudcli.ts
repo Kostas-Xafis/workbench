@@ -30,7 +30,8 @@ export async function runCloudCli(db: Db, req: Request, origin: string): Promise
 	const lines: CliReply["lines"] = [];
 	const writes: CliReply["writes"] = {};
 	const cmd = body.args[0];
-	if (needsComputer(cmd)) {
+	// `wb source add` comes with its headers filled in by wb on the computer (src/cloudcli.ts); cli.ts seals them here.
+	if (needsComputer(cmd) && cmd !== "source") {
 		lines.push(["err", `wb: wb ${cmd} needs a computer, which the cloud board doesn't have`]);
 		return Response.json({ lines, code: 1, writes } satisfies CliReply, { headers: { "cache-control": "no-store" } });
 	}

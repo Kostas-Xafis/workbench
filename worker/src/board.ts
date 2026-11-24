@@ -33,6 +33,7 @@ import { addDevice, deviceName, Pairing, phoneGate, type OpenCode } from "../../
 import { boardRoutes, PAIR_OPEN, type BoardFile, type BoardHost } from "../../src/routes";
 import { readRows, SYNC_FORMAT, tableInfo, tableNames, wipe, writeRows, type Cell } from "../../src/sync";
 import { SqliteDb } from "./sqlite";
+import { cloudKeyring, currentKeyring, givenKeyring, resealSources, useKeyring } from "../../src/sources";
 import { runCloudCli } from "./cloudcli";
 import { compile, dispatch } from "./router";
 import { Helpers } from "./helper";
@@ -43,6 +44,8 @@ export type Env = {
 	ASSETS: Fetcher;
 	/** `wrangler secret put WB_OWNER_KEY`: what `wb sync on --key` gives to get the first device. */
 	WB_OWNER_KEY?: string;
+	/** Optional: the secret data sources' headers are sealed under here (src/sources.ts cloudKeyring); else the owner key. */
+	WB_SOURCES_KEY?: string;
 };
 
 const COOKIE = "wb_device";
@@ -63,7 +66,6 @@ export const NEEDS_COMPUTER: Record<string, string> = {
 	"/api/shares/stop-all": `sharing runs a tunnel: ${COMPUTER}`,
 	"/api/reports/:id/share": `sharing runs a tunnel: ${COMPUTER}`,
 	"/api/reports/:id/share/extend": `sharing runs a tunnel: ${COMPUTER}`,
-	"/api/reports/:id/fetch": `a data source's headers are sealed with a key on a computer: ${COMPUTER}`,
 	"/api/update/check": "the cloud board is updated by deploying the Worker",
 };
 /** The routes that answer without a device: the pairing page and what it needs, the ping, claiming and logging in. */
@@ -96,6 +98,8 @@ export class Board extends DurableObject<Env> {
 	constructor(ctx: DurableObjectState, env: Env) {
 		super(ctx, env);
 		this.db = new SqliteDb(ctx.storage) as unknown as Db;
+		// Data sources' headers are sealed with a key from the Worker's secrets: this board has no key file.
+		useKeyring(cloudKeyring(env.WB_SOURCES_KEY || env.WB_OWNER_KEY));
 		createSchema(this.db);
 		const db = this.db;
 		// The open pairing code, kept in the database: this object may be restarted while a phone types it.
@@ -400,6 +404,16 @@ export class Board extends DurableObject<Env> {
 				const mine = new Set(tableInfo(db, [table])[0].columns);
 				const columns = (url.searchParams.get("columns") ?? "").split(",").filter((c) => mine.has(c));
 				return json(readRows(db, table, columns.length ? columns : [...mine], Number(url.searchParams.get("after")) || 0));
+			}
+			// Data sources between a computer's key file and this board's key (wb sync on/off, wb sync sources).
+			if (what === "sources/reseal" && req.method === "POST") {
+				const { key } = (await req.json()) as { key: string };
+				const { resealed, failed } = resealSources(db, givenKeyring(key), currentKeyring());
+				return json({ resealed: resealed.map(({ project, name }) => ({ project, name })), failed });
+			}
+			if (what === "sources/export" && req.method === "POST") {
+				const { key } = (await req.json()) as { key: string };
+				return json(resealSources(db, currentKeyring(), givenKeyring(key), false));
 			}
 			// `wb` over the network: the board's own command code runs here (cloudcli.ts).
 			if (what === "cli" && req.method === "POST") return await runCloudCli(db, req, url.origin);

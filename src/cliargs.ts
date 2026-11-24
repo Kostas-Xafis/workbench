@@ -83,6 +83,7 @@ export const COMPUTER_ONLY = new Set([
 	"backup",
 	"backups",
 	"day",
+	// wb fills in a data source's {env:…} and {stdin} on the computer first, then runs it here or on the cloud board.
 	"source",
 	"mcp",
 	"run",

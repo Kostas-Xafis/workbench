@@ -8,7 +8,7 @@ import { PORT } from "./server";
 import { cloudCommand, cloudFirst } from "./cloudcli";
 import { parseWb, needsComputer } from "./cliargs";
 import { cliHelpers, runCli, type CliCtx } from "./cli";
-import { addSource, KEY_PATH } from "./sources";
+import { resolveHeaderSpecs } from "./sourceheaders";
 import { startRun, listRuns, pollRuns, runLine, stopRun } from "./dispatch";
 import { integrationGuide } from "./integrate";
 import { imageBytes } from "./images";
@@ -57,47 +57,6 @@ const { currentProject, idArg } = cliHelpers(ctx);
 function die(msg: string): never {
 	console.error(`wb: ${msg}`);
 	process.exit(1);
-}
-
-/**
- * --header "Name: value" for `wb source add`. A secret shouldn't be typed into a command line (shell history,
- * ps), so the value can say {env:VAR} or {stdin}; stdin is asked without echo on a terminal, else read a line each.
- */
-async function sourceHeaders(specs: string[]) {
-	const headers: Record<string, string> = {};
-	let piped: string[] | undefined;
-	const fromStdin = async (name: string) => {
-		if (process.stdin.isTTY) {
-			Bun.spawnSync(["stty", "-echo"], { stdin: "inherit" });
-			try {
-				return prompt(`${name} (typing is hidden):`) ?? "";
-			} finally {
-				Bun.spawnSync(["stty", "echo"], { stdin: "inherit" });
-				process.stdout.write("\n");
-			}
-		}
-		piped ??= (await Bun.stdin.text()).split(/\r?\n/);
-		const line = piped.shift();
-		if (line === undefined || line === "") die(`stdin ran out of lines for ${name}`);
-		return line;
-	};
-	for (const spec of specs) {
-		const at = spec.indexOf(":");
-		if (at < 1) die(`--header "Name: value", got "${spec}"`);
-		const name = spec.slice(0, at).trim();
-		let value = spec.slice(at + 1).trim();
-		for (const m of value.match(/\{env:[A-Za-z_][A-Za-z0-9_]*\}/g) ?? []) {
-			const v = process.env[m.slice(5, -1)];
-			if (!v) die(`${m.slice(5, -1)} is not set (for ${name})`);
-			value = value.replace(m, () => v);
-		}
-		if (value.includes("{stdin}")) {
-			const v = await fromStdin(name);
-			value = value.replace("{stdin}", () => v);
-		}
-		headers[name] = value;
-	}
-	return headers;
 }
 
 async function serverUp() {
@@ -163,20 +122,8 @@ else
 				break;
 			}
 			case "source": {
-				const [, sub, name, base] = args;
-				if (sub !== "add" || !name || !base)
-					die(
-						'usage: wb source add <name> <baseUrl> [--project P] [--write] --header "Authorization: Bearer {env:TOKEN}"',
-					);
-				const project = currentProject()!;
-				const headers = await sourceHeaders(o.header ?? []);
-				const { replaced } = addSource(db, { project, name, base_url: base, write: !!o.write, headers });
-				const names = Object.keys(headers);
-				console.log(
-					`source ${name} ${replaced ? "replaced" : "added"} in ${project}: ${o.write ? "read and write" : "GET only"}` +
-						`${names.length ? `, headers ${names.join(", ")} (sealed, key ${KEY_PATH})` : ", no headers"}`,
-				);
-				console.log(`in a report of ${project}: await wb.fetch("${name}", "/path")`);
+				// The {env:…} and {stdin} in the headers are filled in here; the command itself is cli.ts's.
+				process.exitCode = await runCli({ ...ctx, o: { ...o, header: await resolveHeaderSpecs(o.header ?? []) } });
 				break;
 			}
 			case "mcp": {

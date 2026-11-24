@@ -148,7 +148,11 @@ function pvReach(info) {
 function pvSources(info) {
 	if (!info) return optGroup("Data sources", [`<div class="so-wide set-empty">Loading…</div>`]);
 	const list = info.sources, key = info.sourcesKey;
-	const keyRow = optRow({
+	const keyRow = key.cloud ? optRow({
+		label: `<span class="sdot ok" aria-hidden="true"></span>Key`,
+		hint: "Kept as a secret of the cloud board's Worker, outside its database. Sources a computer added are sealed again with it by wb sync sources.",
+		control: `<span class="st ok">In the cloud</span>`,
+	}) : optRow({
 		label: `<span class="sdot ${key.exists ? "ok" : list.length ? "bad" : "off"}" aria-hidden="true"></span>Key file`,
 		hint: `<code class="pv-path">${esc(key.path)}</code> ·${key.exists ? "Seals their headers. Anyone who can read your home folder can use the sources." : list.length ? "Missing: the sources below can't be opened. Add them again with wb source add." : "Made by the first wb source add."}`,
 		control: `<span class="st ${key.exists ? "ok" : list.length ? "bad" : ""}">${key.exists ? "Present" : "Missing"}</span>`,

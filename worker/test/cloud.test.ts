@@ -8,6 +8,7 @@ import { addImage } from "../../src/images";
 import { cloudLogin, readSync, syncOff, syncOn, type SyncConfig } from "../../src/sync";
 import { deriveVault, dialog, resetCooldown } from "../../src/vaultask";
 import { vaultHere } from "../../src/cloudvault";
+import { addSource, sourceFetch } from "../../src/sources";
 
 const PORT = Number(process.env.WB_CLOUD_TEST_PORT ?? 8797);
 const BASE = `http://127.0.0.1:${PORT}`;
@@ -603,7 +604,7 @@ describe("wb over the network", () => {
 		expect(help.out).toMatch(/need this computer/);
 		expect((await wb(["ls", "--help"])).out).toContain("wb ls [--mine");
 		// run, runs, stop and serve go to the computer helper (its tests above).
-		for (const cmd of ["backup", "backups", "day", "integrate", "source"]) {
+		for (const cmd of ["backup", "backups", "day", "integrate"]) {
 			const r = await wb([cmd, "x"]);
 			expect(r.code).toBe(1);
 			expect(r.err).toContain(`the board is in the cloud (${BASE})`);
@@ -631,5 +632,65 @@ describe("wb over the network", () => {
 		// What needs a computer isn't run by the board even if asked straight.
 		const run = await api("/api/sync/cli", { method: "POST", body: JSON.stringify({ args: ["run", "x"], options: {} }) }, cfgToken);
 		expect(((await run.json()) as { code: number; lines: string[][] }).code).toBe(1);
+	});
+});
+
+describe("data sources (live data in reports)", () => {
+	// An API that wants a secret header, standing in for the one a report reads.
+	const seen: (string | null)[] = [];
+	const apiServer = Bun.serve({
+		port: 0,
+		hostname: "127.0.0.1",
+		fetch: (req) => {
+			seen.push(req.headers.get("authorization") ?? req.headers.get("x-key"));
+			return Response.json({ path: new URL(req.url).pathname });
+		},
+	});
+	const base = `http://127.0.0.1:${apiServer.port}/v1`;
+	afterAll(() => apiServer.stop(true));
+	const call = (id: number, auth: string, name = "feed") =>
+		api(`/api/reports/${id}/fetch`, { method: "POST", body: JSON.stringify({ name, path: "/things" }) }, auth).then((r) => r.json()) as Promise<{ ok: boolean; json?: unknown; error?: string }>;
+
+	test("a source added on this computer goes up sealed again with the cloud board's key, works there, and comes back down working", async () => {
+		const db = open();
+		upsertProject(db, { slug: "live", name: "Live", path: join(dir, "live") });
+		addSource(db, { project: "live", name: "feed", base_url: base, write: false, headers: { Authorization: "Bearer from-this-computer" } });
+		const report = publishReport(db, { project: "live", name: "live", html: "<title>Live</title>" });
+		db.close();
+
+		const { cfg } = await syncOn(BASE, { key: KEY, name: "Sources", replace: true });
+		const rows = (await (await api("/api/sync/rows?table=sources", {}, cfg.token)).json()) as { rows: unknown[][] };
+		expect(JSON.stringify(rows)).toContain('"c1.');
+		expect(await call(report.id, cfg.token)).toMatchObject({ ok: true, json: { path: "/v1/things" } });
+		expect(seen.at(-1)).toBe("Bearer from-this-computer");
+		// Already sealed for the cloud board: nothing is left to do.
+		expect((await (await api("/api/sync/sources/reseal", { method: "POST", body: JSON.stringify({ key: Buffer.alloc(32).toString("base64") }) }, cfg.token)).json()) as object).toEqual({ resealed: [], failed: [] });
+		// Never from a page.
+		expect((await api("/api/sync/sources/export", { method: "POST", body: "{}", headers: { origin: BASE } }, cfg.token)).status).toBe(403);
+
+		await syncOff();
+		const back = open(DB_PATH);
+		expect(await sourceFetch(back, report.id, "feed", "/again")).toMatchObject({ ok: true, json: { path: "/v1/again" } });
+		back.close();
+		expect(seen.at(-1)).toBe("Bearer from-this-computer");
+	});
+
+	test("wb source add while syncing: its {env:…} is filled in here, the cloud board seals it", async () => {
+		const { cfg } = await syncOn(BASE, { key: KEY, name: "Add" });
+		mkdirSync(join(dir, "live"), { recursive: true });
+		const p = Bun.spawn(["bun", join(import.meta.dir, "..", "..", "src", "wb.ts"), "source", "add", "other", base, "--header", "X-Key: {env:TEST_KEY}"], {
+			cwd: join(dir, "live"),
+			env: { ...process.env, WB_AUTHOR: "kostas", CLAUDECODE: "", TEST_KEY: "typed-nowhere" },
+			stdout: "pipe",
+			stderr: "pipe",
+		});
+		const [out, err, code] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]);
+		expect({ code, err }).toEqual({ code: 0, err: "" });
+		expect(out).toContain("source other added in live");
+		expect(out).not.toContain("typed-nowhere");
+		const reports = (await (await api("/api/reports?project=live", {}, cfg.token)).json()) as { id: number }[];
+		expect(await call(reports[0].id, cfg.token, "other")).toMatchObject({ ok: true });
+		expect(seen.at(-1)).toBe("typed-nowhere");
+		await syncOff({ keepLocal: true });
 	});
 });
