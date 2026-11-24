@@ -63,6 +63,11 @@ export const OPTION_SPEC = {
 	caption: { type: "string", multiple: true },
 	item: { type: "string" },
 	retired: { type: "boolean" },
+	// wb order
+	before: { type: "string" },
+	after: { type: "string" },
+	top: { type: "boolean" },
+	bottom: { type: "boolean" },
 	// wb sync (sync.ts, cloudcli.ts)
 	key: { type: "string" },
 	code: { type: "string" },

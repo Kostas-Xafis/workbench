@@ -105,3 +105,5 @@ WantedBy=default.target
 ```
 
 Then `systemctl --user enable --now workbench`.
+
+- **Order of agent work:** `items.rank` (`order.ts`) is the order Kostas gives a project's open agent items (1 first; empty = not ordered, after the ordered ones in the usual order: priority, oldest first). `PUT /api/projects/:slug/order {refs}` sets it, `wb order <ref> [--before R | --after R | --top | --bottom]` moves one item. A new agent item goes to the end; closing an item or giving it to Kostas takes it out. `listItems` sorts by it within a status (doing first), so `list_items`, the `next` prompt, `project_overview`, `wb ls` and `/api/items` all follow it.

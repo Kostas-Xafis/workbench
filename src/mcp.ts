@@ -412,6 +412,7 @@ const itemJson = (i: Item) => ({
 	owner: i.owner,
 	status: i.status,
 	priority: i.priority,
+	rank: i.rank ?? undefined,
 	area: i.area || undefined,
 	branch: i.branch || undefined,
 	session: i.session || undefined,
@@ -825,7 +826,7 @@ const TOOLS: Tool[] = [
 		name: "list_items",
 		title: "List items",
 		description:
-			"Items of a project (default: open ones, the current project), most urgent first: doing, todo, waiting, then by priority, and within that what holds up the most waiting work (unblocks). Filter by who acts, kind, status or words.",
+			"Items of a project (default: open ones, the current project), most urgent first: doing, todo, waiting; within a status agent work in the order {{name}} set (rank), then by priority, and within that what holds up the most waiting work (unblocks). Filter by who acts, kind, status or words.",
 		input: obj({
 			project: str('Project slug, or "*" for every project. Default: the current project.'),
 			owner: { type: "string", enum: OWNERS, description: "Who has to act: kostas ({{name}}) or agent." },
@@ -1654,15 +1655,15 @@ const PROMPTS: Prompt[] = [
 		get(a, c) {
 			const slug = projectOrRpc(c, a.project);
 			const goal = activeGoal(c.db, slug);
-			// In progress first, then todo on the active goal, then the other todo, then what waits: each by priority.
-			const rank = (i: Item) => (i.status === "doing" ? 0 : i.status === "waiting" ? 3 : goal && i.goal_id === goal.id ? 1 : 2);
+			// In progress first, then todo in the order Kostas set (order.ts), then the unordered todo on the active goal, then the rest, then what waits.
+			const rank = (i: Item) => (i.status === "doing" ? 0 : i.status === "waiting" ? 4 : i.rank != null ? 1 : goal && i.goal_id === goal.id ? 2 : 3);
 			const items = listItems(c.db, { project: slug, owner: "agent", status: OPEN })
 				.map((i, n) => ({ i, n }))
 				.sort((x, y) => rank(x.i) - rank(y.i) || x.n - y.n)
 				.map((x) => x.i);
 			const list = items.length ? items.map((i) => `- ${itemLine(c, i, false)}`).join("\n") : "(nothing open for agents)";
 			const focus = goal ? `\nThe active goal is "${goal.title}"${goal.due ? `, ${dueText(goal.due)}` : ""}: prefer work that serves it (those items name it).\n` : "";
-			return `Here is the open agent work in ${slug}, most urgent first (doing, then todo${goal ? " on the active goal, then other todo" : ""} by priority, then waiting):\n${focus}\n${list}\n\nPick the item to do next: one already in progress in this session, else the most urgent todo${goal ? ", from the active goal when it has one" : ""}. Read it with get_item, tell me which one you picked and why in a sentence, then do it.\n\n${personal(TRACKING, c)}`;
+			return `Here is the open agent work in ${slug}, most urgent first (doing, then todo in the order ${yourName(c.db)} set, then the rest${goal ? " with the active goal's first" : ""} by priority, then waiting):\n${focus}\n${list}\n\nPick the item to do next: one already in progress in this session, else the first todo in the list${goal ? " (for work with no set order, the active goal's first)" : ""}. Read it with get_item, tell me which one you picked and why in a sentence, then do it.\n\n${personal(TRACKING, c)}`;
 		},
 	},
 	{
