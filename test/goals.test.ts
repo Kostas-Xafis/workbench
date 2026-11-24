@@ -290,7 +290,7 @@ describe("MCP", () => {
 	});
 
 	test("project_overview lists goals with progress and blockers, and search finds them", async () => {
-		await call("add_item", { title: "Pick the store", kind: "decision", options: ["Apple", "Google"], body: "Which store first? Apple reaches more people here, Google is cheaper to join. I'd say Apple.", goal: "First release" });
+		await call("add_item", { title: "Pick the store", kind: "decision", options: ["Apple", "Google"], recommended: "Apple", body: "Which store first? Apple reaches more people here, Google is cheaper to join. I'd say Apple.", goal: "First release" });
 		const o = await call("project_overview");
 		expect(o.text).toContain("## Goals");
 		expect(o.text).toContain("First release");

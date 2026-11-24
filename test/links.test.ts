@@ -201,7 +201,7 @@ describe("the tools agents use", () => {
 		const task = add("Agent task");
 		updateItem(db, task, { status: "doing" });
 		const ref = `wb-${getItem(db, task)!.ref}`;
-		const r = await call("add_item", { title: "Which way should it go?", kind: "decision", options: ["A", "B"], body: BODY, blocks: ref });
+		const r = await call("add_item", { title: "Which way should it go?", kind: "decision", options: ["A", "B"], recommended: "A", body: BODY, blocks: ref });
 		expect(r.error).toBe(false);
 		expect(status(task)).toBe("waiting");
 		const dref = r.data.item.ref as string;

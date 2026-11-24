@@ -20,7 +20,6 @@
 // `text`, not `file`: the cloud board (worker/) bundles this with esbuild, which takes no file imports.
 import iconSvg from "../ui/icon.svg" with { type: "text" };
 import {
-	addItem,
 	addLink,
 	addNote,
 	answerItem,
@@ -50,8 +49,9 @@ import {
 	type Note,
 	type Status,
 } from "./db";
-import { applyDue, capRefusal, deadlineText, defaultText, itemPicks, itemRecommended, needsKostas } from "./asks";
+import { applyDue, deadlineText, defaultText, itemPicks, itemRecommended, needsKostas } from "./asks";
 import { BRIEF_RULES, checkBrief } from "./brief";
+import { changeText, checkChange, fileItem, type Filed } from "./filing";
 import { activeGoal, addGoal, dueText, GOAL_STATUSES, goalLine, goalsWithStats, goalTitle, needGoal, updateGoal, type GoalInfo } from "./goals";
 import { runData, runText } from "./checkruns";
 import { integrationGuide } from "./integrate";
@@ -61,7 +61,6 @@ import { addImage, imageBytes, imageData, imageInfo, imageSummary, prepareImage,
 import { PRESETS } from "./presets";
 import {
 	addRuling,
-	ASKING_KINDS,
 	getRuling,
 	itemRulings,
 	listRulings,
@@ -73,7 +72,7 @@ import {
 	updateRuling,
 	type Ruling,
 } from "./rulings";
-import { ownerDefaultsText, ownerFor, yourName } from "./settings";
+import { ownerDefaultsText, yourName } from "./settings";
 import { noteMcpContact } from "./setup";
 import { listSources } from "./sources";
 import { SITTING_DAYS, STALLED_DAYS, WAITING_DAYS, staleLabel } from "./stale";
@@ -899,55 +898,44 @@ const TOOLS: Tool[] = [
 		),
 		hints: WRITE,
 		async run(a, c) {
-			const kind = a.kind ?? (a.options?.length ? "decision" : "task");
-			const owner = a.owner ?? ownerFor(c.db, kind);
-			const brief = checkBrief(
-				{ title: a.title, body: a.body ?? "", kind, owner },
-				{ name: yourName(c.db), images: a.images?.length ?? 0, attach: ATTACH },
-			);
-			if (brief.refuse) throw new ToolError(brief.refuse);
 			const project = projectOf(c, a.project)!;
-			const capped = capRefusal(c.db, { project, kind, owner, priority: a.priority });
-			if (capped) throw new ToolError(capped);
-			const images = await readImages(a.images);
-			const waitsOn: number[] = (a.waits_on ?? []).map((r: string) => itemId(c, r));
 			const blocked: number | undefined = a.blocks ? itemId(c, a.blocks) : undefined;
-			if (blocked !== undefined) {
-				const b = getItem(c.db, blocked)!;
-				if (b.status === "done" || b.status === "dropped") throw new ToolError(`wb-${b.ref} is ${b.status}: it can't wait on anything`);
-				if (waitsOn.includes(blocked)) throw new ToolError("the new item can't both wait on wb-" + b.ref + " and block it");
-			}
-			const id = addItem(
-				c.db,
-				{
-					title: a.title.trim(),
-					kind,
-					// Without one, the board's setting for the kind.
-					owner: a.owner,
-					project,
-					goal_id: goalArg(c, a.goal, project),
-					priority: a.priority,
-					area: a.area,
-					body: a.body,
-					options: a.options,
-					...askPatch(a),
-					branch: a.branch,
-					sources: a.source,
-					status: a.status,
-				},
-				"agent",
-			);
-			for (const m of images) addImage(c.db, id, m.image, m.caption, "agent");
+			let filed: Filed;
 			try {
-				if (waitsOn.length) waitOn(c.db, id, waitsOn, "agent");
-				if (blocked !== undefined) waitOn(c.db, blocked, [id], "agent");
+				filed = await fileItem(c.db, {
+					item: {
+						title: a.title,
+						kind: a.kind,
+						// Without one, the board's setting for the kind.
+						owner: a.owner,
+						project,
+						goal_id: goalArg(c, a.goal, project),
+						priority: a.priority,
+						area: a.area,
+						body: a.body,
+						options: a.options,
+						...askPatch(a),
+						branch: a.branch,
+						sources: a.source,
+						status: a.status,
+					},
+					author: "agent",
+					byAgent: true,
+					attach: ATTACH,
+					images: { count: a.images?.length ?? 0, read: () => readImages(a.images) },
+					waitsOn: (a.waits_on ?? []).map((r: string) => itemId(c, r)),
+					blocks: blocked,
+				});
 			} catch (e) {
-				throw new ToolError(`${(e as Error).message}. The item is filed as wb-${getItem(c.db, id)!.ref}; wait_item links it.`);
+				throw new ToolError((e as Error).message);
 			}
-			const out = changed(c, id, blocked !== undefined ? `Added (wb-${getItem(c.db, blocked)!.ref} now waits on it)` : "Added", brief.warnings);
+			const { id, repeats } = filed;
+			const out = changed(c, id, blocked !== undefined ? `Added (wb-${getItem(c.db, blocked)!.ref} now waits on it)` : "Added", filed.warnings);
+			if (filed.goesAhead) {
+				out.text += `\n\n${filed.goesAhead}`;
+				out.data = { ...out.data, goes_ahead: filed.goesAhead };
+			}
 			// An ask that looks like one already answered: saved all the same, with the ruling it may repeat.
-			const i = getItem(c.db, id)!;
-			const repeats = ASKING_KINDS.includes(kind) ? similarRulings(c.db, i.project, i.title, i.body, { except: id }) : [];
 			if (repeats.length) {
 				out.text += `\n\n${repeatWarning(repeats, yourName(c.db))}`;
 				out.data = { ...out.data, already_ruled: repeats.map((m) => ({ ...rulingJson(m.ruling), score: m.score })) };
@@ -983,25 +971,29 @@ const TOOLS: Tool[] = [
 		hints: { ...WRITE, idempotentHint: true },
 		run(a, c) {
 			const id = itemId(c, a.ref);
-			if (a.waits_on?.length) waitOn(c.db, id, a.waits_on.map((r: string) => itemId(c, r)), "agent");
-			if (a.not_waiting_on?.length) removeLinks(c.db, id, a.not_waiting_on.map((r: string) => itemId(c, r)));
-			const patch: ItemPatch = askPatch(a);
+			let patch: ItemPatch = askPatch(a);
 			for (const k of ["title", "kind", "owner", "status", "priority", "area", "body", "options", "branch"] as const)
 				if (a[k] !== undefined) (patch as Json)[k] = a[k];
 			if (a.project !== undefined) patch.project = projectOf(c, a.project)!;
 			if (a.goal !== undefined) patch.goal_id = goalArg(c, a.goal, patch.project ?? getItem(c.db, id)!.project);
-			// Handing an item to {{name}} is filing an ask: the same cap.
-			const was = getItem(c.db, id)!;
-			if (patch.owner === "kostas" && was.owner !== "kostas") {
-				const capped = capRefusal(c.db, { project: patch.project ?? was.project, kind: patch.kind ?? was.kind, owner: "kostas", priority: patch.priority ?? was.priority });
-				if (capped) throw new ToolError(capped.replace("Nothing was filed.", "Nothing was changed."));
+			// Handing an item to {{name}}, or making it an ask, is filing one: the same rules (filing.ts).
+			let gave = false;
+			try {
+				({ patch, gave } = checkChange(c.db, getItem(c.db, id)!, patch, true));
+			} catch (e) {
+				throw new ToolError((e as Error).message);
 			}
+			if (a.waits_on?.length) waitOn(c.db, id, a.waits_on.map((r: string) => itemId(c, r)), "agent");
+			if (a.not_waiting_on?.length) removeLinks(c.db, id, a.not_waiting_on.map((r: string) => itemId(c, r)));
 			updateItem(c.db, id, patch, "agent", a.note ?? "");
 			const i = getItem(c.db, id)!;
 			// A status change or a note says nothing new about the brief; rewording it does.
 			const reworded = a.title !== undefined || a.body !== undefined || a.kind !== undefined || a.owner !== undefined;
 			const brief = reworded ? checkBrief(i, { name: yourName(c.db), images: i.images.length, attach: ATTACH }) : { warnings: [] };
-			return changed(c, id, "Updated", brief.refuse ? [brief.refuse.replace(" Nothing was filed.", "")] : brief.warnings);
+			const out = changed(c, id, "Updated", brief.refuse ? [brief.refuse.replace(" Nothing was filed.", "")] : brief.warnings);
+			const said = changeText(c.db, id, gave);
+			if (said) out.text += `\n\n${said}`;
+			return out;
 		},
 	},
 	{

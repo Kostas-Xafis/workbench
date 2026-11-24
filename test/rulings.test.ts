@@ -149,7 +149,7 @@ describe("over MCP", () => {
 	const BODY = "Which sound the oscillator makes by default. Options: Classic, Harmonium. My recommendation: Classic, it's what people know.";
 
 	test("answer_decision drafts, update_ruling rewrites, list_rulings and project_overview show it", async () => {
-		const added = await call("add_item", { title: "Choose the oscillator's sound", kind: "decision", options: ["Classic", "Harmonium"], body: BODY });
+		const added = await call("add_item", { title: "Choose the oscillator's sound", kind: "decision", options: ["Classic", "Harmonium"], recommended: "Classic", body: BODY });
 		const ref = added.data.item.ref;
 		const answered = await call("answer_decision", { ref, answer: "Classic" });
 		expect(answered.text).toContain("update_ruling");
@@ -163,7 +163,7 @@ describe("over MCP", () => {
 		expect((await call("list_rulings", { project: "other" })).data.rulings).toHaveLength(0);
 	});
 	test("add_item for a repeat ask saves it and warns with the ruling and its source", async () => {
-		const again = await call("add_item", { title: "Decide the oscillator sound", kind: "decision", options: ["Classic", "Voices"], body: BODY });
+		const again = await call("add_item", { title: "Decide the oscillator sound", kind: "decision", options: ["Classic", "Voices"], recommended: "Classic", body: BODY });
 		expect(again.error).toBe(false);
 		expect(again.data.item.ref).toMatch(/^wb-/);
 		expect(again.text).toContain("already ruled");
