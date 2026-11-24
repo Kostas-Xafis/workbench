@@ -14,6 +14,9 @@ export type RepoState = {
 	behind: number;
 	/** Local branches not merged into `base`; `ahead`: how many commits they have that it hasn't (not from an older helper). */
 	unmerged: { name: string; date: string; ahead?: number }[];
+	/** When the checkout is on another branch than `base` (an integration branch such as overnight): the local branches
+	 * not merged into that one either. A branch merged there counts as landed (agents.ts). Not from an older helper. */
+	unmergedHead?: string[];
 	worktrees: { path: string; branch: string }[];
 	lastCommit: string;
 };
@@ -58,6 +61,8 @@ export async function repoState(p: Project): Promise<RepoState> {
 			git(cwd, "worktree", "list", "--porcelain"),
 			git(cwd, "log", "-1", "--format=%h %cr · %s"),
 		]);
+		// On an integration branch: what isn't merged there either.
+		const unmergedHead = branch && branch !== base ? lines(await git(cwd, "branch", "--no-merged", "HEAD", "--format=%(refname:short)").catch(() => "")) : undefined;
 		// How far each unmerged branch is ahead of the main branch (the first 60: one git each).
 		const branches = lines(unmerged).map((l) => {
 			const [name, date] = l.split("\t");
@@ -92,6 +97,7 @@ export async function repoState(p: Project): Promise<RepoState> {
 			ahead,
 			behind,
 			unmerged: branches,
+			...(unmergedHead ? { unmergedHead } : {}),
 			worktrees: trees,
 			lastCommit,
 		};

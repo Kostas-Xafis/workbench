@@ -218,6 +218,18 @@ describe("git: the main branch and how far each branch is ahead", () => {
 		const merged = { "k3f9": { commits: [], prs: [{ number: 4, title: "x", state: "MERGED", draft: false, review: "", checks: "" as const, url: "" }] } };
 		expect(branchState({ ref: "k3f9", branch: "feature", project: "g" }, s, merged).merged).toBe(true);
 		expect(branchState({ ref: "k3f9", branch: "feature", project: "g" }, { ...s, ok: false, error: "no such folder" }, {})).toMatchObject({ known: false, why: "no such folder" });
+		// A project whose checkout sits on an integration branch: what's merged there has landed.
+		git("checkout", "-qb", "overnight");
+		git("merge", "-q", "--no-edit", "feature");
+		git("checkout", "-qb", "later", "master");
+		writeFileSync(join(repo, "b"), "x");
+		git("add", "b");
+		git("commit", "-qm", "later");
+		git("checkout", "-q", "overnight");
+		const o = await repoState({ slug: "g", name: "G", path: repo, icon: "", sort: 0, archived_at: null, report_order: "[]" });
+		expect(o.branch).toBe("overnight");
+		expect(branchState({ ref: "k3f9", branch: "feature", project: "g" }, o, {})).toMatchObject({ known: true, merged: true, into: "overnight" });
+		expect(branchState({ ref: "k3f9", branch: "later", project: "g" }, o, {})).toMatchObject({ known: true, merged: false, ahead: 1 });
 	});
 });
 

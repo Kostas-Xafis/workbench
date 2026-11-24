@@ -2,7 +2,7 @@
 
 const staleDays = (s) => Math.max(0, Math.floor((Date.now() - parseTime(s.since)) / 86400e3));
 const STALE_TIP = {
-	stalled: "In progress with no note or update for a while",
+	stalled: "In progress with no sign of life for a day: no note, and no call to the board about it",
 	waiting: "Waiting for a week or more",
 };
 

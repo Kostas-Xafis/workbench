@@ -53,7 +53,7 @@ export const agentGit = {
 export const forgetGit = () => (repoCache.clear(), codeCache.clear());
 
 /** Where an item's branch stands: merged into the main branch or not, or unknown (`known: false`, with why). */
-export type BranchState = { known: boolean; merged: boolean; base: string; ahead: number | null; worktree: string; why?: string };
+export type BranchState = { known: boolean; merged: boolean; base: string; ahead: number | null; worktree: string; why?: string; into?: string };
 
 export function branchState(i: Pick<Item, "ref" | "branch" | "project">, repo: RepoState | undefined, code: CodeLinks): BranchState {
 	const base = repo?.base ?? "";
@@ -64,6 +64,9 @@ export function branchState(i: Pick<Item, "ref" | "branch" | "project">, repo: R
 	if (!repo?.ok) return { ...none, why: repo?.error || "no git state" };
 	if (i.branch === base || (!base && ["main", "master"].includes(i.branch))) return { known: true, merged: true, base, ahead: 0, worktree };
 	const open = repo.unmerged.find((b) => b.name === i.branch);
+	// Merged into the branch the project's checkout is on (an integration branch, when that isn't the main one): landed.
+	if (open && repo.unmergedHead && repo.branch && !repo.unmergedHead.includes(i.branch))
+		return { known: true, merged: true, base, ahead: 0, worktree, into: repo.branch };
 	if (open) return { known: true, merged: false, base, ahead: open.ahead ?? null, worktree };
 	// Not among the unmerged branches: merged (or deleted, which git can't tell apart from here).
 	return { known: true, merged: true, base, ahead: 0, worktree };
@@ -121,7 +124,8 @@ const msOf = (t: string) => Date.parse(t.replace(" ", "T") + "Z");
 const days = (n: number) => `${n} day${n === 1 ? "" : "s"}`;
 const ageDays = (t: string, now: number) => Math.max(1, Math.floor((now - msOf(t)) / 86400e3));
 
-export type Running = { item: AgentItem; run: AgentRun | null; note: string; branch: string; started_at: string; alive_at: string | null };
+/** `event`: the newest thing its run said or did (a run_events row, its text in one line), null without a live run. */
+export type Running = { item: AgentItem; run: AgentRun | null; note: string; branch: string; started_at: string; alive_at: string | null; event: { kind: string; tool: string; text: string; at: string } | null };
 export type Ready = {
 	item: AgentItem;
 	branch: string;
@@ -234,14 +238,23 @@ export async function agentsView(db: Db, q: { project?: string; since?: string }
 		const i = getItem(db, r.item_id);
 		if (!i) continue;
 		taken.add(i.id);
-		running.push({ item: brief(i), run: runBrief(r), note: firstLine(lastWords(i.notes)?.text ?? ""), branch: i.branch, started_at: r.started_at, alive_at: i.alive_at ?? null });
+		const ev = db.query("SELECT kind, tool, text, at FROM run_events WHERE run_id = ? AND kind != 'message' ORDER BY n DESC LIMIT 1").get(r.id) as Running["event"];
+		running.push({
+			item: brief(i),
+			run: runBrief(r),
+			note: firstLine(lastWords(i.notes)?.text ?? ""),
+			branch: i.branch,
+			started_at: r.started_at,
+			alive_at: i.alive_at ?? null,
+			event: ev ? { ...ev, tool: ev.tool ?? "", text: firstLine(ev.text) } : null,
+		});
 	}
 	for (const i of open) {
 		if (taken.has(i.id) || !i.alive) continue;
 		taken.add(i.id);
 		const notes = notesOf(i.id);
 		const began = [...notes].reverse().find((n) => /(^|· )status: \w+ → doing/.test(n.text))?.at;
-		running.push({ item: brief(i), run: runBrief(latestRun(i.id)), note: firstLine(lastWords(notes)?.text ?? ""), branch: i.branch, started_at: began ?? i.alive_at ?? i.updated_at, alive_at: i.alive_at ?? null });
+		running.push({ item: brief(i), run: runBrief(latestRun(i.id)), note: firstLine(lastWords(notes)?.text ?? ""), branch: i.branch, started_at: began ?? i.alive_at ?? i.updated_at, alive_at: i.alive_at ?? null, event: null });
 	}
 
 	// ---- Stuck ----
