@@ -8,6 +8,9 @@
 //!   goes to the default browser. That includes the report's "New tab ↗" (a plain localhost URL).
 //! - Both go through [`open_external`], which acts like a popup blocker: 3 opens, then 1 every 5 s, no repeat
 //!   of a URL within 3 s, no loopback address but the board's own origin.
+//! - Claude Desktop links (`claude://resume?session=<uuid>`, `claude://claude.ai/epitaxy/local_<uuid>`: "Open in
+//!   Claude Desktop" on a run or an item) go to the desktop's handler for `claude:` the same way, and no other
+//!   `claude:` URL does ([`is_claude_link`]). So the page opens a session in Desktop, the cloud board's page too.
 //! - Downloads (`on_download`): saved into the download folder under a name that doesn't exist yet
 //!   (`name (1).ext`), then the page gets `download-finished` `{ url, path, name, success }`.
 //! - Permission requests (`on_permission_request`): everything denied. The board uses none: copying writes
@@ -91,10 +94,11 @@ fn same_origin(a: &Url, b: &Url) -> bool {
 /// Opens http(s) and mailto links in the default browser/mail app, like a browser's popup blocker would let
 /// them through: the hooks can't tell a click from a script, or the board from a report's frame (a report
 /// can navigate its own frame, and has no popup blocker in the app), so the limits are on volume and target.
-/// Anything else (file:, javascript:, custom schemes) is dropped, and so is a loopback address other than the
-/// board's own origin, a URL opened less than [`DEDUPE`] ago, and anything past the [`Bucket`]'s rate.
+/// Claude Desktop's session links go too ([`is_claude_link`]). Anything else (file:, javascript:, other custom
+/// schemes, any other claude: URL) is dropped, and so is a loopback address other than the board's own origin, a
+/// URL opened less than [`DEDUPE`] ago, and anything past the [`Bucket`]'s rate.
 fn open_external<R: Runtime>(app: &AppHandle<R>, url: &Url) {
-    if !matches!(url.scheme(), "http" | "https" | "mailto") {
+    if !matches!(url.scheme(), "http" | "https" | "mailto") && !is_claude_link(url) {
         return;
     }
     if is_loopback(url) && !same_board(url, &crate::server::board_url(app)) {
@@ -116,7 +120,7 @@ fn open_external<R: Runtime>(app: &AppHandle<R>, url: &Url) {
 }
 
 /// `xdg-open <url>` (or `gio open <url>` without xdg-open) with [`crate::server::host_env`], reaped on a thread.
-/// The URL is http(s) or mailto, so it can't be taken for an option.
+/// The URL is http(s), mailto or a Claude Desktop link, so it can't be taken for an option.
 fn open_with_host_env(url: &Url) {
     for launcher in [&["xdg-open"][..], &["gio", "open"][..]] {
         let mut cmd = std::process::Command::new(launcher[0]);
@@ -139,6 +143,25 @@ fn open_with_host_env(url: &Url) {
 }
 
 // ---------- what open_external lets through ----------
+
+/// A link that opens a session in Claude Desktop, exactly as the board makes them (dispatch.ts `desktopLink`):
+/// `claude://resume?session=<uuid>` (a Claude Code session, which Desktop imports) or
+/// `claude://claude.ai/epitaxy/local_<uuid>` (a Desktop session). Nothing else on the `claude:` scheme.
+fn is_claude_link(url: &Url) -> bool {
+    fn uuid(s: &str) -> bool {
+        let parts: Vec<&str> = s.split('-').collect();
+        parts.len() == 5
+            && parts.iter().zip([8, 4, 4, 4, 12]).all(|(p, n)| p.len() == n && p.chars().all(|c| c.is_ascii_hexdigit()))
+    }
+    if url.scheme() != "claude" || url.fragment().is_some() || !url.username().is_empty() || url.password().is_some() || url.port().is_some() {
+        return false;
+    }
+    match url.host_str() {
+        Some("resume") => matches!(url.path(), "" | "/") && url.query().and_then(|q| q.strip_prefix("session=")).is_some_and(uuid),
+        Some("claude.ai") => url.query().is_none() && url.path().strip_prefix("/epitaxy/local_").is_some_and(uuid),
+        _ => false,
+    }
+}
 
 /// At most this many opens in a row...
 const BURST: f64 = 3.0;
@@ -319,6 +342,26 @@ mod tests {
         assert!(b.admit("https://a/4", at(5_400)).is_ok(), "one token after 5 s");
         assert!(b.admit("https://a/5", at(5_500)).is_err());
         assert!(b.admit("https://a/1", at(10_500)).is_ok(), "an old URL again, after 3 s");
+    }
+
+    #[test]
+    fn claude_desktop_links_only_as_the_board_makes_them() {
+        let u = |s: &str| Url::parse(s).unwrap();
+        let id = "0d6528aa-1b2c-4d3e-8f90-123456789abc";
+        assert!(is_claude_link(&u(&format!("claude://resume?session={id}"))));
+        assert!(is_claude_link(&u(&format!("claude://claude.ai/epitaxy/local_{id}"))));
+        for s in [
+            "claude://resume?session=not-a-uuid".to_string(),
+            format!("claude://resume?session={id}&prompt=x"),
+            format!("claude://resume/other?session={id}"),
+            format!("claude://claude.ai/epitaxy/local_{id}?prompt=x"),
+            format!("claude://claude.ai/settings/{id}"),
+            format!("claude://example.com/epitaxy/local_{id}"),
+            format!("claudex://resume?session={id}"),
+            format!("claude://resume?session={id}#x"),
+        ] {
+            assert!(!is_claude_link(&u(&s)), "{s}");
+        }
     }
 
     #[test]

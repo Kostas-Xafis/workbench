@@ -188,7 +188,10 @@ Items are named wb-xxxx (e.g. wb-k3f9); commands take that, the bare k3f9, or an
                                    phones paired in Settings → Privacy and security (plain http: a trusted network only)
   wb run <ref>                     start a Claude Code agent on an agent's to-do, in its project's folder, as the
                                    board's Run does (Settings → Agents: off until turned on there, with its limits)
-  wb runs [--all]                  agents the board started: running ones and the latest (--all: the last 100)
+  wb runs [--all]                  agents the board started: running ones and the latest (--all: the last 100),
+                                   with where each ran, how to carry on, and its Claude Desktop link
+  wb continue <run> "message"      send that run's agent a message: a new run resumes its session (same folder,
+                                   what it knows), as Continue on the board; a done item's too. Limits apply
   wb stop <run>                    stop one (its number from wb runs)
   wb devices                       phones paired with the board, and when each was last seen
   wb unpair <id|all>               remove a phone (or every one): it stops reaching the board at once

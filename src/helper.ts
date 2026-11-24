@@ -17,7 +17,7 @@ import { chmodSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { hostname } from "node:os";
 import pkg from "../package.json";
 import { DB_PATH, type Project } from "./db";
-import { alive, exitCode, flushLog, forgetLog, launchRun, readLog, terminate, testCommand, type Launch, type Live } from "./dispatch";
+import { alive, exitCode, flushLog, forgetLog, launchCwd, launchRun, readLog, resumeCommand, terminate, testCommand, type Launch, type Live } from "./dispatch";
 import { codeLinks, repoState } from "./git";
 import { candidatesNear, folderState } from "./health";
 import { agentFiles, integratePrompt } from "./integrate";
@@ -29,9 +29,11 @@ import { refreshUsage, sessionsCost, usageData } from "./usage";
 type Msg = { t: string; [k: string]: unknown };
 type Wire = Omit<Live, "partial">;
 /** A run this helper started (or took over after a restart): followed until the cloud board has how it ended. */
-type Mine = { id: number; tag: string; pid: number; unit: string; sent: number; ending?: { code: number | null; live: Wire } };
+type Mine = { id: number; tag: string; pid: number; unit: string; sent: number; sentEvents?: number; ending?: { code: number | null; live: Wire } };
 
-const wire = ({ partial: _, ...l }: Live): Wire => l;
+/** What goes to the cloud board: everything read, but only the events after `after` (all of them at the end, so
+ * one that a lost message missed gets there too). */
+const wire = ({ partial: _, ...l }: Live, after = 0): Wire => ({ ...l, events: l.events.filter((e) => e.n > after) });
 
 /* ---------- Commands allowed on this computer ---------- */
 
@@ -163,11 +165,13 @@ export function startHelper(cfg: SyncConfig, o: HelperOptions = {}) {
 	/* What it does for the cloud board, by job. */
 	const JOBS: Record<string, (p: any) => Promise<unknown> | unknown> = {
 		run: async (l: Launch) => {
-			await allowed(agentText(l.command), "the command that starts agents (Settings → Agents)");
-			if (!existsSync(l.cwd)) throw new Error(`there's no folder ${l.cwd} on ${name}`);
+			// A continue command made from the start command (dispatch.ts resumeCommand) is allowed as that one.
+			if (l.base && resumeCommand(l.base) === l.command) await allowed(agentText(l.base), "the command that starts agents (Settings → Agents)");
+			else await allowed(agentText(l.command), l.resume ? "the command that continues agents (Settings → Agents)" : "the command that starts agents (Settings → Agents)");
+			if (!launchCwd(l)) throw new Error(`there's no folder ${l.cwd || l.folder} on ${name}`);
 			const out = await launchRun(l, (e) => log(`run #${l.id} couldn't start: ${e}`));
 			mine.set(l.id, { id: l.id, tag: l.tag, pid: out.pid, unit: out.unit, sent: -1 });
-			log(`run #${l.id} started (${l.vars.WB_ITEM ?? ""}) in ${l.cwd}`);
+			log(`run #${l.id} ${l.resume ? "continues a session" : "started"} (${l.vars.WB_ITEM ?? ""}) in ${out.cwd ?? l.cwd}`);
 			return out;
 		},
 		stop: async (r: Pick<Mine, "id" | "pid" | "tag" | "unit">) => {
@@ -247,6 +251,7 @@ export function startHelper(cfg: SyncConfig, o: HelperOptions = {}) {
 		for (const t of trackers) if (t.kind !== "manual") allowed.push(hashOf(trackerText(t)));
 		const settings = (await (await cloudFetch(cfg, "/api/settings")).json()) as Record<string, unknown>;
 		if (typeof settings["agents.command"] === "string") allowed.push(hashOf(agentText(settings["agents.command"])));
+		if (typeof settings["agents.continue-command"] === "string" && settings["agents.continue-command"]) allowed.push(hashOf(agentText(settings["agents.continue-command"])));
 		writeAllowed({ allowed, denied: [], asked: {} });
 		log(`first start: the ${allowed.length} command${allowed.length === 1 ? "" : "s"} the board has now may run here; new ones wait for an OK`);
 	}
@@ -260,8 +265,10 @@ export function startHelper(cfg: SyncConfig, o: HelperOptions = {}) {
 		const done = force || (code === null ? !alive(r) : true);
 		if (!done) {
 			if (l.offset !== r.sent) {
+				const after = r.sentEvents ?? 0;
 				r.sent = l.offset;
-				await send({ t: "run", id: r.id, live: wire(l) });
+				await send({ t: "run", id: r.id, live: wire(l, after) });
+				r.sentEvents = l.seq;
 			}
 			return;
 		}

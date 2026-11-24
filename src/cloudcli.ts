@@ -174,13 +174,21 @@ export async function cloudCommand(cmd: string, args: string[], o: Options): Pro
 			return 0;
 		}
 		case "runs": {
-			const { runLine } = await import("./dispatch");
-			const info = (await (await cloudFetch(cfg, "/api/runs")).json()) as { runs: Parameters<typeof runLine>[0][]; active: Parameters<typeof runLine>[0][]; computers?: string[] };
+			const { runsText } = await import("./dispatch");
+			const info = (await (await cloudFetch(cfg, "/api/runs")).json()) as { runs: Parameters<typeof runsText>[0]; active: Parameters<typeof runsText>[0]; computers?: string[] };
 			const seen = new Set<number>();
-			const list = [...info.active, ...info.runs].filter((r) => !seen.has(r.id) && seen.add(r.id)).slice(0, o.all ? 100 : 15);
-			if (!list.length) out("no agent runs yet (wb run <ref>, or Run on the board)");
-			for (const r of list) out(`wb-${r.ref}  ${r.title}\n  ${runLine(r)}`);
+			out(runsText([...info.active, ...info.runs].filter((r) => !seen.has(r.id) && seen.add(r.id)).slice(0, o.all ? 100 : 15)));
 			out(info.computers?.length ? `\nOnline to run agents: ${info.computers.join(", ")}` : "\nNo computer is online to run agents: wb serve, or the desktop app, runs the helper here.");
+			return 0;
+		}
+		case "continue": {
+			if (process.env.WB_RUN || process.env.CLAUDECODE) throw new Error("agents don't start agents: leave it for the board (Continue on the run)");
+			const n = Number(String(args[1] ?? "").replace(/^#/, ""));
+			const message = args.slice(2).join(" ").trim();
+			if (!Number.isInteger(n) || n < 1 || !message) throw new Error('usage: wb continue <run> "message" (its number from wb runs)');
+			const res = await cloudFetch(cfg, `/api/runs/${n}/continue`, { method: "POST", body: JSON.stringify({ message, from: "cli" }) });
+			const { run } = (await res.json()) as { run: { id: number; ref: string; cwd: string } };
+			out(`run #${run.id} continues run #${n}'s session on wb-${run.ref}, on a computer that syncs with ${cfg.url}. wb runs shows how it goes; wb stop ${run.id} stops it`);
 			return 0;
 		}
 		case "stop": {
@@ -215,6 +223,7 @@ export async function cloudCommand(cmd: string, args: string[], o: Options): Pro
 			out("\nwb open opens the cloud board (the desktop app, or the browser) and wb mcp relays the MCP server to it.");
 			out("wb serve                              the computer helper: agents, trackers' commands, git for the cloud board");
 			out("wb run <ref> · wb runs · wb stop <n>  start, list and stop agents (on a computer whose helper is online)");
+			out('wb continue <n> "message"             send a run\'s agent a message: it carries on in the same session');
 			out("wb helper [allow]                     which computers are online; allow the new commands that wait here");
 			out(`While this computer syncs, wb ${Object.keys(COMPUTER_ONLY_SAYS).join(", ")} need this computer: they say so and what to use instead (wb sync off brings the board back).`);
 			return code;

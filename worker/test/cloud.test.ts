@@ -268,11 +268,14 @@ describe("the computer helper", () => {
 	test("with no computer online, the board says so in words", async () => {
 		// A real repository, with a commit that names an item and a logo.
 		mkdirSync(join(repo, "assets"), { recursive: true });
+		// The session is the one the board made ($WB_SESSION), or the one it continues ($WB_RESUME, with --resume).
 		writeFileSync(fake, `#!/usr/bin/env bash
-echo '{"type":"system","subtype":"init","session_id":"s-'"$WB_RUN"'","model":"fake-model","cwd":"'"$PWD"'"}'
-echo '{"type":"assistant","message":{"content":[{"type":"text","text":"Reading '"$WB_ITEM"'"}]}}'
+sid="\${WB_RESUME:-$WB_SESSION}"
+[ -n "$WB_RESUME" ] && [ "$1" != "--resume" ] && { echo "not resumed: $*"; exit 2; }
+echo '{"type":"system","subtype":"init","session_id":"'"$sid"'","model":"fake-model","cwd":"'"$PWD"'"}'
+echo '{"type":"assistant","message":{"content":[{"type":"text","text":"Reading '"$WB_ITEM"'"},{"type":"tool_use","name":"Bash","input":{"command":"git status"}}]}}'
 case "$WB_TITLE" in *slow*) sleep 30;; esac
-echo '{"type":"result","subtype":"success","is_error":false,"num_turns":1,"total_cost_usd":0.25,"result":"All done.","session_id":"s-'"$WB_RUN"'"}'
+echo '{"type":"result","subtype":"success","is_error":false,"num_turns":1,"total_cost_usd":0.25,"result":"All done.","session_id":"'"$sid"'"}'
 `);
 		chmodSync(fake, 0o755);
 		expect((await post("/api/projects", { slug: "repo", name: "Repo", path: repo })).status).toBe(201);
@@ -357,6 +360,38 @@ echo '{"type":"result","subtype":"success","is_error":false,"num_turns":1,"total
 		const notes = (await get<{ notes: { text: string }[] }>(`/api/items/${item.ref}`)).notes.map((n) => n.text);
 		expect(notes.some((n) => n.startsWith(`Agent run #${run.id} finished`))).toBe(true);
 		expect(a.log()).toContain(`run #${run.id} started`);
+	}, 60e3);
+
+	test("what the agent did comes back as events; Continue goes on with its session on the computer it ran on", async () => {
+		type Events = { run: RunRow & { session: string; desktop: string; continues: number | null; cwd: string }; events: { n: number; kind: string; text: string; tool?: string }[]; next: number };
+		const res = await post("/api/runs", { item: item.ref });
+		expect(res.status).toBe(201);
+		const { run } = (await res.json()) as { run: RunRow };
+		await until("the run's end", async () => (await get<RunRow>(`/api/runs/${run.id}`)).ended_at);
+		const first = await get<Events>(`/api/runs/${run.id}/events`);
+		expect(first.events.map((e) => e.kind)).toEqual(["start", "text", "tool", "result"]);
+		expect(first.events[2]).toMatchObject({ text: "Bash: git status", tool: "Bash" });
+		expect(first.next).toBe(4);
+		expect(first.run.cwd).toBe(repo);
+		expect(first.run.desktop).toBe(`claude://resume?session=${first.run.session}`);
+		expect((await get<Events>(`/api/runs/${run.id}/events?after=2`)).events.map((e) => e.n)).toEqual([3, 4]);
+		// The continue command is made from the start command, which this computer allowed: no new OK.
+		const c = await post(`/api/runs/${run.id}/continue`, { message: "One more thing" });
+		expect(c.status).toBe(201);
+		const next = ((await c.json()) as { run: Events["run"] }).run;
+		expect(next.continues).toBe(run.id);
+		expect(next.session).toBe(first.run.session);
+		await until("the continuation's end", async () => (await get<RunRow>(`/api/runs/${next.id}`)).ended_at);
+		const done = await get<Events>(`/api/runs/${next.id}/events`);
+		expect(done.run.status).toBe("done");
+		expect(done.events[0]).toMatchObject({ n: 0, kind: "message", text: "One more thing" });
+		expect(done.events.at(-1)!.kind).toBe("result");
+		expect(a.log()).toContain(`run #${next.id} continues a session`);
+		const notes = (await get<{ notes: { text: string }[] }>(`/api/items/${item.ref}`)).notes.map((n) => n.text);
+		expect(notes).toContain("One more thing");
+		expect(notes.some((n) => n.startsWith(`Agent continued (run #${next.id}`))).toBe(true);
+		// An empty message is refused.
+		expect((await post(`/api/runs/${run.id}/continue`, { message: "" })).status).toBe(400);
 	}, 60e3);
 
 	test("Answer & send and Stop: the output streams while it runs, and Stop ends it on the computer", async () => {

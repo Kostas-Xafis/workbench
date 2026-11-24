@@ -54,7 +54,7 @@ The cloud board has no computer. What needs one is done by a **helper on a compu
 
 | What | On the cloud board |
 | --- | --- |
-| Agents the board starts (Run, Answer & send, Send it, `wb run`) | Start on a computer that has the project's folder; their output streams back to the board and Stop stops them there. Unblocked work is sent by itself when Settings says so |
+| Agents the board starts (Run, Answer & send, Send it, `wb run`) | Start on a computer that has the project's folder; their output and what they did (events) stream back to the board and Stop stops them there. Continue goes to the computer the session ran on (`helper_ran`), or one with the project's folder. Unblocked work is sent by itself when Settings says so |
 | Trackers that run a command (and the presets) | Read on a computer when due, and with Refresh |
 | Git state, commits and pull requests on items | From the project folders on a computer (and its `gh`), kept on the board for when no computer is online |
 | The vault's password window for agents (`vault_get`, `vault_list`) | `wb mcp` answers them itself: the window opens on the computer where the agent runs, and the `.env` file is written there. The cloud board only hands over the sealed secrets, as the vault page has them, and keeps the log |

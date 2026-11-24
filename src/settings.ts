@@ -214,6 +214,8 @@ const FORMER_AGENT_COMMANDS = [
 const AGENTS: Defs = {
 	"agents.on": { about: "The board may start agents", default: false, check: bool },
 	"agents.command": { about: "The command that starts an agent", default: AGENT_COMMAND, check: text(2000, { empty: false }) },
+	// '' = made from the command above (dispatch.ts resumeCommand): --resume "$WB_RESUME" for --session-id, no -w.
+	"agents.continue-command": { about: "The command that continues an agent's session ('' = made from the command)", default: "", check: text(2000) },
 	"agents.at-once": { about: "Agents running at once, at most", default: 1, check: int(1, 10) },
 	"agents.per-day": { about: "Agents started per day, at most", default: 5, check: int(1, 200) },
 	// Whole dollars, as the Usage page counts them for the sessions the board started. 0 = no cap.
