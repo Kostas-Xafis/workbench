@@ -50,7 +50,7 @@ import {
 	type Status,
 } from "./db";
 import { applyDue, deadlineText, defaultText, itemPicks, itemRecommended, needsKostas } from "./asks";
-import { BRIEF_RULES, checkBrief } from "./brief";
+import { BRIEF_RULES_SHORT, checkBrief } from "./brief";
 import { changeText, checkChange, fileItem, type Filed } from "./filing";
 import { activeGoal, addGoal, dueText, GOAL_STATUSES, goalLine, goalsWithStats, goalTitle, needGoal, updateGoal, type GoalInfo } from "./goals";
 import { runData, runText } from "./checkruns";
@@ -123,21 +123,16 @@ const SERVER_INFO = {
 const CAPABILITIES = { tools: {}, resources: {}, prompts: {}, completions: {} };
 
 // {{name}} and {{owner-defaults}} in what agents read are filled in per request (personal), from the board's settings.
-const INSTRUCTIONS = `The workbench is {{name}}'s local board of open work across their projects. Open work lives here, never in markdown lists.
-- Items are named wb-xxxx (e.g. wb-k3f9). When a prompt names one, get_item first: its body and notes are the brief.
-- Kinds: task and bug (code), check ({{name}} tries it on a device: write the steps), review (something only {{name}} can judge), decision (a question only {{name}} can answer), setup (accounts, consoles, stores), notice (what changed, for {{name}} to see; it doesn't wait on them), idea. {{owner-defaults}} The owner value for {{name}} is kostas.
-- Decide open questions yourself and keep moving: {{name}} has no time to explain. Ask only about money, accounts, stores, anything that can't be undone, or what the product should be. Related questions → one decision with pick "many". Every decision has recommended, and its body opens with it: it goes ahead by itself unless {{name}} objects. Changed something → a notice saying what, never a wording or layout review. Reviews and notices go ahead by themselves after the usual wait.
-- When you start work {{name}} gave you: find its item (list_items with q) and start_item it, or add_item one and start it. One item per piece of work {{name}} would recognise.
-- finish_item with a note on what changed and where (commit, branch). Everything you leave for {{name}} is its own item.
-- Blocked on {{name}}? add_item with blocks: <your item> files the ask and waits on it in one call (or wait_item with on). Your item goes back to todo, with the answer in its history, the moment it's answered or finished: don't poll.
-- The board can start an agent on an item itself ({{name}}'s Run or Answer & send): then nobody watches the session, so put questions on the board, not in the chat. Agents never start agents: there is no tool for it, and wb run is {{name}}'s. get_item shows an item's latest run.
-- {{name}} doesn't open files: an item makes sense by itself, in plain words, with a screenshot (attach_image) for anything on screen. add_item has how, and warns about what's missing: fix it with update_item.
-- Rulings are {{name}}'s standing answers in a project, one line each: project_overview lists them, list_rulings searches them. Read them before you ask, and follow them. An answered decision gets a drafted ruling ("<question>: <answer>"); when you pick one up, rewrite that draft as one clear line with update_ruling. add_ruling for a rule {{name}} states in the conversation; retire_ruling when one no longer holds.
-- Every report you publish gets its own icon in colour (publish_report's icon), so the sidebar reads at a glance.
-- Status trackers are live readings shown on the board, such as build quotas or CI minutes left. Check list_trackers before something that uses up a quota, refresh_trackers after.
-- A goal says what a project's work is for (a release, a milestone), with a target date and the items that serve it (list_goals, project_overview). Give the items you file the goal they serve (add_item's goal), and prefer work on the active goal. Don't create goals unless {{name}} asks: propose one in a decision.
-- Secrets (API keys, tokens): never ask {{name}} to paste one into the chat. vault_get asks them in a password window on their computer and hands you a private .env file; vault_list shows the names. When they say no, don't ask again unless they tell you to.
-- Tools default to the project of the folder this server runs in; pass project (a slug from list_projects) to work elsewhere.`;
+const INSTRUCTIONS = `{{name}}'s local board of open work across projects. Open work lives here, never in markdown lists.
+- Items are wb-xxxx. A prompt naming one: get_item first, its body and notes are the brief. Starting work {{name}} gave you: start_item its item (list_items q) or add_item one; finish_item with what changed and where. What you leave for {{name}} is its own item.
+- Kinds: task, bug (code); check ({{name}} tries it on a device: write steps); review (only {{name}} can judge); decision (only {{name}} can answer); setup (accounts, consoles, stores); notice (what changed; doesn't wait on them); idea. {{owner-defaults}} {{name}} is owner kostas.
+- Decide yourself and keep moving; ask only about money, accounts, stores, what can't be undone, or what the product should be. Related questions → one decision (pick "many") with recommended: it goes ahead unless {{name}} objects. Changed something → a notice, not a review.
+- Blocked on {{name}}? add_item with blocks: <your item> files the ask and waits in one call (or wait_item on). Your item returns to todo when it's answered: don't poll. The board may run you unwatched: put questions on the board, not in the chat. Agents never start agents.
+- {{name}} reads on a phone: an item stands alone, in plain words, with a screenshot (attach_image) for anything on screen.
+- Rulings are {{name}}'s standing answers (project_overview, list_rulings): read before you ask, and follow them. Picking up an answered decision: rewrite its drafted ruling as one clear line (update_ruling). add_ruling only for a rule {{name}} states.
+- Goals: give the items you file the goal they serve (add_item goal); don't create goals unless asked. Trackers (quotas): list before using one up, refresh after. Reports need their own colour icon.
+- Secrets: never ask {{name}} to paste one. vault_get opens a password window on their computer and hands you a private .env file; vault_list shows names. If they say no, don't ask again.
+- Tools default to this folder's project; project (a slug, "*" for all where a tool lists) works elsewhere.`;
 
 /**
  * Fills {{name}} (Settings → "Your name") and {{owner-defaults}} (who gets each kind) into text agents read, as the
@@ -307,9 +302,10 @@ function check(v: unknown, s: Schema, at: string): string | null {
 }
 
 const str = (description: string, more: Schema = {}): Schema => ({ type: "string", description, ...more });
-const PROJECT = str('Project slug (see list_projects). Default: the project of the folder this server runs in.');
-const REF = str("The item, e.g. wb-k3f9 (k3f9 works too).", { minLength: 1 });
-const TRACKER = str('The tracker: its name, or project/name (e.g. isokratis/eas-builds). Global trackers are just name.', { minLength: 1 });
+// Instructions say it once: tools default to this folder's project; pass project (a slug, or "*" for all where it lists).
+const PROJECT: Schema = { type: "string" };
+const ALL_PROJECTS: Schema = { type: "string" };
+const REF: Schema = { type: "string", minLength: 1 };
 const obj = (properties: Record<string, Schema>, required: string[] = []): Schema => ({
 	type: "object",
 	properties,
@@ -508,7 +504,7 @@ function goalArg(c: Conn, goal: string | number | undefined, project?: string): 
 }
 const GOAL_REF: Schema = {
 	anyOf: [{ type: "integer" }, { type: "string" }],
-	description: 'The goal this item serves: its number (see list_goals) or its exact title. "none" takes it off its goal.',
+	description: 'Goal number or exact title; "none" takes it off its goal.',
 };
 
 const SECTION_ORDER = ["decision", "setup", "check", "review", "notice", "bug", "task", "idea"];
@@ -583,14 +579,13 @@ type Out = {
 };
 type Tool = {
 	name: string;
-	title: string;
 	description: string;
 	input: Schema;
 	hints: { readOnlyHint?: boolean; destructiveHint?: boolean; idempotentHint?: boolean; openWorldHint?: boolean };
 	run(a: Record<string, any>, c: Conn): Out | Promise<Out>;
 };
 
-const REPORT_ICON = str("Its icon in the sidebar: one emoji, or SVG markup (at most 8 KB, with a viewBox, in your own colours that read on light and dark; currentColor doesn't work). Every report has one: in colour, showing what the page is about at a glance.");
+const REPORT_ICON = str("One emoji, or SVG (under 8 KB, viewBox, own colours; no currentColor). Left out on a later publish, it stays.");
 const RO = { readOnlyHint: true, openWorldHint: false };
 const WRITE = { readOnlyHint: false, destructiveHint: false, openWorldHint: false };
 const itemLink = (i: Pick<Item, "ref" | "title">) => ({ uri: `wb://item/wb-${i.ref}`, name: `wb-${i.ref}`, title: i.title, mimeType: "text/markdown" });
@@ -615,10 +610,10 @@ const readImages = (list: { path?: string; data?: string; caption: string }[] = 
 	) as Promise<{ image: Prepared; caption: string }[]>;
 
 const IMAGE_SOURCE = {
-	path: str("A file on this computer (absolute is safest): PNG, JPEG, WebP or GIF. Your scratchpad is a good place for it; the board keeps its own copy."),
-	data: str("The picture as base64, when you have no file (a cloud session). A path is much cheaper."),
+	path: str("Absolute path of a PNG, JPEG, WebP or GIF."),
+	data: str("Base64, only without a file."),
 };
-const CAPTION = str("What this shows and what to look at, for someone who hasn't seen the problem.", { minLength: 1, maxLength: 500 });
+const CAPTION = str("What to look at.", { minLength: 1, maxLength: 500 });
 
 function readingFrom(a: { reading: string | Meter[]; note?: string; resets_at?: string }): Reading {
 	const r: Reading = typeof a.reading === "string" ? parseReading(a.reading) : { meters: a.reading };
@@ -629,12 +624,12 @@ function readingFrom(a: { reading: string | Meter[]; note?: string; resets_at?: 
 
 const METER: Schema = obj(
 	{
-		label: str('What it counts, e.g. "Android" ("" for a single meter).'),
-		value: { type: "number", description: "The reading: how much is used, done or counted." },
-		max: { type: "number", description: "The allowance or total the value counts against." },
-		unit: str('Unit, e.g. "min", "builds", "%".'),
-		text: str('A state in words instead of (or next to) a number, e.g. "In review".'),
-		level: { type: "string", enum: ["ok", "warn", "bad"], description: "Overrides the tracker's thresholds." },
+		label: str('E.g. "Android" ("" for a single meter).'),
+		value: { type: "number" },
+		max: { type: "number", description: "The allowance." },
+		unit: str('E.g. "min".'),
+		text: str('A state in words, e.g. "In review".'),
+		level: { type: "string", enum: ["ok", "warn", "bad"], description: "Overrides the thresholds." },
 	},
 	["label"],
 );
@@ -653,13 +648,13 @@ function reportId(a: Record<string, any>, c: Conn) {
 const ASK_PARAMS: Record<string, Schema> = {
 	default: {
 		anyOf: [{ type: "string" }, { type: "array", items: { type: "string" }, maxItems: 12 }],
-		description: 'What happens if {{name}} says nothing (decisions, reviews, notices); it goes ahead at decide_by as if {{name}} had picked it. A decision with options: one of them (pick "many": a list, [] for none). Left out: the recommendation; a review closes with no objections, a notice as seen.',
+		description: "What goes ahead at decide_by if {{name}} says nothing (default: the recommendation).",
 	},
-	decide_by: str('When the default goes ahead: a date (2026-11-14), "in 3 days", or "none". Left out: the usual wait (Settings → You and your day, 3 days).'),
-	pick: { type: "string", enum: ["one", "many"], description: 'A decision: answered with one option (default) or several ticked ("many"). Bundle related questions into one this way.' },
+	decide_by: str('A date, "in 3 days" or "none". Default: the usual wait (Settings → Agents).'),
+	pick: { type: "string", enum: ["one", "many"] },
 	recommended: {
 		anyOf: [{ type: "string" }, { type: "array", items: { type: "string" }, maxItems: 12 }],
-		description: 'Your pick among the options (pick "many": a list). Without a default, it is the default.',
+		description: "Your pick (a list for pick many); the default if there is none.",
 	},
 };
 /** The ask fields of a tool call as an item patch. */
@@ -670,11 +665,45 @@ const askPatch = (a: Record<string, any>): ItemPatch => ({
 	...(a.recommended !== undefined ? { recommended: a.recommended } : {}),
 });
 
+/** A tool with an `action`: one entry per action, with the arguments it needs beyond the schema's. */
+type Sub = { need?: string[]; run(a: Record<string, any>, c: Conn): Out | Promise<Out> };
+function byAction(subs: Record<string, Sub>): Tool["run"] {
+	return (a, c) => {
+		const s = subs[a.action];
+		if (!s) throw new ToolError(`action must be one of ${Object.keys(subs).join(", ")}`);
+		for (const k of s.need ?? []) if (a[k] === undefined) throw new ToolError(`${k} is required for action ${a.action}`);
+		return s.run(a, c);
+	};
+}
+const action = (list: string[], description = "") => ({ type: "string", enum: list, description }) as Schema;
+
+/**
+ * Tools that went into one with an `action`, in the releases before: still callable under the old name (not listed),
+ * with the action and arguments they meant. Dropped after 0.7.
+ */
+const ALIASES: Record<string, { tool: string; args: Json }> = {
+	list_goals: { tool: "goal", args: { action: "list" } },
+	add_goal: { tool: "goal", args: { action: "add" } },
+	update_goal: { tool: "goal", args: { action: "update" } },
+	retire_ruling: { tool: "update_ruling", args: { retire: true } },
+	get_image: { tool: "image", args: { action: "get" } },
+	remove_image: { tool: "image", args: { action: "remove" } },
+	list_reports: { tool: "report", args: { action: "list" } },
+	read_report: { tool: "report", args: { action: "read" } },
+	publish_report: { tool: "report", args: { action: "publish" } },
+	set_report_icon: { tool: "report", args: { action: "icon" } },
+	list_trackers: { tool: "tracker", args: { action: "list" } },
+	get_tracker: { tool: "tracker", args: { action: "get" } },
+	record_tracker: { tool: "tracker", args: { action: "record" } },
+	refresh_trackers: { tool: "tracker", args: { action: "refresh" } },
+	define_tracker: { tool: "tracker", args: { action: "define" } },
+	remove_tracker: { tool: "tracker", args: { action: "remove" } },
+};
+
 const TOOLS: Tool[] = [
 	{
 		name: "list_projects",
-		title: "List projects",
-		description: "The projects on the workbench: slug, name, folder, and how many open items wait on {{name}} (notices, which don't wait, counted apart) and on agents.",
+		description: "Projects: slug, name, folder, open items for {{name}} and for agents.",
 		input: obj({}),
 		hints: RO,
 		run(_, c) {
@@ -698,9 +727,7 @@ const TOOLS: Tool[] = [
 	},
 	{
 		name: "project_overview",
-		title: "Project overview",
-		description:
-			"Everything about one project at a glance: open items by kind, {{name}}'s rulings (standing answers: read them before you ask anything), stale agent work (stalled doing, long waiting) listed apart, status trackers with their readings, git state (branch, uncommitted files, unpushed commits, unmerged branches, worktrees), reports, links and data sources. A good first call when you start work in a project.",
+		description: "A project at a glance: open items, rulings, stale work, trackers, git state, reports, links. A good first call.",
 		input: obj({ project: PROJECT }),
 		hints: RO,
 		async run(a, c) {
@@ -709,88 +736,70 @@ const TOOLS: Tool[] = [
 		},
 	},
 	{
-		name: "list_goals",
-		title: "List goals",
+		name: "goal",
 		description:
-			"A project's goals: what its work is for. Each with its target date, progress (items done of all), how many items wait on {{name}}, and what blocks it (open items for {{name}}, and agent items in waiting). The active goal comes first. Items serve a goal through add_item and update_item's goal.",
-		input: obj({
-			project: str('Project slug, or "*" for every project. Default: the current project.'),
-			status: { type: "string", enum: ["open", "all", ...GOAL_STATUSES], description: "open (the default), all, or one status." },
-		}),
-		hints: RO,
-		run(a, c) {
-			const project = a.project === "*" ? undefined : projectOf(c, a.project, false);
-			const status = a.status === "all" ? undefined : [a.status ?? "open"];
-			const list = goalsWithStats(c.db, { project, status }).sort((x, y) => x.project.localeCompare(y.project) || Number(y.is_active) - Number(x.is_active));
-			const head = `${list.length} goal${list.length === 1 ? "" : "s"}${project ? ` in ${project}` : ""}`;
-			return {
-				text: [head, ...list.flatMap((g) => goalBlock(c, g).map((l, n) => (n === 0 && !project ? l.replace("- ", `- [${g.project}] `) : l)))].join("\n"),
-				data: { goals: list.map(goalJson) },
-			};
-		},
-	},
-	{
-		name: "add_goal",
-		title: "Add a goal",
-		description:
-			"Adds a goal to a project: a milestone its items serve (a release, a launch). Only when {{name}} asked for one: when you think a project needs a goal, file a decision item proposing it instead. Returns its number, which add_item and update_item take as goal.",
+			"A project's goals. list: date, progress, blockers, active first. add: only when {{name}} asked (else propose in a decision); add_item takes its number as goal. update: change fields; status done or dropped; active; position.",
 		input: obj(
 			{
-				title: str('What the work is for, as {{name}} would say it, e.g. "First release".', { minLength: 1, maxLength: 200 }),
-				description: str("A few lines in markdown: what done looks like."),
-				due: str("Target date, YYYY-MM-DD."),
-				active: { type: "boolean", description: "Make it the project's active goal." },
-				project: PROJECT,
+				action: action(["list", "add", "update"]),
+				goal: { ...GOAL_REF, description: "update: number or exact title." },
+				title: str("add, update.", { minLength: 1, maxLength: 200 }),
+				description: str("add, update: markdown, what done looks like."),
+				due: str('add, update: YYYY-MM-DD; "" removes.'),
+				status: { type: "string", enum: ["open", "all", "done", "dropped"], description: "list: open (default), all or one. update: new status." },
+				active: { type: "boolean" },
+				position: { type: "integer", minimum: 1, description: "update: among open goals, 1 = first." },
+				project: ALL_PROJECTS,
 			},
-			["title"],
+			["action"],
 		),
 		hints: WRITE,
-		run(a, c) {
-			const g = addGoal(c.db, { project: projectOf(c, a.project)!, title: a.title, body: a.description, due: a.due, active: a.active });
-			const info = goalsWithStats(c.db, { project: g.project }).find((x) => x.id === g.id)!;
-			return { text: `Added goal ${goalLine(info, yourName(c.db))}`, data: { goal: goalJson(info) } };
-		},
-	},
-	{
-		name: "update_goal",
-		title: "Update a goal",
-		description:
-			"Changes a goal: title, description, target date, status (done when it's reached, dropped when it's off), whether it's the active goal, or its place among the project's open goals.",
-		input: obj(
-			{
-				goal: { ...GOAL_REF, description: "The goal: its number (see list_goals) or its exact title." },
-				title: str("New title.", { minLength: 1, maxLength: 200 }),
-				description: str("Replaces the description (markdown)."),
-				due: str('Target date, YYYY-MM-DD; "" removes it.'),
-				status: { type: "string", enum: GOAL_STATUSES },
-				active: { type: "boolean", description: "true makes it the project's active goal." },
-				position: { type: "integer", minimum: 1, description: "Its place among the project's open goals, 1 = first." },
-				project: PROJECT,
+		run: byAction({
+			list: {
+				run(a, c) {
+					const project = a.project === "*" ? undefined : projectOf(c, a.project, false);
+					const status = a.status === "all" ? undefined : [a.status ?? "open"];
+					const list = goalsWithStats(c.db, { project, status }).sort((x, y) => x.project.localeCompare(y.project) || Number(y.is_active) - Number(x.is_active));
+					const head = `${list.length} goal${list.length === 1 ? "" : "s"}${project ? ` in ${project}` : ""}`;
+					return {
+						text: [head, ...list.flatMap((g) => goalBlock(c, g).map((l, n) => (n === 0 && !project ? l.replace("- ", `- [${g.project}] `) : l)))].join("\n"),
+						data: { goals: list.map(goalJson) },
+					};
+				},
 			},
-			["goal"],
-		),
-		hints: { ...WRITE, idempotentHint: true },
-		run(a, c) {
-			const project = a.project !== undefined ? projectOf(c, a.project) : projectOf(c, undefined, false);
-			let id: number;
-			try {
-				id = needGoal(c.db, a.goal, project);
-			} catch (e) {
-				throw new ToolError((e as Error).message);
-			}
-			const g = updateGoal(c.db, id, { title: a.title, body: a.description, due: a.due, status: a.status, active: a.active, position: a.position });
-			const info = goalsWithStats(c.db, { project: g.project }).find((x) => x.id === g.id)!;
-			return { text: `Updated goal ${goalLine(info, yourName(c.db))}`, data: { goal: goalJson(info) } };
-		},
+			add: {
+				need: ["title"],
+				run(a, c) {
+					const g = addGoal(c.db, { project: projectOf(c, a.project)!, title: a.title, body: a.description, due: a.due, active: a.active });
+					const info = goalsWithStats(c.db, { project: g.project }).find((x) => x.id === g.id)!;
+					return { text: `Added goal ${goalLine(info, yourName(c.db))}`, data: { goal: goalJson(info) } };
+				},
+			},
+			update: {
+				need: ["goal"],
+				run(a, c) {
+					if (a.status === "all") throw new ToolError("status must be open, done or dropped");
+					const project = a.project !== undefined ? projectOf(c, a.project) : projectOf(c, undefined, false);
+					let id: number;
+					try {
+						id = needGoal(c.db, a.goal, project);
+					} catch (e) {
+						throw new ToolError((e as Error).message);
+					}
+					const g = updateGoal(c.db, id, { title: a.title, body: a.description, due: a.due, status: a.status, active: a.active, position: a.position });
+					const info = goalsWithStats(c.db, { project: g.project }).find((x) => x.id === g.id)!;
+					return { text: `Updated goal ${goalLine(info, yourName(c.db))}`, data: { goal: goalJson(info) } };
+				},
+			},
+		}),
 	},
 	{
 		name: "integration_guide",
-		title: "Wire a project into the workbench",
 		description:
-			"How to set a project up so every agent in it uses the workbench, and what's already done: the project on the board, the standard rules block in its AGENTS.md or CLAUDE.md (versioned, so running it again updates it), and Claude Code's MCP server and permissions. Follow the steps it gives; it says which ones to ask {{name}} about first. Same as `wb integrate`.",
+			"Sets a project up for the workbench: what's done (project, rules block in AGENTS.md or CLAUDE.md, MCP server, permissions) and the steps left; says what to ask {{name}} first. Same as `wb integrate`.",
 		input: obj({
-			folder: str("The project's folder (absolute). Default: the given project's folder, else the folder this server runs in."),
-			project: str("Project slug, to use its folder."),
+			folder: str("Absolute path; default the project's."),
+			project: PROJECT,
 		}),
 		hints: RO,
 		run(a, c) {
@@ -804,9 +813,8 @@ const TOOLS: Tool[] = [
 	},
 	{
 		name: "search",
-		title: "Search the workbench",
-		description: "Finds items (titles, details, notes, refs), reports (by their text) and links matching words, in one project or all of them.",
-		input: obj({ q: str("What to look for.", { minLength: 1 }), project: str('Project slug, or "*" for every project (default: the current project, else all).') }, ["q"]),
+		description: "Finds items, reports, links and goals by words.",
+		input: obj({ q: str("Words.", { minLength: 1 }), project: ALL_PROJECTS }, ["q"]),
 		hints: RO,
 		run(a, c) {
 			const project = projectOf(c, a.project, false);
@@ -825,23 +833,21 @@ const TOOLS: Tool[] = [
 	},
 	{
 		name: "list_items",
-		title: "List items",
-		description:
-			"Items of a project (default: open ones, the current project), most urgent first: doing, todo, waiting; within a status agent work in the order {{name}} set (rank), then by priority, and within that what holds up the most waiting work (unblocks). Filter by who acts, kind, status or words.",
+		description: "Items, most urgent first. Default: open ones of the current project.",
 		input: obj({
-			project: str('Project slug, or "*" for every project. Default: the current project.'),
-			owner: { type: "string", enum: OWNERS, description: "Who has to act: kostas ({{name}}) or agent." },
+			project: ALL_PROJECTS,
+			owner: { type: "string", enum: OWNERS },
 			kind: { type: "string", enum: KINDS },
 			status: {
 				anyOf: [
 					{ type: "string", enum: ["open", "all", ...STATUSES] },
 					{ type: "array", items: { type: "string", enum: STATUSES } },
 				],
-				description: 'open (todo, doing, waiting; the default), all, one status, or a list.',
+				description: "open (default), all, a status or a list.",
 			},
-			q: str("Words to look for in titles, details and notes, or a ref."),
-			goal: { ...GOAL_REF, description: 'Only items on this goal: its number or exact title; "none" for items on no goal.' },
-			limit: { type: "integer", minimum: 1, maximum: 500, description: "At most this many (default 50)." },
+			q: str("Words, or a ref."),
+			goal: { ...GOAL_REF, description: 'Number, exact title or "none".' },
+			limit: { type: "integer", minimum: 1, maximum: 500, description: "Default 50." },
 		}),
 		hints: RO,
 		run(a, c) {
@@ -858,8 +864,7 @@ const TOOLS: Tool[] = [
 	},
 	{
 		name: "get_item",
-		title: "Get an item",
-		description: "One item with its details, choices, answer, what it waits on, what waits on it, and full history. When a prompt names an item, read it first: its body and notes are the brief.",
+		description: "One item with its history, links and latest run. Its body and notes are the brief.",
 		input: obj({ ref: REF }, ["ref"]),
 		hints: RO,
 		run(a, c) {
@@ -869,32 +874,30 @@ const TOOLS: Tool[] = [
 	},
 	{
 		name: "add_item",
-		title: "Add an item",
-		description:
-			`Files a new item. kind: task or bug (code work), check ({{name}} tries it on a device), review (something only {{name}} can judge), decision (a question only {{name}} can answer), setup (accounts, consoles, stores), notice (what changed; doesn't wait on {{name}}), idea. Returns the new wb-xxxx, what goes ahead if {{name}} says nothing, and warnings.\nAsk only what you can't decide. A decision needs recommended (it becomes the default; no options: give default) unless it's priority 1; related questions → one decision, pick "many". Changed something → a notice, not a review.\n\n${BRIEF_RULES}`,
+		description: `Files an item; warns what's missing. A decision needs recommended unless priority 1.\n\n${BRIEF_RULES_SHORT}`,
 		input: obj(
 			{
-				title: str("Short, specific and in plain words: what to do or decide, as {{name}} would say it.", { minLength: 1, maxLength: 300 }),
-				kind: { type: "string", enum: KINDS, description: "Default task (decision when options are given)." },
-				owner: { type: "string", enum: OWNERS, description: "Who has to act: kostas ({{name}}) or agent. Default by kind: {{owner-defaults}}" },
+				title: str("Plain words.", { minLength: 1, maxLength: 300 }),
+				kind: { type: "string", enum: KINDS, description: "Default task (decision with options)." },
+				owner: { type: "string", enum: OWNERS, description: "Default by kind." },
 				project: PROJECT,
-				priority: { type: "integer", enum: [1, 2, 3], description: "1 launch blocker, 2 before launch (default), 3 later." },
-				area: str("A short area tag, e.g. billing."),
-				body: str("The whole brief, in markdown (- and 1. lists, indent to nest, **bold**, # headings, > quotes, `code`, ``` blocks, [links](https://…)). Required for anything {{name}} has to act on: they don't open files."),
+				priority: { type: "integer", enum: [1, 2, 3], description: "1 launch blocker, 2 default, 3 later." },
+				area: { type: "string" },
+				body: str("The whole brief, markdown."),
 				images: {
 					type: "array",
 					maxItems: 12,
-					description: "Screenshots to show on the item, in this order.",
+					description: "Screenshots.",
 					items: obj({ ...IMAGE_SOURCE, caption: CAPTION }, ["caption"]),
 				},
-				options: { type: "array", items: { type: "string", minLength: 1 }, maxItems: 12, description: "The choices of a decision; {{name}} answers with one click (or ticks several, with pick many)." },
+				options: { type: "array", items: { type: "string", minLength: 1 }, maxItems: 12, description: "A decision's choices." },
 				...ASK_PARAMS,
-				branch: str("The git branch the work is on."),
-				source: str('Where it came from, e.g. "src/app.ts:42".'),
-				status: { type: "string", enum: STATUSES, description: "Default todo." },
-				blocks: str("An item of yours that waits on this new one, e.g. wb-k3f9: it goes to waiting, and back to todo by itself when this is answered, finished or dropped. This is how you file a question or a check for {{name}} and wait on it in one call."),
-				waits_on: { type: "array", items: { type: "string", minLength: 1 }, maxItems: 12, description: "Items this new one waits on (wb-xxxx): it is filed as waiting, and goes to todo when they're all answered, finished or dropped." },
-				goal: { ...GOAL_REF, description: "The goal this item serves: its number (see list_goals) or its exact title. Attach what you file to the goal it serves." },
+				branch: { type: "string" },
+				source: str('E.g. "src/app.ts:42".'),
+				status: { type: "string", enum: STATUSES },
+				blocks: str("Your item (wb-k3f9) that waits on this one."),
+				waits_on: { type: "array", items: { type: "string", minLength: 1 }, maxItems: 12, description: "Items this waits on." },
+				goal: { ...GOAL_REF, description: "The goal it serves." },
 			},
 			["title"],
 		),
@@ -947,8 +950,7 @@ const TOOLS: Tool[] = [
 	},
 	{
 		name: "update_item",
-		title: "Update an item",
-		description: "Changes an item's fields; the change is recorded in its history. To change status with a reason, prefer start_item, wait_item, finish_item or drop_item.",
+		description: "Changes an item's fields. For status prefer start_item, wait_item, finish_item, drop_item.",
 		input: obj(
 			{
 				ref: REF,
@@ -957,16 +959,19 @@ const TOOLS: Tool[] = [
 				owner: { type: "string", enum: OWNERS },
 				status: { type: "string", enum: STATUSES },
 				priority: { type: "integer", enum: [1, 2, 3] },
-				area: str("Area tag."),
-				body: str("Replaces the details (markdown)."),
-				options: { type: "array", items: { type: "string", minLength: 1 }, maxItems: 12, description: "Replaces a decision's choices." },
-				...ASK_PARAMS,
-				branch: str("Git branch."),
-				project: str("Move it to this project (slug)."),
+				area: { type: "string" },
+				body: str("Replaces the details."),
+				options: { type: "array", items: { type: "string", minLength: 1 }, maxItems: 12, description: "Replaces the choices." },
+				default: ASK_PARAMS.default,
+				decide_by: { type: "string" },
+				pick: { type: "string", enum: ["one", "many"] },
+				recommended: { anyOf: [{ type: "string" }, { type: "array", items: { type: "string" } }] },
+				branch: { type: "string" },
+				project: str("Move it here."),
 				goal: GOAL_REF,
-				note: str("Also add this note to the history."),
-				waits_on: { type: "array", items: { type: "string", minLength: 1 }, maxItems: 12, description: "Items (wb-xxxx) it now also waits on: it becomes waiting, and goes back to todo when all of them are answered, finished or dropped." },
-				not_waiting_on: { type: "array", items: { type: "string", minLength: 1 }, maxItems: 12, description: "Items (wb-xxxx) it no longer waits on. Without any left it stays waiting until you change its status." },
+				note: str("Also add this note."),
+				waits_on: { type: "array", items: { type: "string", minLength: 1 }, maxItems: 12, description: "Items it also waits on." },
+				not_waiting_on: { type: "array", items: { type: "string", minLength: 1 }, maxItems: 12 },
 			},
 			["ref"],
 		),
@@ -1000,9 +1005,8 @@ const TOOLS: Tool[] = [
 	},
 	{
 		name: "attach_image",
-		title: "Attach a screenshot",
 		description:
-			"Puts a picture on an item, where {{name}} sees it right under the details. For anything on screen: a bug, a layout, a wording in place, before and after. It needs a file: `adb exec-out screencap -p > shot.png` on Android, Playwright's page.screenshot({ path }) or `chromium --headless --screenshot=shot.png <url>` on the web. A browser tool's screenshot works if its result names a file.",
+			"Puts a picture under an item's details. Needs a file: `adb exec-out screencap -p > shot.png`, Playwright's page.screenshot({ path }) or `chromium --headless --screenshot=shot.png <url>`.",
 		input: obj({ ref: REF, ...IMAGE_SOURCE, caption: CAPTION }, ["ref", "caption"]),
 		hints: WRITE,
 		async run(a, c) {
@@ -1014,34 +1018,31 @@ const TOOLS: Tool[] = [
 		},
 	},
 	{
-		name: "get_image",
-		title: "See an item's screenshot",
-		description: "Shows you a picture attached to an item. get_item lists them, with their ids and captions.",
-		input: obj({ id: { type: "integer", description: "The image's id, from get_item." } }, ["id"]),
-		hints: RO,
-		run(a, c) {
-			const info = imageInfo(c.db, a.id);
-			const row = imageData(c.db, a.id);
-			if (!info || !row) throw new ToolError(`no image ${a.id}`);
-			return { text: imageSummary(info), image: { data: Buffer.from(row.data).toString("base64"), mimeType: row.type } };
-		},
-	},
-	{
-		name: "remove_image",
-		title: "Remove a screenshot",
-		description: "Takes a picture off an item, such as one that's wrong or out of date. Attach the right one with attach_image. The item's history keeps a line saying so.",
-		input: obj({ id: { type: "integer", description: "The image's id, from get_item." } }, ["id"]),
+		name: "image",
+		description: "get: shows a picture attached to an item (ids in get_item). remove: takes a wrong or outdated one off; the history keeps a line.",
+		input: obj({ action: action(["get", "remove"]), id: { type: "integer", description: "The image's id." } }, ["action", "id"]),
 		hints: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
-		run(a, c) {
-			if (!imageInfo(c.db, a.id)) throw new ToolError(`no image ${a.id}`);
-			return changed(c, removeImage(c.db, a.id, "agent"), `Image ${a.id} removed from`);
-		},
+		run: byAction({
+			get: {
+				run(a, c) {
+					const info = imageInfo(c.db, a.id);
+					const row = imageData(c.db, a.id);
+					if (!info || !row) throw new ToolError(`no image ${a.id}`);
+					return { text: imageSummary(info), image: { data: Buffer.from(row.data).toString("base64"), mimeType: row.type } };
+				},
+			},
+			remove: {
+				run(a, c) {
+					if (!imageInfo(c.db, a.id)) throw new ToolError(`no image ${a.id}`);
+					return changed(c, removeImage(c.db, a.id, "agent"), `Image ${a.id} removed from`);
+				},
+			},
+		}),
 	},
 	{
 		name: "start_item",
-		title: "Start an item",
-		description: "Marks an item as being worked on (doing) and links it to this agent session, so the board can point back to it. Do this when you pick up work.",
-		input: obj({ ref: REF, branch: str("The branch you work on."), session: str("The desktop-app session id (default: the one this server runs in).") }, ["ref"]),
+		description: "Marks an item doing and links it to this session.",
+		input: obj({ ref: REF, branch: str("Your branch."), session: str("Default: this server's.") }, ["ref"]),
 		hints: { ...WRITE, idempotentHint: true },
 		run(a, c) {
 			const id = itemId(c, a.ref);
@@ -1052,14 +1053,13 @@ const TOOLS: Tool[] = [
 	},
 	{
 		name: "wait_item",
-		title: "Mark an item waiting",
 		description:
-			"The work is blocked: says on what (a review, an answer, a deploy). It shows as waiting on the board. When it waits on another item (above all something {{name}} has to answer, check or review: file it with add_item, or use add_item's blocks to do both at once), pass it as on: the board puts this item back to todo by itself, with the answer in its history, when that item is answered, finished or dropped. Without on, nothing resumes it: {{name}} or you have to.",
+			"Blocked: shows as waiting, with the reason. Waiting on another item (add_item's blocks files one)? Pass it as on: this goes back to todo when it's answered, finished or dropped. Without on nothing resumes it.",
 		input: obj(
 			{
 				ref: REF,
-				reason: str("What it waits on, in a few words.", { minLength: 1 }),
-				on: { type: "array", items: { type: "string", minLength: 1 }, minItems: 1, maxItems: 12, description: "The items it waits on (wb-xxxx). When there are several it resumes once all of them are dealt with." },
+				reason: str("What it waits on.", { minLength: 1 }),
+				on: { type: "array", items: { type: "string", minLength: 1 }, minItems: 1, maxItems: 12, description: "Items it waits on (all of them)." },
 			},
 			["ref", "reason"],
 		),
@@ -1074,9 +1074,8 @@ const TOOLS: Tool[] = [
 	},
 	{
 		name: "finish_item",
-		title: "Finish an item",
-		description: "Marks an item done. The note says what changed and where (commit, branch, PR). File anything left over as new items. Whatever waited on this item goes back to todo, with this note in its history.",
-		input: obj({ ref: REF, note: str('What changed and where, e.g. "a1b2c3d on main: …".') }, ["ref"]),
+		description: "Marks done. Note: what changed and where (commit, branch, PR). Items waiting on it go back to todo.",
+		input: obj({ ref: REF, note: str("What changed and where.") }, ["ref"]),
 		hints: WRITE,
 		run(a, c) {
 			const id = itemId(c, a.ref);
@@ -1086,9 +1085,8 @@ const TOOLS: Tool[] = [
 	},
 	{
 		name: "drop_item",
-		title: "Drop an item",
-		description: "Won't be done: closes the item as dropped, with why. It stays in the history (unless Kostas has the board remove closed items after a while).",
-		input: obj({ ref: REF, reason: str("Why it's dropped.") }, ["ref"]),
+		description: "Closes an item as dropped, with why.",
+		input: obj({ ref: REF, reason: str("Why.") }, ["ref"]),
 		hints: WRITE,
 		run(a, c) {
 			const id = itemId(c, a.ref);
@@ -1098,9 +1096,8 @@ const TOOLS: Tool[] = [
 	},
 	{
 		name: "add_note",
-		title: "Add a note",
-		description: "Adds a line to an item's history: progress, a result, a finding, or {{name}}'s own words when they report or decide something in the conversation.",
-		input: obj({ ref: REF, text: str("The note. With more than one line it shows as markdown, so it can hold a list.", { minLength: 1 }) }, ["ref", "text"]),
+		description: "Adds a line to an item's history: progress, a result, or {{name}}'s words from the conversation.",
+		input: obj({ ref: REF, text: str("Markdown.", { minLength: 1 }) }, ["ref", "text"]),
 		hints: WRITE,
 		run(a, c) {
 			const id = itemId(c, a.ref);
@@ -1110,15 +1107,14 @@ const TOOLS: Tool[] = [
 	},
 	{
 		name: "answer_decision",
-		title: "Record {{name}}'s answer",
 		description:
-			'Records the answer to a decision and hands it back to the agents. Only with an answer {{name}} gave in the conversation: never decide for them. answer is one of the item\'s options (or its number) or their own words; for a pick-"many" decision, a list of the options they picked ([] for none of them).',
+			"Records the answer to a decision, only one {{name}} gave in the conversation. An option, its number or their words; pick many: a list.",
 		input: obj(
 			{
 				ref: REF,
 				answer: {
 					anyOf: [{ type: "string", minLength: 1 }, { type: "array", items: { type: "string", minLength: 1 }, maxItems: 12 }],
-					description: "{{name}}'s answer: an option, its number, their words, or a list of options.",
+					description: "Option, number, words, or a list.",
 				},
 			},
 			["ref", "answer"],
@@ -1135,13 +1131,11 @@ const TOOLS: Tool[] = [
 	},
 	{
 		name: "list_rulings",
-		title: "List rulings",
-		description:
-			"{{name}}'s rulings: standing answers in a project, one line each, with the item each came from. Read them before you ask {{name}} anything (a decision, a review), and follow them in your work. Words in q match with or without accents.",
+		description: "{{name}}'s standing answers, one line each. Read before you ask; follow them.",
 		input: obj({
-			project: str('Project slug, or "*" for every project. Default: the current project.'),
-			q: str("Words to look for in the rulings and the questions they answer."),
-			retired: { type: "boolean", description: "List the retired ones instead (no longer hold)." },
+			project: ALL_PROJECTS,
+			q: str("Words."),
+			retired: { type: "boolean", description: "List the retired ones." },
 		}),
 		hints: RO,
 		run(a, c) {
@@ -1153,14 +1147,12 @@ const TOOLS: Tool[] = [
 	},
 	{
 		name: "add_ruling",
-		title: "Add a ruling",
-		description:
-			"Writes down one of {{name}}'s standing answers for a project, as one line in plain words (\"Traditional is the default melisma style\"). Only what {{name}} decided, in the conversation or in an answer: never your own preference. item names where it was decided.",
+		description: "Writes down one of {{name}}'s standing answers, one plain line. Only what {{name}} decided, never your preference.",
 		input: obj(
 			{
-				text: str("The rule, one line in plain words, as {{name}} would say it.", { minLength: 1, maxLength: 400 }),
+				text: str("One line.", { minLength: 1, maxLength: 400 }),
 				project: PROJECT,
-				item: str("The item it was decided in, e.g. wb-k3f9."),
+				item: str("Where it was decided."),
 			},
 			["text"],
 		),
@@ -1174,21 +1166,25 @@ const TOOLS: Tool[] = [
 	},
 	{
 		name: "update_ruling",
-		title: "Rewrite a ruling",
 		description:
-			"Rewrites a ruling (it then no longer counts as a draft), or moves it to another project or item. Use it to turn a drafted ruling (\"<question>: <answer>\") into one clear line that stands by itself, in {{name}}'s meaning: never change what was decided.",
+			'Rewrites a ruling: turn a drafted "<question>: <answer>" into one clear line, never changing what was decided. Or moves it, or retire it when it no longer holds.',
 		input: obj(
 			{
-				id: { type: "integer", minimum: 1, description: "The ruling's id (list_rulings)." },
+				id: { type: "integer", minimum: 1 },
 				text: str("The new line.", { minLength: 1, maxLength: 400 }),
-				project: str("Move it to this project (slug)."),
-				item: str('The item it came from, e.g. wb-k3f9 ("" for none).'),
+				project: str("Move it here."),
+				item: str('Its source item ("" for none).'),
+				retire: { type: "boolean" },
 			},
 			["id"],
 		),
 		hints: { ...WRITE, idempotentHint: true },
 		run(a, c) {
 			const id = rulingId(c, a.id);
+			if (a.retire) {
+				const r = retireRuling(c.db, id, "agent");
+				return { text: `Retired ruling ${rulingLine(r)}`, data: { ruling: rulingJson(r) } };
+			}
 			const r = updateRuling(
 				c.db,
 				id,
@@ -1199,124 +1195,92 @@ const TOOLS: Tool[] = [
 		},
 	},
 	{
-		name: "retire_ruling",
-		title: "Retire a ruling",
-		description: "Takes a ruling out of use when it no longer holds: {{name}} changed their mind, or what it was about is gone. It's kept, with the retired ones.",
-		input: obj({ id: { type: "integer", minimum: 1, description: "The ruling's id (list_rulings)." } }, ["id"]),
-		hints: { ...WRITE, idempotentHint: true },
-		run(a, c) {
-			const r = retireRuling(c.db, rulingId(c, a.id), "agent");
-			return { text: `Retired ruling ${rulingLine(r)}`, data: { ruling: rulingJson(r) } };
-		},
-	},
-	{
-		name: "list_reports",
-		title: "List reports",
-		description: "Report pages published to the board (HTML pages in a project's sidebar), with versions. Day reports (one per work day) are left out unless asked for.",
-		input: obj({ project: str('Project slug, or "*" for every project. Default: the current project.'), include_days: { type: "boolean", description: "Include the day-YYYY-MM-DD pages." } }),
-		hints: RO,
-		run(a, c) {
-			const project = a.project === "*" ? undefined : projectOf(c, a.project, false);
-			const list = listReports(c.db, project).filter((r) => a.include_days || !r.name.startsWith("day-"));
-			return {
-				text: list.length
-					? list.map((r) => `#${r.id} ${r.project}/${r.name}: ${r.title}${r.grp ? ` [${r.grp}]` : ""}${r.icon || r.name.startsWith("day-") ? "" : " (no icon: give it one)"} v${r.version}, updated ${r.updated_at} · ${BOARD}/#report/${r.id}`).join("\n")
-					: "no reports",
-				data: { reports: list.map((r) => ({ ...r, url: `${BOARD}/#report/${r.id}` })) },
-			};
-		},
-	},
-	{
-		name: "read_report",
-		title: "Read a report",
-		description: "A report's content: its visible text (default) or its HTML. Pages drawn by script have little text; ask for html then.",
-		input: obj(
-			{
-				report: { anyOf: [{ type: "integer", minimum: 1 }, { type: "string", minLength: 1 }], description: "The report's id (#12) or its name in the project." },
-				project: PROJECT,
-				version: { type: "integer", minimum: 1, description: "A version (default: the latest)." },
-				format: { type: "string", enum: ["text", "html"], description: "Default text." },
-			},
-			["report"],
-		),
-		hints: RO,
-		run(a, c) {
-			const id = reportId(a, c);
-			const r = getReport(c.db, id);
-			const page = r && reportHtml(c.db, id, a.version);
-			if (!r || !page) throw new ToolError(`no report #${id}${a.version ? ` v${a.version}` : ""}`);
-			const MAX = 60_000;
-			let body = a.format === "html" ? page.html : htmlText(page.html);
-			const cut = body.length > MAX;
-			if (cut) body = body.slice(0, MAX);
-			const head = `#${r.id} ${r.title} · ${r.project} · v${page.n} of ${r.version} · ${BOARD}/#report/${r.id}`;
-			const hint = a.format !== "html" && body.length < 200 && /<script/i.test(page.html) ? "\n(the page is drawn by script; read it with format html)" : "";
-			return {
-				text: `${head}\n\n${body}${cut ? `\n\n[cut at ${MAX} characters]` : ""}${hint}`,
-				links: [{ uri: `wb://report/${r.id}`, name: r.name, title: r.title, mimeType: "text/html" }],
-			};
-		},
-	},
-	{
-		name: "publish_report",
-		title: "Publish a report",
+		name: "report",
 		description:
-			"Publishes a self-contained HTML page to a project's sidebar; the same name again adds a version. The page runs sandboxed and gets a `wb` object to read the board (wb.items(), wb.trackers(), wb.git(), wb.fetch(source, path), wb.state…). Use var(--wb-bg), --wb-ink, --wb-accent… to match the board. Every report needs its own icon: give one the first time.",
+			"HTML report pages in a project's sidebar. list; read (text or html); publish a self-contained page (the same name adds a version): it runs sandboxed with a `wb` object (wb.items(), wb.trackers(), wb.git(), wb.fetch(source, path), wb.state) and CSS vars --wb-bg, --wb-ink, --wb-accent; icon sets a report's icon. Every report needs its own icon, in colour.",
 		input: obj(
 			{
-				name: str("Short name, unique in the project (e.g. release-status).", { minLength: 1, maxLength: 80 }),
-				html: str("The whole page.", { minLength: 1 }),
-				title: str("Shown in the sidebar (default: the page's <title>)."),
-				group: str("A heading in the sidebar to file it under."),
-				icon: { ...REPORT_ICON, description: `${REPORT_ICON.description} Needed the first time; left out later, the icon stays as it is.` },
-				project: PROJECT,
+				action: action(["list", "read", "publish", "icon"]),
+				report: { anyOf: [{ type: "integer", minimum: 1 }, { type: "string", minLength: 1 }], description: "read, icon: id (#12) or name." },
+				name: str("publish: unique in the project.", { minLength: 1, maxLength: 80 }),
+				html: str("publish: the whole page.", { minLength: 1 }),
+				title: str("publish: default the page's <title>."),
+				group: str("publish: sidebar heading."),
+				icon: { ...REPORT_ICON },
+				version: { type: "integer", minimum: 1, description: "read: default the latest." },
+				format: { type: "string", enum: ["text", "html"], description: "read: default text (script-drawn pages need html)." },
+				include_days: { type: "boolean", description: "list: with the day-* pages." },
+				project: ALL_PROJECTS,
 			},
-			["name", "html"],
+			["action"],
 		),
-		hints: { ...WRITE, idempotentHint: true },
-		run(a, c) {
-			const project = projectOf(c, a.project)!;
-			if (reportLeftWithoutIcon(c.db, project, String(a.name), a.icon))
-				throw new ToolError("every report needs its own icon in the sidebar: pass icon (one emoji, or a small SVG in its own colours). Nothing was published.");
-			const r = publishReport(c.db, { project, name: a.name, html: a.html, title: a.title, grp: a.group, icon: a.icon }, "agent");
-			return {
-				text: `report #${r.id} v${r.n}${r.changed ? "" : " (unchanged)"} in ${project}: ${BOARD}/#report/${r.id}`,
-				data: { id: r.id, version: r.n, changed: r.changed, url: `${BOARD}/#report/${r.id}` },
-				links: [{ uri: `wb://report/${r.id}`, name: a.name, mimeType: "text/html" }],
-			};
-		},
-	},
-	{
-		name: "set_report_icon",
-		title: "Set a report's icon",
-		description:
-			"Sets the icon a published report shows in the sidebar, in place of the usual page glyph: to give one to a report that has none, or a better one. No new version is added.",
-		input: obj(
-			{
-				report: { anyOf: [{ type: "integer", minimum: 1 }, { type: "string", minLength: 1 }], description: "The report's id (#12) or its name in the project." },
-				icon: { ...REPORT_ICON, minLength: 1 },
-				project: PROJECT,
+		hints: WRITE,
+		run: byAction({
+			list: {
+				run(a, c) {
+					const project = a.project === "*" ? undefined : projectOf(c, a.project, false);
+					const list = listReports(c.db, project).filter((r) => a.include_days || !r.name.startsWith("day-"));
+					return {
+						text: list.length
+							? list.map((r) => `#${r.id} ${r.project}/${r.name}: ${r.title}${r.grp ? ` [${r.grp}]` : ""}${r.icon || r.name.startsWith("day-") ? "" : " (no icon: give it one)"} v${r.version}, updated ${r.updated_at} · ${BOARD}/#report/${r.id}`).join("\n")
+							: "no reports",
+						data: { reports: list.map((r) => ({ ...r, url: `${BOARD}/#report/${r.id}` })) },
+					};
+				},
 			},
-			["report", "icon"],
-		),
-		hints: { ...WRITE, idempotentHint: true },
-		run(a, c) {
-			if (!String(a.icon ?? "").trim()) throw new ToolError("every report keeps an icon: give another one instead of removing it");
-			const id = reportId(a, c);
-			const icon = setReportIcon(c.db, id, a.icon);
-			return { text: `report #${id}: ${icon ? "icon set" : "icon removed"} · ${BOARD}/#report/${id}`, data: { id, icon } };
-		},
+			read: {
+				need: ["report"],
+				run(a, c) {
+					const id = reportId(a, c);
+					const r = getReport(c.db, id);
+					const page = r && reportHtml(c.db, id, a.version);
+					if (!r || !page) throw new ToolError(`no report #${id}${a.version ? ` v${a.version}` : ""}`);
+					const MAX = 60_000;
+					let body = a.format === "html" ? page.html : htmlText(page.html);
+					const cut = body.length > MAX;
+					if (cut) body = body.slice(0, MAX);
+					const head = `#${r.id} ${r.title} · ${r.project} · v${page.n} of ${r.version} · ${BOARD}/#report/${r.id}`;
+					const hint = a.format !== "html" && body.length < 200 && /<script/i.test(page.html) ? "\n(the page is drawn by script; read it with format html)" : "";
+					return {
+						text: `${head}\n\n${body}${cut ? `\n\n[cut at ${MAX} characters]` : ""}${hint}`,
+						links: [{ uri: `wb://report/${r.id}`, name: r.name, title: r.title, mimeType: "text/html" }],
+					};
+				},
+			},
+			publish: {
+				need: ["name", "html"],
+				run(a, c) {
+					const project = projectOf(c, a.project)!;
+					if (reportLeftWithoutIcon(c.db, project, String(a.name), a.icon))
+						throw new ToolError("every report needs its own icon in the sidebar: pass icon (one emoji, or a small SVG in its own colours). Nothing was published.");
+					const r = publishReport(c.db, { project, name: a.name, html: a.html, title: a.title, grp: a.group, icon: a.icon }, "agent");
+					return {
+						text: `report #${r.id} v${r.n}${r.changed ? "" : " (unchanged)"} in ${project}: ${BOARD}/#report/${r.id}`,
+						data: { id: r.id, version: r.n, changed: r.changed, url: `${BOARD}/#report/${r.id}` },
+						links: [{ uri: `wb://report/${r.id}`, name: a.name, mimeType: "text/html" }],
+					};
+				},
+			},
+			icon: {
+				need: ["report", "icon"],
+				run(a, c) {
+					if (!String(a.icon ?? "").trim()) throw new ToolError("every report keeps an icon: give another one instead of removing it");
+					const id = reportId(a, c);
+					const icon = setReportIcon(c.db, id, a.icon);
+					return { text: `report #${id}: ${icon ? "icon set" : "icon removed"} · ${BOARD}/#report/${id}`, data: { id, icon } };
+				},
+			},
+		}),
 	},
 	{
 		name: "add_link",
-		title: "Add a link",
-		description: "Adds a bookmark to a project's sidebar (or every project's), optionally in a group: a console, a dashboard, a deployed page.",
+		description: "Adds a bookmark to a project's sidebar: a console, a dashboard, a deployed page.",
 		input: obj(
 			{
-				label: str("What it is.", { minLength: 1, maxLength: 120 }),
+				label: str("Name.", { minLength: 1, maxLength: 120 }),
 				url: str("http(s) address.", { minLength: 1 }),
-				project: str('Project slug, or "*" for every project. Default: the current project.'),
-				group: str("A group to file it under."),
+				project: ALL_PROJECTS,
+				group: str("Sidebar group."),
 			},
 			["label", "url"],
 		),
@@ -1329,13 +1293,12 @@ const TOOLS: Tool[] = [
 	},
 	{
 		name: "vault_list",
-		title: "List vault secrets",
 		description:
-			"The names and notes of the secrets in {{name}}'s vault that a project may use (its own and those for every project), never a value. {{name}} has to allow it: a window on their computer shows your reason and asks for the vault password, and this call waits for the answer (up to 2 minutes). Use it to learn a secret's exact name for vault_get, once per session at most. When {{name}} says no, don't ask again unless they tell you to.",
+			"Names and notes of the vault secrets a project may use, never a value. {{name}} allows it in a window on their computer (waits up to 2 minutes). Once per session at most.",
 		input: obj(
 			{
-				reason: str('Why you need them, in one sentence {{name}} reads in the window, e.g. "to find the Cloudflare token for the deploy".', { minLength: 3, maxLength: 300 }),
-				project: str('Project slug, or "*" for every project\'s secrets. Default: the current project.'),
+				reason: str("One sentence {{name}} reads.", { minLength: 3, maxLength: 300 }),
+				project: ALL_PROJECTS,
 			},
 			["reason"],
 		),
@@ -1347,15 +1310,14 @@ const TOOLS: Tool[] = [
 	},
 	{
 		name: "vault_get",
-		title: "Get vault secrets",
 		description:
-			"Secrets from {{name}}'s vault, by name (vault_list shows the names), after {{name}} allows it: a window on their computer lists the names you ask for and your reason, and asks for the vault password. This call waits for the answer (up to 2 minutes). Ask for everything one task needs in one call: each call is a new window.\n\nBy default (deliver \"file\") the values go into a private .env file, readable only by this user and deleted after 15 minutes, and you get its path, not the values, so they stay out of this conversation: use it as `set -a; . <path>; set +a` before a command, or a tool's --env-file. Never print, echo, cat or copy the values into files, commits or messages. deliver \"text\" returns the values in the reply instead: only when you must put a value somewhere yourself, and {{name}} sees that in the window.\n\nNever ask {{name}} to paste a secret into the chat: use this. When they say no, don't ask again unless they tell you to.",
+			"Vault secrets by name (vault_list), after {{name}} allows it in a window on their computer (waits up to 2 minutes). Ask for all one task needs in one call. deliver file (default): a private .env file, deleted after 15 minutes; you get its path: `set -a; . <path>; set +a`. Never print, copy or commit the values. text: the values in the reply, only when you must place one yourself.",
 		input: obj(
 			{
-				names: { type: "array", items: str("A secret's name, e.g. CLOUDFLARE_API_TOKEN.", { minLength: 1, maxLength: 200 }), minItems: 1, maxItems: 20, description: "The secrets you need, by name." },
-				reason: str('Why you need them, in one sentence {{name}} reads in the window, e.g. "to deploy the worker with wrangler".', { minLength: 3, maxLength: 300 }),
-				deliver: { type: "string", enum: ["file", "text"], description: 'file (default): a private .env file, deleted after 15 minutes; you get its path. text: the values in the reply.' },
-				project: str('Project slug, or "*" to look in every project. Default: the current project (its own secrets win over those for every project).'),
+				names: { type: "array", items: str("E.g. CLOUDFLARE_API_TOKEN.", { minLength: 1, maxLength: 200 }), minItems: 1, maxItems: 20 },
+				reason: str("One sentence {{name}} reads.", { minLength: 3, maxLength: 300 }),
+				deliver: { type: "string", enum: ["file", "text"] },
+				project: ALL_PROJECTS,
 			},
 			["names", "reason"],
 		),
@@ -1367,154 +1329,150 @@ const TOOLS: Tool[] = [
 		},
 	},
 	{
-		name: "list_trackers",
-		title: "List status trackers",
+		name: "tracker",
 		description:
-			"Status trackers and their current readings: quotas and allowances (e.g. EAS builds used this month per platform, GitHub Actions minutes left) or states. Each meter has a level (ok, warn, bad). A project's trackers come with the global ones.",
-		input: obj({ project: str('Project slug, or "*" for every tracker. Default: the current project (else all).') }),
-		hints: RO,
-		run(a, c) {
-			const project = a.project === "*" ? undefined : projectOf(c, a.project, false);
-			const list = listTrackers(c.db, project);
-			return {
-				text: list.length ? list.map(trackerBlock).join("\n") : "no trackers (define_tracker adds one)",
-				data: { trackers: list.map(trackerJson) },
-			};
-		},
-	},
-	{
-		name: "get_tracker",
-		title: "Get a tracker",
-		description: "One tracker: its reading, levels, how and how often it reads, the last error, and its recent history (each change of reading).",
-		input: obj({ tracker: TRACKER, project: PROJECT, history: { type: "integer", minimum: 0, maximum: 500, description: "How many past readings (default 20)." } }, ["tracker"]),
-		hints: RO,
-		run(a, c) {
-			const t = resolveTracker(c.db, a.tracker, projectOf(c, a.project, false));
-			const history = a.history === 0 ? [] : trackerHistory(c.db, t.id, a.history ?? 20);
-			const lines = [
-				trackerBlock(t),
-				t.error ? `  last error (${t.checked_at} UTC): ${t.error}` : "",
-				t.stale ? "  stale: it hasn't read for three intervals" : "",
-				history.length ? "history:" : "",
-				...history.map((h) => `  ${h.at}  ${h.reading.meters.map((m) => meterText({ ...m, level: "" })).join(" · ")}${h.author ? ` (${h.author})` : ""}`),
-			];
-			return { text: lines.filter(Boolean).join("\n"), data: { tracker: trackerJson(t), history } };
-		},
-	},
-	{
-		name: "record_tracker",
-		title: "Record a tracker reading",
-		description:
-			'Records a reading of a manual tracker (one that doesn\'t read itself). reading is text like "12/15", one meter per line ("Android 12/15\\niOS 3/15"), "In review", or a list of meters.',
+			"Status trackers: live readings such as quotas (EAS builds, CI minutes), each meter ok, warn or bad. list (with the global ones); get (with history); record a manual tracker's reading; refresh self-reading ones now; define (add or change; kind manual, command or a preset: presets lists them); remove (only when {{name}} asks). A command runs on {{name}}'s computer every interval: only when asked. With a max, meters warn at 75% and turn bad at 90% unless warn/bad say otherwise.",
 		input: obj(
 			{
-				tracker: TRACKER,
-				project: PROJECT,
-				reading: { anyOf: [{ type: "string", minLength: 1 }, { type: "array", items: METER, minItems: 1, maxItems: 12 }] },
-				note: str("One short line shown under the meters."),
-				resets_at: str("When the allowance starts over (ISO date)."),
+				action: action(["list", "get", "record", "refresh", "define", "remove", "presets"]),
+				tracker: str("Name, or project/name; global ones just name.", { minLength: 1 }),
+				name: str("define: lowercase-with-dashes.", { minLength: 1, maxLength: 40 }),
+				project: ALL_PROJECTS,
+				history: { type: "integer", minimum: 0, maximum: 500, description: "get: default 20." },
+				reading: {
+					anyOf: [{ type: "string", minLength: 1 }, { type: "array", items: { type: "object", description: "{label, value, max, unit, text, level}" }, minItems: 1, maxItems: 12 }],
+					description: 'record: "12/15", a line per meter ("Android 12/15"), "In review", or meters.',
+				},
+				note: str("record: line under the meters."),
+				resets_at: str("record: ISO date."),
+				title: str("define."),
+				global: { type: "boolean", description: "define: shown with every project." },
+				kind: { type: "string", enum: TRACKER_KINDS, description: "define: default command if given, else manual." },
+				command: str("define: its output is the reading: 12/15, 'Android 12/15' lines, or JSON {value, max, unit, label}."),
+				params: { type: "object", additionalProperties: true, description: "define: a preset's options (strings)." },
+				every: { anyOf: [{ type: "string" }, { type: "integer", minimum: 0 }], description: 'define: "15m", "2h", "off" or seconds. Default 1h.' },
+				max: { anyOf: [{ type: "number", minimum: 0 }, { type: "null" }], description: "define: default allowance." },
+				unit: str("define."),
+				warn: str('define: "75%" or a number; "<20%" when low is bad.'),
+				bad: str("define: as warn."),
+				url: str("define: details page."),
 			},
-			["tracker", "reading"],
+			["action"],
 		),
-		hints: WRITE,
-		run(a, c) {
-			const t = resolveTracker(c.db, a.tracker, projectOf(c, a.project, false));
-			const after = recordReading(c.db, t.id, readingFrom(a as { reading: string | Meter[] }), "agent");
-			return { text: trackerBlock(after), data: { tracker: trackerJson(after) } };
-		},
-	},
-	{
-		name: "refresh_trackers",
-		title: "Refresh trackers",
-		description:
-			"Reads trackers now instead of at their next interval: one, or every self-reading tracker of a project and the global ones. Takes a few seconds each (they call CLIs and APIs). Do it after something that changes a reading, like an EAS build.",
-		input: obj({ tracker: TRACKER, project: str('Project slug, or "*" for every tracker. Default: the current project.') }),
-		hints: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
-		async run(a, c) {
-			const project = a.project === "*" ? undefined : projectOf(c, a.project, false);
-			const list = a.tracker ? [resolveTracker(c.db, a.tracker, project)] : listTrackers(c.db, project).filter((t) => t.kind !== "manual");
-			if (!list.length) return { text: "no self-reading trackers here (manual ones take record_tracker)" };
-			if (list.some((t) => t.kind === "manual")) throw new ToolError(`${list[0].ref} is manual: use record_tracker`);
-			const results = await Promise.allSettled(list.map((t) => refreshTracker(c.db, t.id, "agent")));
-			const done = results.flatMap((r) => (r.status === "fulfilled" ? [r.value] : []));
-			const failed = results.flatMap((r, i) => (r.status === "rejected" ? [`${list[i].ref}: ${(r.reason as Error).message}`] : []));
-			return { text: [...done.map(trackerBlock), ...failed].join("\n"), data: { trackers: done.map(trackerJson) } };
-		},
-	},
-	{
-		name: "define_tracker",
-		title: "Define a tracker",
-		description: `Adds a status tracker, or changes the one with that name. How it reads (kind):
-- manual: someone records readings (record_tracker).
-- command: a shell command the board runs every interval in the project folder; what it prints is the reading ("12/15", "Android 12/15" per line, or JSON {value, max, unit, label} / [meters] / {meters, note, resets_at, url}). It runs on {{name}}'s computer on a schedule: only add one {{name}} asked for.
-- ${Object.entries(PRESETS)
-			.map(([k, p]) => `${k}: ${p.about}. params: ${Object.entries(p.options).map(([o, d]) => `${o} (${d.about})`).join("; ")}`)
-			.join("\n- ")}
-Meters with a max warn at 75% and turn bad at 90% unless warn/bad say otherwise ("<20%" or bad below warn when low is bad). Self-reading trackers are read right away.`,
-		input: obj(
-			{
-				name: str("lowercase-with-dashes, unique in its project, e.g. eas-builds.", { minLength: 1, maxLength: 40 }),
-				title: str("Shown on the board."),
-				project: PROJECT,
-				global: { type: "boolean", description: "Shown with every project instead of one." },
-				kind: { type: "string", enum: TRACKER_KINDS, description: "Default: command when a command is given, else manual." },
-				command: str("For kind command: the shell command."),
-				params: { type: "object", additionalProperties: true, description: "A preset's options, as strings." },
-				every: { anyOf: [{ type: "string" }, { type: "integer", minimum: 0 }], description: 'How often the board reads it: "15m", "2h", "1d", "off", or seconds. Default 1h.' },
-				max: { anyOf: [{ type: "number", minimum: 0 }, { type: "null" }], description: "Default allowance for meters that don't give one." },
-				unit: str("Default unit for its meters."),
-				warn: str('Where warn starts: "75%" (of max) or a number; "<20%" when low is bad.'),
-				bad: str('Where bad starts, same form as warn.'),
-				url: str("A page with the details, linked from the board."),
+		hints: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
+		run: byAction({
+			presets: {
+				run() {
+					return {
+						text: Object.entries(PRESETS)
+							.map(([k, p]) => `${k}: ${p.about}. params: ${Object.entries(p.options).map(([o, d]) => `${o} (${d.about})`).join("; ")}`)
+							.join("\n"),
+					};
+				},
 			},
-			["name"],
-		),
-		hints: { ...WRITE, idempotentHint: true, openWorldHint: true },
-		async run(a, c) {
-			const project = a.global ? "" : projectOf(c, a.project)!;
-			const patch: TrackerPatch = {};
-			for (const k of ["title", "kind", "command", "unit", "warn", "bad", "url", "max"] as const) if (a[k] !== undefined) (patch as Json)[k] = a[k];
-			if (a.params !== undefined) {
-				for (const [k, v] of Object.entries(a.params as Json)) if (typeof v !== "string") throw new ToolError(`params.${k} must be a string`);
-				patch.options = a.params;
-			}
-			// A number, or a string of digits, is seconds here (as the schema says); "15m", "2h", "off" as usual.
-			if (a.every !== undefined) patch.every = typeof a.every === "number" || /^\d+$/.test(a.every) ? Number(a.every) : parseEvery(a.every);
-			const name = String(a.name).trim().toLowerCase();
-			const existing = c.db.query("SELECT id FROM trackers WHERE project = ? AND name = ?").get(project, name) as { id: number } | null;
-			let t = existing ? updateTracker(c.db, existing.id, patch) : addTracker(c.db, { ...patch, name, project });
-			if (t.kind !== "manual" && (!existing || !t.checked_at)) t = await refreshTracker(c.db, t.id, "agent");
-			return { text: `${existing ? "Changed" : "Added"} ${trackerBlock(t)}${t.error ? `\n  error: ${t.error}` : ""}`, data: { tracker: trackerJson(t) } };
-		},
-	},
-	{
-		name: "remove_tracker",
-		title: "Remove a tracker",
-		description: "Deletes a tracker and its history. Only when {{name}} asks.",
-		input: obj({ tracker: TRACKER, project: PROJECT }, ["tracker"]),
-		hints: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
-		run(a, c) {
-			const t = resolveTracker(c.db, a.tracker, projectOf(c, a.project, false));
-			removeTracker(c.db, t.id);
-			return { text: `tracker ${t.ref} removed` };
-		},
+			list: {
+				run(a, c) {
+					const project = a.project === "*" ? undefined : projectOf(c, a.project, false);
+					const list = listTrackers(c.db, project);
+					return {
+						text: list.length ? list.map(trackerBlock).join("\n") : "no trackers (tracker define adds one)",
+						data: { trackers: list.map(trackerJson) },
+					};
+				},
+			},
+			get: {
+				need: ["tracker"],
+				run(a, c) {
+					const t = resolveTracker(c.db, a.tracker, projectOf(c, a.project, false));
+					const history = a.history === 0 ? [] : trackerHistory(c.db, t.id, a.history ?? 20);
+					const lines = [
+						trackerBlock(t),
+						t.error ? `  last error (${t.checked_at} UTC): ${t.error}` : "",
+						t.stale ? "  stale: it hasn't read for three intervals" : "",
+						history.length ? "history:" : "",
+						...history.map((h) => `  ${h.at}  ${h.reading.meters.map((m) => meterText({ ...m, level: "" })).join(" · ")}${h.author ? ` (${h.author})` : ""}`),
+					];
+					return { text: lines.filter(Boolean).join("\n"), data: { tracker: trackerJson(t), history } };
+				},
+			},
+			record: {
+				need: ["tracker", "reading"],
+				run(a, c) {
+					const t = resolveTracker(c.db, a.tracker, projectOf(c, a.project, false));
+					const after = recordReading(c.db, t.id, readingFrom(a as { reading: string | Meter[] }), "agent");
+					return { text: trackerBlock(after), data: { tracker: trackerJson(after) } };
+				},
+			},
+			refresh: {
+				async run(a, c) {
+					const project = a.project === "*" ? undefined : projectOf(c, a.project, false);
+					const list = a.tracker ? [resolveTracker(c.db, a.tracker, project)] : listTrackers(c.db, project).filter((t) => t.kind !== "manual");
+					if (!list.length) return { text: "no self-reading trackers here (manual ones take tracker record)" };
+					if (list.some((t) => t.kind === "manual")) throw new ToolError(`${list[0].ref} is manual: use action record`);
+					const results = await Promise.allSettled(list.map((t) => refreshTracker(c.db, t.id, "agent")));
+					const done = results.flatMap((r) => (r.status === "fulfilled" ? [r.value] : []));
+					const failed = results.flatMap((r, i) => (r.status === "rejected" ? [`${list[i].ref}: ${(r.reason as Error).message}`] : []));
+					return { text: [...done.map(trackerBlock), ...failed].join("\n"), data: { trackers: done.map(trackerJson) } };
+				},
+			},
+			define: {
+				need: ["name"],
+				async run(a, c) {
+					const project = a.global ? "" : projectOf(c, a.project)!;
+					const patch: TrackerPatch = {};
+					for (const k of ["title", "kind", "command", "unit", "warn", "bad", "url", "max"] as const) if (a[k] !== undefined) (patch as Json)[k] = a[k];
+					if (a.params !== undefined) {
+						for (const [k, v] of Object.entries(a.params as Json)) if (typeof v !== "string") throw new ToolError(`params.${k} must be a string`);
+						patch.options = a.params;
+					}
+					// A number, or a string of digits, is seconds here (as the schema says); "15m", "2h", "off" as usual.
+					if (a.every !== undefined) patch.every = typeof a.every === "number" || /^\d+$/.test(a.every) ? Number(a.every) : parseEvery(a.every);
+					const name = String(a.name).trim().toLowerCase();
+					const existing = c.db.query("SELECT id FROM trackers WHERE project = ? AND name = ?").get(project, name) as { id: number } | null;
+					let t = existing ? updateTracker(c.db, existing.id, patch) : addTracker(c.db, { ...patch, name, project });
+					if (t.kind !== "manual" && (!existing || !t.checked_at)) t = await refreshTracker(c.db, t.id, "agent");
+					return { text: `${existing ? "Changed" : "Added"} ${trackerBlock(t)}${t.error ? `\n  error: ${t.error}` : ""}`, data: { tracker: trackerJson(t) } };
+				},
+			},
+			remove: {
+				need: ["tracker"],
+				run(a, c) {
+					const t = resolveTracker(c.db, a.tracker, projectOf(c, a.project, false));
+					removeTracker(c.db, t.id);
+					return { text: `tracker ${t.ref} removed` };
+				},
+			},
+		}),
 	},
 ];
 
 const TOOL = new Map(TOOLS.map((t) => [t.name, t]));
 
+/** A schema as the model reads it: the limits (lengths, counts, additionalProperties) stay with check(), which says what broke. */
+function lean(s: unknown): unknown {
+	if (Array.isArray(s)) return s.map(lean);
+	if (!s || typeof s !== "object") return s;
+	return Object.fromEntries(
+		Object.entries(s)
+			.filter(([k, v]) => !["minLength", "maxLength", "minItems", "maxItems", "additionalProperties"].includes(k) && !(k === "required" && Array.isArray(v) && !v.length))
+			.map(([k, v]) => [k, k === "properties" ? Object.fromEntries(Object.entries(v as object).map(([n, x]) => [n, lean(x)])) : lean(v)]),
+	);
+}
+
 function toolDef(t: Tool, era: Era): Json {
-	const d: Json = { name: t.name, description: t.description, inputSchema: t.input };
-	if (since(era, "2025-06-18")) d.title = t.title;
-	if (since(era, "2025-03-26")) d.annotations = { title: t.title, ...t.hints };
+	// No title: the name says it, and the definitions are loaded into every agent session (tools/list size is tested).
+	const d: Json = { name: t.name, description: t.description, inputSchema: lean(t.input) };
+	// Only what differs from the spec's defaults for a tool that writes (not read-only, destructive, open world).
+	if (since(era, "2025-03-26")) d.annotations = t.hints.readOnlyHint ? { readOnlyHint: true } : t.hints.destructiveHint ? {} : { destructiveHint: false };
 	return d;
 }
 
 async function callTool(params: Json, c: Conn, era: Era): Promise<Json> {
 	const name = params.name;
-	const tool = typeof name === "string" ? TOOL.get(name) : undefined;
+	const alias = typeof name === "string" && Object.hasOwn(ALIASES, name) ? ALIASES[name] : undefined;
+	const tool = typeof name === "string" ? TOOL.get(alias?.tool ?? name) : undefined;
 	if (!tool) throw new RpcError(-32602, `Unknown tool: ${String(name)}`);
-	const args = (params.arguments ?? {}) as Json;
+	const args = { ...alias?.args, ...((params.arguments ?? {}) as Json) };
 	const fail = (text: string) => ({ content: [{ type: "text", text }], isError: true });
 	const bad = check(args, tool.input, "");
 	if (bad) return fail(bad);
