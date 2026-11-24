@@ -33,6 +33,9 @@ const hooks = {
 	readerProps: [],
 	// () → nothing: the reader sheet closed (to reload a view that shows what it may have changed).
 	readerClosed: [],
+	// (item) → nothing: an item was answered or settled from this page (any `act` call, answer.js), after the board
+	// reloaded; `item` is as the server gave it back. For a view that moves on to the next one (the Inbox).
+	settled: [],
 	// (collapsed) → HTML: in the sidebar, under the trackers (the folded rail when `collapsed`).
 	rail: [],
 	// () → nothing: every 10 s with the board's own reloads (not while the tab is hidden, or a form dialog is open;
