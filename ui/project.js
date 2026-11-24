@@ -159,6 +159,7 @@ function pjComposer() {
 			<div class="pj-kinds" role="radiogroup" aria-label="Kind">${PJ_KINDS.map(([k, l]) => `<button type="button" role="radio" data-kind="${k}" aria-checked="${pv.kind === k}">${kindGlyph(k)}${l}</button>`).join("")}</div>
 			<span class="pj-hint" id="pj-hint">${pjComposeHint()}</span>
 			<button type="button" class="ghost sm" id="pj-full" title="The full form: details, pictures, who acts, priority">More…</button>
+			<button type="submit" class="primary sm pj-send">File it</button>
 		</div></form>`;
 }
 
@@ -205,7 +206,7 @@ function pjRow(i, kind) {
 	if (kind === "doing") return row(i, { meta: pjMeta(i, [pjRunState(i)]), right: pjLive(i), selected: sel });
 	if (kind === "next") {
 		const r = pjRunState(i);
-		return `<div class="pj-item" role="none" data-id="${i.id}"><span class="pj-grip" title="Drag to reorder (or Alt+↑/↓)" aria-hidden="true">⋮⋮</span>${row(i, { meta: pjMeta(i), right: (r || pjLive(i)) + pjRunBtn(i), selected: sel })}</div>`;
+		return `<div class="pj-item" role="none" data-id="${i.id}"><span class="pj-grip" title="Drag to reorder (or Alt+↑/↓)" aria-hidden="true"><svg viewBox="0 0 8 14" width="8" height="14"><g fill="currentColor"><circle cx="2" cy="3" r="1.1"/><circle cx="6" cy="3" r="1.1"/><circle cx="2" cy="7" r="1.1"/><circle cx="6" cy="7" r="1.1"/><circle cx="2" cy="11" r="1.1"/><circle cx="6" cy="11" r="1.1"/></g></svg></span>${row(i, { meta: pjMeta(i), right: (r || pjLive(i)) + pjRunBtn(i), selected: sel })}</div>`;
 	}
 	if (kind === "waiting") {
 		const w = pv.waits.get(i.id);
@@ -290,7 +291,9 @@ const pjFit = (ta) => { if (!ta) return; ta.style.height = "auto"; ta.style.heig
 /* ---------- Pages, Rulings, Done ---------- */
 
 function pjPages() {
-	const reports = railReports();
+	// Day pages, folded under their label, go after the pages people wrote.
+	const all = railReports(), days = (g) => g.reports.every(isDay);
+	const reports = [...all.filter((g) => !days(g)), ...all.filter(days)];
 	const sources = railSourceList();
 	const reportsHtml = railReportList(reports, { foldDays: true });
 	return `<div class="pj-pages">
@@ -488,6 +491,8 @@ function pjOpen(r) {
 	openItemById(r.dataset.id, { list }).catch((err) => toast(err.message));
 }
 
+// A phone has no Ctrl+Enter, and its Enter may be a new line: its own button files it.
+projectView.addEventListener("submit", (e) => { if (e.target.id === "pj-compose") { e.preventDefault(); pjFile(false); } });
 projectView.addEventListener("input", (e) => { if (e.target.id === "pj-new") pjFit(e.target); });
 projectView.addEventListener("keydown", (e) => {
 	const t = e.target;
