@@ -76,8 +76,9 @@ const RD_PROPS = [
 	{ order: 70, html: (i, r) => r.compose ? "" : readerProp("Branch", rdInput("branch", i.branch, "Branch")) },
 	{ order: 80, html: (i, r) => {
 		if (r.compose) return "";
-		const href = sessionHref(i.session || "");
-		return readerProp("Session", rdInput("session", i.session, "Session") + (href ? `<a class="rd-small" href="${esc(href)}">Open the session</a>` : ""));
+		// The server's link (a Claude Code or a Desktop session, dispatch.ts desktopLink), opened by the page itself.
+		const href = i.desktop || sessionHref(i.session || "");
+		return readerProp("Session", rdInput("session", i.session, "Session") + (href ? `<a class="rd-small" href="${esc(href)}" title="Opens the session in Claude Desktop on this computer">Open in Claude Desktop</a>` : ""));
 	} },
 	// A decision's choices, one per line.
 	{ order: 85, html: (i) => i.kind !== "decision" ? "" : readerProp("Choices", `<textarea class="rd-val" data-field="options" rows="${Math.max(2, optionsOf(i).length)}" placeholder="One per line" aria-label="Choices, one per line">${esc(optionsOf(i).join("\n"))}</textarea>`) },
@@ -95,7 +96,7 @@ const RD_PROPS = [
 
 function createReader(host, opts = {}) {
 	const r = {
-		host, item: null, compose: false, draft: null, full: null, pending: [], drafts: new Map(), resume: new Set(),
+		host, item: null, compose: false, draft: null, full: null, pending: [], drafts: new Map(), resume: new Set(), toAgent: new Set(),
 		briefEdit: false, later: false, mode: "", allNotes: false, ownerPicked: false, err: "", propsOpen: false,
 	};
 	host.classList.add("rd");
@@ -229,20 +230,30 @@ function createReader(host, opts = {}) {
 		answer: { ph: "Answer in your own words…", send: "Answer" },
 		object: { ph: "Object: what you'd rather have. It goes back to the agent…", send: "Object" },
 		note: { ph: "Add a note…", send: "Add note" },
+	// A note with "send to the agent" ticked: the agent's session goes on with it (ui/dispatch.js continueAgent).
+	agent: { ph: "Tell the agent… It carries on in the same session, with what it knows", send: "Send to the agent" },
 		giveback: { ph: "A line for the agent (empty: “You decide, with your recommendation.”)", send: "Give back" },
 	};
 	// The box itself is drawn once per item, so what you type (and the cursor) stays while the rest changes; what it
 	// does (its placeholder, its foot) follows the item.
 	const replyHtml = (i) => !i.id ? "" : `<div class="rd-reply"><textarea data-rd-reply data-keep="reply-${i.id}" rows="1"></textarea><div data-part="replyfoot"></div></div>`;
 	function replyFoot(i) {
-		const mode = r.mode || defaultMode(i), m = RD_MODES[mode], def = defaultMode(i);
+		const mode = r.mode || defaultMode(i), def = defaultMode(i);
+		const toAgent = mode === "note" && toAgentIt(i);
+		const m = RD_MODES[toAgent ? "agent" : mode];
 		const t = $("[data-rd-reply]", host);
 		if (t) { t.placeholder = m.ph; t.setAttribute("aria-label", m.send); }
 		const swap = mode === "giveback" ? `<button type="button" class="rd-link" data-rd-mode="">Cancel</button>`
 			: def !== "note" ? `<button type="button" class="rd-link" data-rd-mode="${mode === "note" ? "" : "note"}">${mode === "note" ? (def === "answer" ? "Answer instead" : "Object instead") : "Add a note instead"}</button>` : "";
 		return `<div class="rd-reply-foot"><span class="rd-muted">${rdKey("Enter")} ${esc(m.send.toLowerCase())} · ${rdKey("Shift")} ${rdKey("Enter")} new line</span>${swap}<span class="spacer"></span>
-			${mode === "answer" || mode === "object" ? resumeHtml(i) : ""}<button type="button" class="ghost sm" data-rd-reply-send>${esc(m.send)}</button></div>`;
+			${mode === "answer" || mode === "object" ? resumeHtml(i) : mode === "note" ? agentTickHtml(i) : ""}<button type="button" class="${toAgent ? "primary" : "ghost"} sm" data-rd-reply-send>${esc(m.send)}</button></div>`;
 	}
+	// "Send to the agent": on an item whose agent's last run ended with a session it can carry on in, a note goes to
+	// that agent (a new run resumes the session with it) instead of only into the history.
+	const canContinueIt = (i) => typeof canContinue === "function" && !!i.id && canContinue(i);
+	const toAgentIt = (i) => r.toAgent.has(i.id) && canContinueIt(i);
+	const agentTickHtml = (i) => !canContinueIt(i) ? ""
+		: `<label class="rd-resume" title="The agent carries on in its session with what you write, in the folder it worked in"><input type="checkbox" data-rd-to-agent${r.toAgent.has(i.id) ? " checked" : ""}> send to the agent</label>`;
 	// "Resume the agent": the answer also starts an agent on the item (ui/dispatch.js decides when that can be).
 	const canResumeIt = (i) => typeof canResume === "function" && !!i.id && canResume(i);
 	function resumeHtml(i) {
@@ -373,6 +384,7 @@ function createReader(host, opts = {}) {
 	r.defer = (until) => settle((id) => act.defer(id, until), "Out of the queue until then");
 	r.giveBack = (text) => settle((id) => act.giveBack(id, text), "Given back to the agent");
 	r.note = (text) => settle((id) => act.note(id, text));
+	r.tellAgent = (text) => { const i = r.item; return settle(() => continueAgent(i, text), "Sent: the agent carries on"); };
 
 	async function create() {
 		const d = r.draft;
@@ -454,7 +466,7 @@ function createReader(host, opts = {}) {
 		const mode = r.mode || defaultMode(i);
 		if (!text && mode !== "giveback") return t.focus();
 		const done = () => { r.drafts.delete(i.id); const n = $("[data-rd-reply]", host); if (n) n.value = ""; };
-		const call = mode === "answer" ? r.answer(text) : mode === "object" ? r.object(text) : mode === "giveback" ? r.giveBack(text) : r.note(text);
+		const call = mode === "answer" ? r.answer(text) : mode === "object" ? r.object(text) : mode === "giveback" ? r.giveBack(text) : toAgentIt(i) ? r.tellAgent(text) : r.note(text);
 		return call.then(() => { if (!r.err) done(); });
 	}
 	function replyIn(mode) {
@@ -516,6 +528,11 @@ function createReader(host, opts = {}) {
 	host.addEventListener("change", (e) => {
 		const t = e.target;
 		if (t.matches("[data-rd-tick]")) { askTick(r.item, t.value, t.checked); return r.render(); }
+		if (t.matches("[data-rd-to-agent]")) {
+			const id = r.item?.id;
+			if (t.checked) r.toAgent.add(id); else r.toAgent.delete(id);
+			return r.render();
+		}
 		if (t.matches("[data-rd-resume]")) {
 			const id = r.item?.id;
 			if (t.checked) r.resume.add(id); else r.resume.delete(id);
@@ -601,6 +618,8 @@ function createReader(host, opts = {}) {
 		addImages(e.dataTransfer.files);
 	});
 	r.focus = () => scroller.focus({ preventScroll: true });
+	/** The run box's "Tell the agent…": the reply box, with "send to the agent" ticked. */
+	r.tellAgentBox = () => { const i = r.item; if (!i?.id || !canContinueIt(i)) return; r.toAgent.add(i.id); replyIn("note"); };
 	return r;
 }
 const rdLocalDate = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -694,6 +713,10 @@ function readerRoute() {
 }
 /** Shows the reader's item again if it's `id` (after a change made elsewhere on the page). */
 function readerRefresh(id) { if (sheetDlg.open && (id === undefined || sheet.item?.id === Number(id))) sheet.reload(); }
+/** Draws the reader again from what the page knows (ui/dispatch.js, once it learns more of the item's runs). */
+function readerRedraw(id) { if (sheetDlg.open && sheet.item?.id === Number(id)) sheet.render(); }
+/** The run box's "Tell the agent…" (ui/dispatch.js): the reply box, set to send to the agent. */
+function readerTellAgent(id) { if (sheetDlg.open && sheet.item?.id === Number(id)) sheet.tellAgentBox(); }
 
 sheetDlg.addEventListener("cancel", (e) => { e.preventDefault(); closeSheet(); });
 // A click on the dimmed board beside the sheet closes it; press and release must both land there, so a text
