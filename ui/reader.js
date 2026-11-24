@@ -269,6 +269,8 @@ function createReader(host, opts = {}) {
 	const RD_ACTION = {
 		html(i) {
 			if (!i.id || !ASK_KINDS.includes(i.kind)) return "";
+			// Sent, and on its way: say so at once; nothing here can be clicked again meanwhile.
+			if (r.busy?.id === i.id && r.busy.shows) return `<div class="rd-answered"><span class="rd-label">Your answer</span><div>${esc(r.busy.shows)}</div></div>`;
 			if (!askOpen(i)) return i.answer ? `<div class="rd-answered"><span class="rd-label">Your answer</span><div>${esc(i.answer)}</div></div>` : "";
 			if (i.kind !== "decision") {
 				return `<div class="rd-act"><div class="rd-acts"><button type="button" class="rd-choice rd-ok" data-rd-ack>${i.kind === "review" ? "No objections" : "Got it"} ${rdKey("A")}</button>
@@ -364,21 +366,34 @@ function createReader(host, opts = {}) {
 		} catch (e) { r.error(e.message); }
 	};
 	// An answer or the like: sent at once; the reader shows the item as it is after.
-	async function settle(call, said) {
+	// One at a time: while one is on its way, the action area is disabled and further clicks and keys do nothing (a
+	// second answer would replace the first, a second ack write it twice). `shows`: what the action area says at once
+	// (your answer), before the server has answered. Gives false when another was still on its way.
+	async function settle(call, said, shows = "") {
 		const id = r.item?.id;
-		if (!id) return;
+		if (!id || r.busy) return false;
+		r.busy = { id, shows };
+		host.classList.add("rd-busy");
+		r.render();
 		try {
 			const item = await call(id);
 			r.resume.delete(id);
 			r.err = "";
-			if (r.item?.id === id) { r.mode = ""; r.later = false; r.take(item); }
+			if (r.item?.id === id) { r.mode = ""; r.later = false; r.item = item; r.full = item; }
 			if (said) toast(said);
-		} catch (e) { r.error(e.message); }
+		} catch (e) { r.err = e.message; }
+		finally {
+			r.busy = null;
+			host.classList.remove("rd-busy");
+			r.render();
+		}
+		return true;
 	}
+	const picksWord = (a) => Array.isArray(a) ? (a.length ? a.join("; ") : "none of them") : a;
 	const sentWord = (i) => (sending(i) ? ". The agent is on it" : "");
-	r.answer = (answer) => { const i = r.item; const send = sending(i); return settle((id) => act.answer(id, answer, { send }), `Answered${sentWord(i)}`); };
-	r.ack = () => settle((id) => act.ack(id), r.item.kind === "review" ? "No objections" : "Got it");
-	r.object = (text) => { const i = r.item; const send = sending(i); return settle((id) => act.object(id, text, { send }), `Sent back to the agent${sentWord(i)}`); };
+	r.answer = (answer) => { const i = r.item; const send = sending(i); return settle((id) => act.answer(id, answer, { send }), `Answered${sentWord(i)}`, picksWord(answer)); };
+	r.ack = () => { const said = r.item.kind === "review" ? "No objections" : "Got it"; return settle((id) => act.ack(id), said, said); };
+	r.object = (text) => { const i = r.item; const send = sending(i); return settle((id) => act.object(id, text, { send }), `Sent back to the agent${sentWord(i)}`, `Objection: ${text}`); };
 	r.done = () => settle((id) => act.done(id), "Done");
 	r.drop = () => settle((id) => act.drop(id), "Dropped");
 	r.defer = (until) => settle((id) => act.defer(id, until), "Out of the queue until then");
@@ -467,7 +482,7 @@ function createReader(host, opts = {}) {
 		if (!text && mode !== "giveback") return t.focus();
 		const done = () => { r.drafts.delete(i.id); const n = $("[data-rd-reply]", host); if (n) n.value = ""; };
 		const call = mode === "answer" ? r.answer(text) : mode === "object" ? r.object(text) : mode === "giveback" ? r.giveBack(text) : toAgentIt(i) ? r.tellAgent(text) : r.note(text);
-		return call.then(() => { if (!r.err) done(); });
+		return call.then((went) => { if (went !== false && !r.err) done(); });
 	}
 	function replyIn(mode) {
 		r.mode = mode;
@@ -579,6 +594,8 @@ function createReader(host, opts = {}) {
 		if (t.matches?.("input.cap") && k === "Enter") { e.preventDefault(); return t.blur(); }
 		if (t.matches?.("input[data-field]") && k === "Enter") { e.preventDefault(); return t.blur(); }
 		if (rdTyping(t) || mod || e.altKey || r.compose) return;
+		// A held key repeats: only J and K may; and nothing else while an answer is on its way.
+		if ((e.repeat || r.busy) && !/^[jk]$/i.test(k)) { e.preventDefault(); return; }
 		const low = k.length === 1 ? k.toLowerCase() : k;
 		const key = (fn) => { e.preventDefault(); fn(); };
 		if (r.later) {
@@ -627,7 +644,7 @@ const rdLocalDate = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padSta
 /* ---------- The sheet: the reader over the board ---------- */
 
 // A sheet from the right on a computer, full screen on a phone. Its address is #item/wb-xxxx, so a link or a reload
-// opens it; closing it goes back to where you were. J and K go through the board's cards in the order they show.
+// opens it; closing it goes back to where you were. J and K go through the list it was opened from.
 const sheetDlg = document.createElement("dialog");
 sheetDlg.id = "reader";
 sheetDlg.className = "rd-sheet";
@@ -635,6 +652,8 @@ sheetDlg.setAttribute("aria-label", "Item");
 document.body.append(sheetDlg);
 // Where the address was before the sheet opened, and whether opening it added a step to the history.
 let sheetUnder = "", sheetPushed = false, routeSkip = null;
+// The order it was opened from, for J and K (openItemById's `list`).
+let sheetList = null;
 const sheet = createReader(sheetDlg, {
 	close: () => closeSheet(),
 	nav: (dir) => sheetNav(dir),
@@ -661,11 +680,17 @@ function sheetShow(item, fromRoute = false) {
  * Opens an item at once from what the board already has (state.items), then fills in what the list leaves out: the
  * history, the pictures, what it waits on, and a closed item's details. One the board doesn't list (another
  * project's, tidied away) waits for the server. `key` is an id or a ref (wb-k3f9, k3f9).
+ * `list`: the order it was opened from, for J and K (the board's cards, the queue, Today's lines, search results):
+ * an array of ids or refs, or a function that gives one when asked. Without it, J and K do nothing.
+ * `route`: opened by the address (#item/wb-k3f9), which stays as it is.
  */
-async function openItemById(key, fromRoute = false) {
+async function openItemById(key, { list = null, route = false } = {}) {
 	const k = String(key).replace(/^wb-/i, "").toLowerCase();
 	const known = state.items.find((i) => String(i.id) === k || i.ref === k);
-	sheetShow(known ? { ...known, loading: true } : await api(`/api/items/${encodeURIComponent(k)}`), fromRoute);
+	const item = known ? { ...known, loading: true } : await api(`/api/items/${encodeURIComponent(k)}`);
+	sheetList = list;
+	sheetDlg.classList.toggle("rd-nolist", !list);
+	sheetShow(item, route);
 }
 function openNewItem() {
 	if (!sheetDlg.open) { sheetUnder = location.hash; sheetPushed = false; sheetDlg.showModal(); }
@@ -687,11 +712,13 @@ function closeSheet({ nav = true } = {}) {
 	sheetPushed = false;
 	hookRun(hooks.readerClosed);
 }
+// J and K: the next or previous item in the order the reader was opened from; nothing when it wasn't from a list.
 function sheetNav(dir) {
-	const ids = [...new Set([...document.querySelectorAll("#sections .card[data-id]")].map((c) => Number(c.dataset.id)))];
-	const at = ids.indexOf(sheet.item?.id);
-	const next = at < 0 ? (dir > 0 ? ids[0] : undefined) : ids[at + dir];
-	if (next !== undefined) openItemById(next).catch((e) => toast(e.message));
+	if (!sheetList) return;
+	const keys = [...new Set((typeof sheetList === "function" ? sheetList() : sheetList).map((k) => String(k).replace(/^wb-/i, "").toLowerCase()))];
+	const at = keys.findIndex((k) => k === String(sheet.item?.id) || k === sheet.item?.ref);
+	const next = at < 0 ? (dir > 0 ? keys[0] : undefined) : keys[at + dir];
+	if (next !== undefined) openItemById(next, { list: sheetList }).catch((e) => toast(e.message));
 }
 /** route() asks this first (report.js): #item/wb-xxxx opens the reader over the view that's showing. */
 function readerRoute() {
@@ -700,7 +727,7 @@ function readerRoute() {
 	const m = h.match(/^#item\/(?:wb-)?([a-z0-9]+)$/i);
 	if (m) {
 		if (!viewShown) { showView("board"); document.title = "Workbench"; renderRail(); }
-		if (!sheetDlg.open || sheet.item?.ref !== m[1].toLowerCase()) openItemById(m[1], true).catch(() => { toast(`wb-${m[1]} isn't on the board.`); if (sheetDlg.open) closeSheet(); else history.replaceState(null, "", sheetBase()); });
+		if (!sheetDlg.open || sheet.item?.ref !== m[1].toLowerCase()) openItemById(m[1], { route: true }).catch(() => { toast(`wb-${m[1]} isn't on the board.`); if (sheetDlg.open) closeSheet(); else history.replaceState(null, "", sheetBase()); });
 		return true;
 	}
 	if (sheetDlg.open) {

@@ -369,7 +369,7 @@ function queueDo(what) {
 		case "undo": return queueUndo();
 		case "again": qs.at = 0; qs.note = ""; return queueAfterMove();
 		case "read": qs.open = !qs.open; queuePrefetch(); return queueRender();
-		case "item": return i && openItemById(i.id).catch((err) => toast(err.message));
+		case "item": return i && openItemById(i.id, { list: () => qs.list.map((x) => x.id) }).catch((err) => toast(err.message));
 		case "run": return i && openCheckRun(i.ref);
 		case "skip": return queueMove(1);
 		case "back": return queueMove(-1);
@@ -400,7 +400,8 @@ function qHint(text) { qs.note = text; queueRender(); }
 
 queueEl.addEventListener("click", (e) => {
 	const b = e.target.closest("[data-q], [data-q-answer], [data-defer]");
-	if (!b) return;
+	// The second click of a double click would land on the next item, in the same place: it does nothing.
+	if (!b || e.detail > 1) return;
 	if (b.dataset.qAnswer !== undefined) return queueAct("answer", b.dataset.qAnswer);
 	if (b.dataset.defer) return queueAct("defer", b.dataset.defer);
 	queueDo(b.dataset.q);
@@ -429,6 +430,8 @@ document.addEventListener("keydown", (e) => {
 	}
 	const i = qCurrent();
 	const key = (fn) => { e.preventDefault(); fn(); };
+	// A held key repeats: each repeat would settle the next item too. Only the arrows may.
+	if (e.repeat && !/^Arrow/.test(k)) { e.preventDefault(); return; }
 	if (mod) return key(queueUndo);
 	if (qs.sheet === "defer") {
 		if (low === "d" || k === "Enter") return key(() => queueAct("defer", "tomorrow"));

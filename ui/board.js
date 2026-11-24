@@ -35,6 +35,8 @@ function card(i, { tick = i.owner === "kostas" && OPEN.includes(i.status) && (i.
 		<div class="main"><div class="title">${esc(i.title)}</div><div class="meta">${meta}</div>${actions}</div></article>`;
 }
 
+// The cards in the order they show, for J and K in the reader.
+const boardOrder = () => [...document.querySelectorAll("#sections .card[data-id]")].map((c) => c.dataset.id);
 const section = (key, def, summary, body) =>
 	`<details class="sec fold" data-key="${key}"${isOpen(key, def)}><summary>${summary}</summary>${body}</details>`;
 const cards = (list, opts) => `<div class="cards">${list.map((i) => card(i, opts)).join("")}</div>`;
@@ -168,5 +170,5 @@ $("#sections").addEventListener("click", async (e) => {
 		return act.done(tick.dataset.tick).catch((err) => toast(err.message));
 	}
 	const c = e.target.closest(".card");
-	if (c) openItemById(c.dataset.id);
+	if (c) openItemById(c.dataset.id, { list: boardOrder }).catch((err) => toast(err.message));
 });

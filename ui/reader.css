@@ -154,7 +154,9 @@ textarea.rd-val { resize: none; field-sizing: content; line-height: 1.45; }
 .rd-reflist small { color: var(--muted); }
 
 /* Compose: a new item. */
-.rd-composing [data-rd-nav] { display: none; }
+.rd-composing [data-rd-nav], .rd-nolist [data-rd-nav] { display: none; }
+/* An answer on its way: nothing in the action area, the quiet row or the reply box can be pressed again. */
+.rd-busy [data-slot="action"], .rd-busy [data-part="quiet"], .rd-busy [data-part="replyfoot"] { pointer-events: none; opacity: .6; }
 .rd-composing .rd-title { margin-top: 4px; }
 
 /* The sheet: from the right, the board dimmed behind it. */
