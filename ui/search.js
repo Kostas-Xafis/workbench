@@ -53,7 +53,7 @@ results.addEventListener("click", async (e) => {
 	const r = e.target.closest(".res");
 	if (!r) return;
 	closeSearch();
-	if (r.dataset.item) openItem(await api(`/api/items/${r.dataset.item}`));
+	if (r.dataset.item) openItemById(r.dataset.item);
 	if (r.dataset.goal) showGoal(Number(r.dataset.goal));
 });
 document.addEventListener("pointerdown", (e) => { if (!e.target.closest(".search-wrap")) closeSearch(); });

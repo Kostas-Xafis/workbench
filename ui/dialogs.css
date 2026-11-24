@@ -39,6 +39,8 @@ dialog::backdrop { background: rgb(0 0 0 / .35); }
 .body-view { font-size: 14px; overflow-wrap: anywhere; }
 .body-view p { margin: 0 0 8px; } .body-view ul, .body-view ol { margin: 0 0 8px; padding-left: 20px; }
 .body-view:empty::before { content: "No details."; color: var(--muted); }
+.body-view.loading:empty::before { content: "Loading the details…"; }
+#history li.loading { color: var(--muted); }
 .body-view h4 { margin: 12px 0 4px; font-size: 14px; } .body-view h4:first-child { margin-top: 0; }
 .body-view li + li, .note-md li + li { margin-top: 3px; }
 .body-view li > ul, .body-view li > ol, .note-md li > ul, .note-md li > ol { margin: 3px 0 0; }

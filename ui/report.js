@@ -105,7 +105,7 @@ const bridge = {
 	reports: (project = state.report.project) => api(`/api/reports${project === "*" ? "" : `?project=${encodeURIComponent(project)}`}`),
 	// This project's status trackers and the global ones ("*": every tracker).
 	trackers: (project = state.report.project) => api(`/api/trackers${project === "*" ? "" : `?project=${encodeURIComponent(project)}`}`),
-	async open(ref) { openItem(await api(`/api/items/${encodeURIComponent(ref)}`)); return true; },
+	async open(ref) { await openItemById(ref); return true; },
 	stateGet: () => api(`/api/reports/${state.report.id}/state`),
 	async stateSet(json) {
 		if (typeof json !== "string") throw new Error("wb.state.set takes an object");

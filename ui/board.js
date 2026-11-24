@@ -108,17 +108,28 @@ function renderBoard() {
 	$("#areas").innerHTML = [...new Set(state.items.map((i) => i.area).filter(Boolean))].sort().map((a) => `<option value="${esc(a)}">`).join("");
 }
 
+// Each loader draws the board again only when its answer changed: api() gives back the same object when the board
+// answered 304 (ui/core.js), which is most polls. Closed items come without their details (bodies=open), which the
+// item dialog loads when one is opened.
+const drawn = {};
 async function loadItems() {
-	const items = await api(`/api/items${state.project ? `?project=${encodeURIComponent(state.project)}` : ""}`);
+	const items = await api(`/api/items?bodies=open${state.project ? `&project=${encodeURIComponent(state.project)}` : ""}`);
+	const archived = state.allProjects.filter((p) => p.archived_at).map((p) => p.slug).join();
+	if (drawn.items === items && drawn.archived === archived) return;
+	Object.assign(drawn, { items, archived });
 	state.items = state.project ? items : items.filter((i) => !isArchived(i.project));
 	renderBoard();
 }
 async function loadRepos() {
-	state.repos = await api("/api/git");
+	const repos = await api("/api/git");
+	if (repos === state.repos) return;
+	state.repos = repos;
 	renderBoard();
 }
 async function loadCode() {
-	state.code = await api(`/api/code${state.project ? `?project=${encodeURIComponent(state.project)}` : ""}`);
+	const code = await api(`/api/code${state.project ? `?project=${encodeURIComponent(state.project)}` : ""}`);
+	if (code === state.code) return;
+	state.code = code;
 	renderBoard();
 }
 
@@ -177,5 +188,5 @@ $("#sections").addEventListener("click", async (e) => {
 		return Promise.all([loadItems(), loadProjects()]);
 	}
 	const c = e.target.closest(".card");
-	if (c) openItem(await api(`/api/items/${c.dataset.id}`));
+	if (c) openItemById(c.dataset.id);
 });

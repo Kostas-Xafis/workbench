@@ -173,11 +173,33 @@ let iconRound = 0;
 const fav = (l) => `<img class="fav" alt="" data-letter="${esc((l.label.trim()[0] || "?").toUpperCase())}" src="/api/links/${l.id}/icon?v=${encodeURIComponent(l.icon_url || l.url)}-${iconRound}">`;
 const DOC = `<svg class="doc-ic" viewBox="0 0 16 16" fill="none" stroke="currentColor"><g stroke-width="1.3"><path d="M3.75 1.75h5.5l3 3v9.5h-8.5z"/><path d="M9.25 1.75v3h3M6 8.25h4M6 10.75h4"/></g></svg>`;
 
+// The last answer to each plain GET, by its ETag (src/fresh.ts). Asked again, the board answers 304 with no body when
+// nothing changed, and api() gives back the very same object: a loader that gets what it already has can skip its
+// render (`data === before`). Most of the 10 s poll is this. Don't change what api() gives you; copy it first.
+const kept = new Map();
 async function api(path, opts = {}) {
-	const res = await fetch(path, { ...opts, headers: { "content-type": "application/json", ...opts.headers } });
+	const plain = !opts.method && !opts.body && !opts.headers;
+	const last = plain ? kept.get(path) : null;
+	const res = await fetch(path, {
+		...opts,
+		...(plain ? { cache: "no-store" } : {}),
+		headers: { "content-type": "application/json", ...(last ? { "if-none-match": last.tag } : {}), ...opts.headers },
+	});
+	if (res.status === 304 && last) {
+		kept.delete(path);
+		kept.set(path, last);
+		return last.data;
+	}
 	// A phone that was removed in Settings (devices.ts): back to the pairing page, keeping where it was.
 	if (res.status === 401 && res.headers.get("x-wb-pair")) location.replace(`/pair${location.hash}`);
 	const data = await res.json();
 	if (!res.ok) throw new Error(data.error || res.statusText);
+	const tag = plain && res.headers.get("etag");
+	if (tag) {
+		kept.delete(path);
+		kept.set(path, { tag, data });
+		// Searches and items opened one by one add up: the oldest go.
+		if (kept.size > 100) kept.delete(kept.keys().next().value);
+	}
 	return data;
 }

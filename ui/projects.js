@@ -13,7 +13,9 @@ function renderProjects() {
 }
 
 async function loadProjects() {
-	state.allProjects = await api("/api/projects");
+	const all = await api("/api/projects");
+	if (all === state.allProjects) return;
+	state.allProjects = all;
 	state.projects = state.allProjects.filter((p) => !p.archived_at);
 	if (state.project && !state.projects.some((p) => p.slug === state.project)) state.project = "";
 	renderProjects();

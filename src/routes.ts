@@ -98,6 +98,7 @@ import { REPORT_CSP, withBridge } from "./reports";
 import { checkShare, extendShare, listShares, shareLimits, startShare, stopAllShares, stopShare } from "./share";
 import { currentKeyring, KEY_PATH, listSources, sourceFetch } from "./sources";
 import { existsSync } from "node:fs";
+import { etagRoutes, IMMUTABLE, versionedPage } from "./fresh";
 import { addStepPhoto, finishRun, removeStepPhoto, runState, saveStep, startOver } from "./checkruns";
 import { addImage, imageData, prepareImage, removeImage, setImageCaption } from "./images";
 import { mcpHttp } from "./mcp";
@@ -171,6 +172,8 @@ export type BoardHost = {
 	sleep: (ms: number) => Promise<unknown>;
 	file: (name: BoardFile) => BodyInit | null;
 	uiFile: (name: string) => Response | Promise<Response>;
+	/** Each ui/ file's version (a hash of it), for the page's links to them (fresh.ts). */
+	uiVersions: () => Promise<Record<string, string>>;
 	/** What GET /api/ping answers: enough for the desktop app to tell a board from anything else. */
 	ping: () => Record<string, unknown>;
 };
@@ -228,17 +231,26 @@ export function boardRoutes(h: BoardHost) {
 		return d ? { where: "phone", label: `phone (${d.name})` } : null;
 	};
 
-	return defineRoutes({
-		// no-cache: the browser asks again each time (cheap, it gets 304), so an updated board shows at once.
+	// Every GET answers with an ETag, and 304 when the page already has it (fresh.ts).
+	return etagRoutes(defineRoutes({
+		// no-cache: the browser asks again each time (cheap, it gets 304), so an updated board shows at once. Its files
+		// go by their versions, so the browser keeps them and asks for none of them again until one changes.
 		// A paired phone gets its cookie again, so it lasts as long as the phone keeps opening the board.
-		"/": (req, srv) => {
-			const res = new Response(h.file("page"), { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-cache" } });
+		"/": async (req, srv) => {
+			const page = versionedPage(await new Response(h.file("page")).text(), await h.uiVersions());
+			const res = new Response(page, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-cache" } });
 			const token = gate.token(req);
 			if (token && !loopback(req, srv) && gate.device(req, srv)) res.headers.append("set-cookie", h.cookie(token));
 			return res;
 		},
-		// The page's style sheets and scripts (ui.ts).
-		"/ui/:file": (req) => h.uiFile(req.params.file),
+		// The page's style sheets and scripts (ui.ts). Asked for by version (?v=, from the page), one is kept for good.
+		"/ui/:file": async (req) => {
+			const res = await h.uiFile(req.params.file);
+			if (!res.ok || !new URL(req.url).searchParams.has("v")) return res;
+			const kept = new Response(res.body, res);
+			kept.headers.set("cache-control", IMMUTABLE);
+			return kept;
+		},
 		// What the desktop app asks to tell a running board from anything else on the port: cheap, no auth, no database.
 		"/api/ping": () => Response.json(h.ping(), { headers: { "cache-control": "no-store" } }),
 		// Claude usage, from Claude Code's transcripts on this computer (usage.ts). It shows which folders you work in,
@@ -1013,7 +1025,11 @@ export function boardRoutes(h: BoardHost) {
 					status: u.get("status")?.split(",") as ItemFilter["status"],
 					goal: u.get("goal") === "none" ? "none" : u.get("goal") ? Number(u.get("goal")) : undefined,
 				};
-				return json(listItems(db, f));
+				const items = listItems(db, f);
+				// bodies=open: the details of open items only, as the board's page asks. Closed ones are most of a board,
+				// and their details load when one is opened.
+				if (u.get("bodies") === "open") for (const i of items) if (!["todo", "doing", "waiting"].includes(i.status)) delete (i as { body?: string }).body;
+				return json(items);
 			},
 			POST: jsonOnly(async (req) => {
 				try {
@@ -1231,5 +1247,5 @@ export function boardRoutes(h: BoardHost) {
 				}
 			}),
 		},
-	});
+	}));
 }

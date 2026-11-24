@@ -4,6 +4,7 @@
  * --compile` embeds it (the app's sidecar and the standalone server have no folder to read from), and named in UI,
  * the only files GET /ui/<name> sends. A new file needs its import and its UI entry, each in alphabetical order.
  */
+import { hashOf } from "./fresh";
 import pagePath from "../ui/index.html" with { type: "file" };
 import asksCss from "../ui/asks.css" with { type: "file" };
 import asksJs from "../ui/asks.js" with { type: "file" };
@@ -128,7 +129,21 @@ export const UI: Record<string, string> = {
 
 const TYPES: Record<string, string> = { css: "text/css; charset=utf-8", js: "text/javascript; charset=utf-8" };
 
-/** GET /ui/<name>. no-cache like the page itself: the browser asks again on every load, so a new version shows at once. */
+let versions: Promise<Record<string, string>> | null = null;
+/**
+ * Each file's version, a hash of its bytes, for the page's links (/ui/board.js?v=…, fresh.ts). Worked out once in
+ * the compiled server, whose files never change; from the files as they are now otherwise, so an edit shows on the
+ * next reload (a few ms for all of them).
+ */
+export function uiVersions(compiled: boolean): Promise<Record<string, string>> {
+	if (compiled && versions) return versions;
+	const now = Promise.all(Object.entries(UI).map(async ([name, path]) => [name, hashOf(await Bun.file(path).bytes())] as const)).then(Object.fromEntries);
+	if (compiled) versions = now;
+	return now;
+}
+
+/** GET /ui/<name>. no-cache like the page itself: the browser asks again on every load, so a new version shows at
+ *  once. The page asks for each by its version (?v=), and the route keeps those for good (routes.ts). */
 export function uiFile(name: string): Response {
 	const path = Object.hasOwn(UI, name) ? UI[name] : undefined;
 	if (!path) return new Response("not found", { status: 404 });

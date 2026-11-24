@@ -14,7 +14,7 @@ import badge96Path from "../ui/icons/badge-96.png" with { type: "file" };
 import pkg from "../package.json";
 import { backup, DB_PATH, listBackups, open, tidy } from "./db";
 import { deviceCookie, Pairing, phoneGate } from "./devices";
-import { checkUi, uiFile } from "./ui";
+import { checkUi, uiFile, uiVersions } from "./ui";
 import { publishDays } from "./day";
 import { applyDue } from "./asks";
 import { lanUrls } from "./health";
@@ -172,6 +172,7 @@ export function serve({ lan = false } = {}) {
 		sleep: Bun.sleep,
 		file: (name) => Bun.file(files[name]),
 		uiFile,
+		uiVersions: () => uiVersions(COMPILED),
 		ping: () => ({ app: "workbench", version: pkg.version, db: DB_PATH, pid: process.pid, lan }),
 	};
 

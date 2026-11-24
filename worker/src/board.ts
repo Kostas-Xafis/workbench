@@ -38,6 +38,8 @@ import { runCloudCli } from "./cloudcli";
 import { compile, dispatch } from "./router";
 import { Helpers } from "./helper";
 import { Push } from "./push";
+import { assetVersions } from "./assets";
+import { withEtag } from "../../src/fresh";
 
 export type Env = {
 	BOARD: DurableObjectNamespace;
@@ -140,6 +142,7 @@ export class Board extends DurableObject<Env> {
 			"maskable-512.png": maskable512 as unknown as ArrayBuffer,
 			"badge-96.png": badge96 as unknown as ArrayBuffer,
 		};
+		let versions: Promise<Record<string, string>> | null = null;
 		this.host = {
 			db,
 			cloud: true,
@@ -163,6 +166,7 @@ export class Board extends DurableObject<Env> {
 				out.headers.set("cache-control", "no-cache");
 				return out;
 			},
+			uiVersions: () => (versions ??= assetVersions(env.ASSETS, files.page as string)),
 			ping: () => ({ app: "workbench", version: pkg.version, cloud: true, sync: SYNC_FORMAT, claimed: this.claimed() }),
 		};
 		this.match = compile(boardRoutes(this.host) as Record<string, unknown>);
@@ -222,7 +226,7 @@ export class Board extends DurableObject<Env> {
 			if (done) {
 				// Run, Stop, Refresh: what they changed goes to the other devices (push.ts), as any write's does.
 				if (req.method !== "GET" && req.method !== "HEAD") this.pushAfter(device?.id ?? null);
-				return done;
+				return await withEtag(req, done);
 			}
 			if (m.pattern === "/api/settings/projects") return await this.helpers.projectsTab(await dispatch(m, req, srv));
 		} catch (e) {

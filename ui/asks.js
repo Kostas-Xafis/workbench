@@ -96,7 +96,7 @@ $("#sections").addEventListener("click", async (e) => {
 	e.stopPropagation();
 	try {
 		if (b.dataset.askAck) { b.classList.add("picked"); await ackAsk(b.dataset.askAck); }
-		else if (b.dataset.askObject) { askFocus = "object"; openItem(await api(`/api/items/${b.dataset.askObject}`)); }
+		else if (b.dataset.askObject) { askFocus = "object"; await openItemById(b.dataset.askObject); }
 		else if (b.dataset.askSend) { b.classList.add("picked"); const i = askItem(b.dataset.askSend); await answerAsk(i.id, [...askTicked(i)]); }
 		else { b.classList.add("picked"); await answerAsk(b.dataset.askAnswer, b.dataset.choice); }
 	} catch (err) { toast(err.message); }

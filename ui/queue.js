@@ -51,7 +51,7 @@ async function queueLoad() {
 		qs.project = project;
 		qs.deferred = q.deferred;
 		if (fresh) {
-			Object.assign(qs, { list: q.items, at: 0, cleared: [], loaded: true, sheet: "", note: "", noticeSeen: false });
+			Object.assign(qs, { list: [...q.items], at: 0, cleared: [], loaded: true, sheet: "", note: "", noticeSeen: false });
 			qs.full.clear();
 		} else queueMerge(q.items);
 		queueRender();
