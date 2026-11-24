@@ -50,3 +50,6 @@ function took(from, to) {
 	const m = Math.round(((to ? toDate(to) : new Date()) - toDate(from)) / 60e3);
 	return m < 1 ? "under a minute" : m < 90 ? `${m} min` : `${(m / 60).toFixed(1)} h`;
 }
+
+/** The clock time of a moment in milliseconds: "14:05". */
+const clockOf = (ms) => new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });

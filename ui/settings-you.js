@@ -47,8 +47,8 @@ function setYouRender() {
 function setAsksRender() {
 	if (!youReady()) return youError ? `<p class="error">${esc(youError)}</p>` : `<div class="set-empty">Loading…</div>`;
 	const name = youName();
-	const owners = SECTIONS.map(([kind, label]) => optRow({
-		label: `${kindIcon(kind)}${esc(label)}`,
+	const owners = KIND_NAMES.map(([kind, label]) => optRow({
+		label: `${kindGlyph(kind)}${esc(label)}`,
 		hint: esc(YOU_KIND_HINT[kind] ?? ""),
 		bind: { setting: `owner.${kind}` },
 		control: `<span class="you-owner">${ctlRadios({ setting: `owner.${kind}` }, [["kostas", name], ["agent", "An agent"]], { label: `Who gets a new ${kind}` })}</span>`,

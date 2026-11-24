@@ -1,7 +1,7 @@
 /* ---------- Status trackers (trackers.ts) ---------- */
 
-// Under the project's name in the rail: its trackers, then the global ones. A tracker is a few meters
-// (value of max, or a state in words), each with a level; grey until it warns.
+// A project's trackers show as meters in its page's header (project.js), and one that runs low in the nav (nav.js). A
+// tracker is a few meters (value of max, or a state in words), each with a level; grey until it warns.
 const LOCAL = !CLOUD && ["localhost", "127.0.0.1", "[::1]"].includes(location.hostname);
 const TRK_ADD = `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-linecap="round"><g stroke-width="1.4"><path d="M2 12.5a6 6 0 0 1 9.4-4.95"/><path d="M8 12.5l2.2-3.3"/><path d="M12.5 10v5M10 12.5h5"/></g></svg>`;
 const EVERY = [[300, "5 min"], [900, "15 min"], [1800, "30 min"], [3600, "1 hour"], [10800, "3 hours"], [21600, "6 hours"], [43200, "12 hours"], [86400, "1 day"], [0, "Only when asked"]];
@@ -13,8 +13,7 @@ const unitOf = (u) => !u || CURRENCY.includes(u) ? "" : u === "%" ? "%" : ` ${u}
 const withUnit = (n, u) => `${CURRENCY.includes(u) ? u : ""}${fmtNum(n)}`;
 const everyText = (s) => !s ? "only when asked" : s % 86400 === 0 ? (s === 86400 ? "every day" : `every ${s / 86400} days`)
 	: s % 3600 === 0 ? (s === 3600 ? "every hour" : `every ${s / 3600} h`) : s % 60 === 0 ? `every ${s / 60} min` : `every ${s} s`;
-const trkName = (t) => !state.project && t.project ? `${projectName(t.project)} · ${t.title}` : t.title;
-const shownTrackers = () => state.trackers.filter((t) => !t.project || (state.project ? t.project === state.project : !isArchived(t.project)));
+const trkName = (t) => t.project ? `${projectName(t.project)} · ${t.title}` : t.title;
 // "12/15 builds" with the number in bold; a state in words as it is.
 const valueHtml = (m) => m.value == null ? esc(m.text ?? "")
 	: `<b>${esc(withUnit(m.value, m.unit))}</b><small>${m.max != null ? `/${esc(withUnit(m.max, m.unit))}` : ""}${esc(unitOf(m.unit))}</small>`;
@@ -34,86 +33,11 @@ function trkTip(t) {
 	].filter(Boolean).join("\n");
 }
 
-// card: the same look as a plain block, for the hover card of the folded rail.
-function trackerRow(t, card = false) {
-	const ms = t.reading?.meters ?? [];
-	const flag = t.error ? `<span class="trk-flag" aria-label="Last read failed">!</span>` : "";
-	const cls = `trk${t.stale ? " stale" : ""}`;
-	const head = (right) => `<div class="trk-top"><span class="trk-name">${esc(trkName(t))}</span>${flag}${right}</div>`;
-	const open = (lv, body) => card ? `<div class="${cls}${lv ? ` lv-${lv}` : ""}">${body}</div>`
-		: `<button type="button" class="${cls}${lv ? ` lv-${lv}` : ""}" data-tracker="${t.id}" title="${esc(trkTip(t))}">${body}</button>`;
-	if (!ms.length) return open("", head(`<small>${t.running ? "reading…" : t.error ? "failed" : "no reading yet"}</small>`));
-	if (ms.length === 1) {
-		const m = ms[0], p = pctOf(m);
-		return open(m.level, head(m.value == null ? `<span class="mt">${esc(m.text ?? "")}</span>` : `<span class="mv">${valueHtml(m)}</span>`) +
-			(p == null ? "" : `<span class="bar"><i style="width:${p}%"></i></span>`));
-	}
-	// Under All the name carries its project, so the reset date stays in the tooltip.
-	const resets = t.reading.resets_at && state.project ? `<small>resets ${inDays(t.reading.resets_at)}</small>` : "";
-	const rows = ms.map((m) => {
-		const p = pctOf(m);
-		const cells = m.value == null ? `<span class="mt">${esc(m.text ?? "")}</span>`
-			: `${p == null ? "<span></span>" : `<span class="bar"><i style="width:${p}%"></i></span>`}<span class="mv">${valueHtml(m)}</span>`;
-		return `<span class="trk-m${m.level ? ` lv-${m.level}` : ""}"><span class="ml">${esc(m.label)}</span>${cells}</span>`;
-	}).join("");
-	return open("", head(resets) + `<div class="trk-ms">${rows}</div>`);
-}
-
-function railTrackers(collapsed) {
-	const list = shownTrackers();
-	if (!list.length) return "";
-	if (collapsed) return `<div class="trackers">${list.map((t) => {
-		const ps = (t.reading?.meters ?? []).map(pctOf).filter((p) => p != null);
-		const c = t.error ? "var(--bug)" : t.level === "bad" ? "var(--bug)" : t.level === "warn" ? "var(--review)" : "var(--muted)";
-		return `<button type="button" class="trk-mini${t.stale ? " stale" : ""}" data-tracker="${t.id}" aria-label="${esc(trkTip(t))}"><span class="trk-ring" style="--c:${c}">${ringSvg(ps.length ? Math.max(...ps) : 100, 22, 3.5)}</span></button>`;
-	}).join("")}</div>`;
-	return `<div class="trackers">${list.map((t) => trackerRow(t)).join("")}</div>`;
-}
-
-// The folded rail's hover card: it lives on <body> because the rail clips what overflows it.
-const trkPop = document.createElement("div");
-trkPop.id = "trk-pop";
-trkPop.setAttribute("aria-hidden", "true");
-document.body.append(trkPop);
-let popFor = null, popHide = 0;
-function showTrkPop(btn) {
-	clearTimeout(popHide);
-	const t = state.trackers.find((x) => x.id === Number(btn.dataset.tracker));
-	if (!t) return hideTrkPop(true);
-	popFor = t.id;
-	paint(trkPop, trackerRow(t, true));
-	// Left of the rail (it's on the right of the board), centred on the ring, kept on screen.
-	const r = btn.getBoundingClientRect(), h = trkPop.offsetHeight;
-	trkPop.style.left = `${Math.max(8, $("#rail").getBoundingClientRect().left - trkPop.offsetWidth - 6)}px`;
-	trkPop.style.top = `${Math.max(8, Math.min(r.top + r.height / 2 - h / 2, innerHeight - h - 8))}px`;
-	trkPop.classList.add("show");
-}
-// A short wait, so sliding from one ring to the next swaps the card instead of blinking it.
-function hideTrkPop(now = false) {
-	clearTimeout(popHide);
-	const go = () => { trkPop.classList.remove("show"); popFor = null; };
-	if (now) go(); else popHide = setTimeout(go, 90);
-}
-$("#rail").addEventListener("pointerover", (e) => {
-	const b = e.target.closest(".trk-mini");
-	if (b && e.pointerType !== "touch") showTrkPop(b);
-});
-$("#rail").addEventListener("pointerout", (e) => {
-	const b = e.target.closest(".trk-mini");
-	if (b && !b.contains(e.relatedTarget)) hideTrkPop();
-});
-$("#rail").addEventListener("focusin", (e) => {
-	const b = e.target.closest(".trk-mini");
-	if (b?.matches(":focus-visible")) showTrkPop(b);
-});
-$("#rail").addEventListener("focusout", (e) => { if (e.target.closest(".trk-mini")) hideTrkPop(); });
-$("#rail").addEventListener("scroll", () => hideTrkPop(true));
-
 async function loadTrackers() {
 	const list = await api("/api/trackers");
 	if (JSON.stringify(list) === JSON.stringify(state.trackers)) return;
 	state.trackers = list;
-	renderRail();
+	redraw();
 	renderNav();
 }
 

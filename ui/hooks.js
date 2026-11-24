@@ -2,24 +2,8 @@
 
 // A feature lives in ui/<feature>.js (and .css), loaded in index.html's features block: after every core file, before
 // boot.js starts the board. While its file loads it adds functions to these lists; they all start empty, so the
-// board is the same without them. A function that throws is logged and skipped, and the board carries on.
+// page is the same without them. A function that throws is logged and skipped, and the board carries on.
 const hooks = {
-	// (shown) → HTML: sections above the kinds' sections on the board; `shown` is the open items the filter shows.
-	boardTop: [],
-	// (shown) → HTML: sections after the kinds' sections, before "Done lately".
-	boardEnd: [],
-	// (item) → boolean: false keeps an item off the board's sections (and its counts); for a filter such as a goal.
-	boardFilter: [],
-	// (openCount) → HTML: what the board shows instead of its empty card when `openCount` (what the filter lets
-	// through) is 0 and you have something to say about it; "" lets the usual empty card show.
-	boardEmpty: [],
-	// (item) → HTML: more on a card's meta line, after the code count.
-	cardMeta: [],
-	// (kind, items) → HTML: more in a kind section's header, after its counts; `items` are the open ones it lists.
-	sectionMeta: [],
-	// (item) → HTML: a button under an open card's title that starts something (never an answer: those are in the
-	// reader). Wrap it in an element with class card-act: the board then leaves its clicks to you.
-	cardActions: [],
 	// The reader (ui/reader.js), an item shown as a document. A feature adds its own sections, each an object
 	// { html(item, r) → HTML ("" for none), wire?(el, item, r) }: `el` is the section's own element, made afresh
 	// whenever its HTML changes, so wire its listeners on it. `r` is the reader: r.item, r.compose (a new item being
@@ -36,8 +20,10 @@ const hooks = {
 	// (item) → nothing: an item was answered or settled from this page (any `act` call, answer.js), after the board
 	// reloaded; `item` is as the server gave it back. For a view that moves on to the next one (the Inbox).
 	settled: [],
-	// (collapsed) → HTML: in the sidebar, under the trackers (the folded rail when `collapsed`).
-	rail: [],
+	// () → nothing: what the board loaded changed (items, reports, links, trackers, goals, rulings, runs): a view that
+	// draws from `state` draws again (the Projects page). redraw() runs them; every loader calls it when its answer
+	// changed, and so do the dialogs that save.
+	redraw: [],
 	// () → nothing: every 10 s with the board's own reloads (not while the tab is hidden, or a form dialog is open;
 	// the reader doesn't stop it).
 	refresh: [],
@@ -58,6 +44,5 @@ function addSettingsTab(tab, after) {
 	SET_TABS.splice(i < 0 ? SET_TABS.length : i + 1, 0, tab);
 }
 const hookHtml = (list, ...args) => list.map((fn) => { try { return fn(...args) ?? ""; } catch (e) { console.error(e); return ""; } }).join("");
-// Every hook answers true (or nothing): false from any of them is a no.
-const hookPass = (list, ...args) => list.every((fn) => { try { return fn(...args) !== false; } catch (e) { console.error(e); return true; } });
 const hookRun = (list, ...args) => { for (const fn of list) try { fn(...args); } catch (e) { console.error(e); } };
+const redraw = () => hookRun(hooks.redraw);

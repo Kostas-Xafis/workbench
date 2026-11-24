@@ -1,6 +1,6 @@
 /* ---------- Setup guide (#welcome, #welcome/<step>) and its checklist ---------- */
 // A first run for a new board, and the way back to it: Settings → About, and the "Finish setting up"
-// checklist at the top of the board. Every step can be skipped. Whether one is done is checked now, never taken from
+// checklist at the top of the Inbox. Every step can be skipped. Whether one is done is checked now, never taken from
 // a click: GET /api/setup (setup.ts) for the board's side, and here in the page for notifications and the app's start
 // on login, which are per device. What the guide remembers (when it was first shown, skipped steps, the checklist
 // dismissed or finished) is the board setting `setup`. It opens on this computer only, like Settings.
@@ -46,7 +46,6 @@ async function setupLoad() {
 	renderWelcome();
 	renderSetupCard();
 	renderSettings();
-	renderBoard();
 }
 async function setupSave(patch) {
 	const cur = setupSaved();
@@ -222,7 +221,7 @@ const WL_BODY = {
 			<div class="wl-who"><div><b><span class="owner kostas">you</span>${esc(youName())}</b><p>Decisions, setup steps, checks and reviews: what only you can do. The red number on a project counts them, and <b>Needs you</b> above the board shows only these.</p></div>
 				<div><b><span class="owner">agent</span>Agents</b><p>Tasks, bugs and ideas. An agent starts one when it picks it up (it shows as <span class="st-doing">doing</span>), then finishes it, or marks it <span class="st-waiting">waiting</span> when it's stuck. <b>With agents</b> shows these.</p></div></div>
 			<h4>Kinds of item</h4>
-			<dl class="wl-kinds">${SECTIONS.map(([k, label]) => `<dt class="k-${k}">${kindIcon(k)}${esc(label.replace(/s$/, ""))}</dt><dd>${esc(WL_KIND[k])}</dd>`).join("")}</dl>
+			<dl class="wl-kinds">${KIND_NAMES.map(([k, label]) => `<dt class="k-${k}">${kindGlyph(k)}${esc(label.replace(/s$/, ""))}</dt><dd>${esc(WL_KIND[k])}</dd>`).join("")}</dl>
 			<h4>Refs: wb-xxxx</h4>
 			<div class="wl-sample" aria-hidden="true">${sample}</div>
 			<p>Every item has a short name like <code>wb-k3f9</code>. Click it on a card to copy it, and tell an agent “Do wb-k3f9”: it reads the item and works on it. Put it in commit messages and pull request titles, and they show on the item.</p>
@@ -284,7 +283,7 @@ async function wlNext() {
 function wlFinish() {
 	if (setupComplete()) { setupSave({ finished: true }); toast("You're set up"); }
 	else toast("“Finish setting up” on the board keeps what's left");
-	goBoard();
+	goHome();
 }
 $("#welcome-view").addEventListener("input", (e) => {
 	if (e.target.id !== "wl-name") return;
@@ -329,7 +328,7 @@ $("#welcome-view").addEventListener("click", async (e) => {
 		await setupSave({ steps: { [setup.step]: "skipped" } });
 		if (i < WL_STEPS.length - 1) wlGo(WL_STEPS[i + 1].key); else wlFinish();
 	}
-	else if (what === "close") goBoard();
+	else if (what === "close") goHome();
 	else if (what === "recheck") { b.disabled = true; await setupLoad(); }
 	else if (what === "add-other") openProjectDlg(null);
 	else if (what === "notify-on") { await setNotifyOn(true); renderWelcome(); renderSetupCard(); }
@@ -343,7 +342,8 @@ setInterval(() => {
 	if (document.visibilityState === "visible" && !$("#welcome-view").hidden && ["agents", "rules", "notify", "projects"].includes(setup.step)) setupLoad();
 }, 4000);
 
-// The checklist at the top of the board: once the guide was opened, until every step is done or skipped, or dismissed.
+// The checklist at the top of the Inbox (#setup-card, inbox.js): once the guide was opened, until every step is done or
+// skipped, or dismissed.
 function setupCardShown() {
 	if (!CAN_SHARE || solo || !setup.data) return false;
 	const s = setupSaved();
@@ -351,6 +351,7 @@ function setupCardShown() {
 }
 function renderSetupCard() {
 	const el = $("#setup-card");
+	if (!el) return;
 	if (!setupCardShown()) return paint(el, "");
 	const n = WL_STEPS.filter((s) => wlStatus(s.key) !== "todo").length;
 	const chips = WL_STEPS.map((s) => {
@@ -361,8 +362,8 @@ function renderSetupCard() {
 		<b>Finish setting up</b><div class="setup-chips">${chips}</div>
 		<div class="tools"><button type="button" class="primary" data-setup="go">Continue</button><button type="button" class="icon-btn" data-setup="dismiss" title="Hide this checklist (Settings → About keeps it)" aria-label="Hide the checklist">${svg16('<path d="m4.5 4.5 7 7M11.5 4.5l-7 7"/>')}</button></div></div>`);
 }
-$("#setup-card").addEventListener("click", (e) => {
-	const b = e.target.closest("[data-setup]");
+document.addEventListener("click", (e) => {
+	const b = e.target.closest("#setup-card [data-setup]");
 	if (!b) return;
 	if (b.dataset.setup === "go") wlGo(wlFirstTodo());
 	else { setupSave({ dismissed: true }); toast("Hidden. Settings → About has the setup guide"); }
@@ -382,9 +383,9 @@ function setStartRender() {
 	});
 	const complete = setupComplete();
 	const card = optRow({
-		label: "“Finish setting up” on the board",
-		hint: complete ? "Hidden: every step is done or skipped." : saved.dismissed ? "Hidden." : saved.seen ? "At the top of the board, until every step is done or skipped." : "Shows once you've opened the guide.",
-		control: `<label class="switch"><input type="checkbox" role="switch" data-setup-card${!saved.dismissed && !complete ? " checked" : ""}${complete ? " disabled" : ""} aria-label="Show the checklist on the board"><span></span></label>`,
+		label: "“Finish setting up” in the Inbox",
+		hint: complete ? "Hidden: every step is done or skipped." : saved.dismissed ? "Hidden." : saved.seen ? "At the top of the Inbox, until every step is done or skipped." : "Shows once you've opened the guide.",
+		control: `<label class="switch"><input type="checkbox" role="switch" data-setup-card${!saved.dismissed && !complete ? " checked" : ""}${complete ? " disabled" : ""} aria-label="Show the checklist in the Inbox"><span></span></label>`,
 	});
 	const n = WL_STEPS.filter((s) => wlStatus(s.key) === "done").length;
 	const open = `<div class="set-fold-bar"><button type="button" class="primary sm" data-act="welcome">${saved.seen ? "Open the setup guide" : "Start the setup guide"}</button></div>`;
@@ -405,37 +406,4 @@ async function maybeWelcome() {
 	if (d.projects.total === 0 || d.items < 10) location.hash = "#welcome";
 }
 
-// Empty boards say what goes here and how to get it there.
-function boardEmpty(openCount) {
-	if (openCount) return `<div class="empty">${state.who === "kostas" ? "Nothing waits on you." : "Agents have nothing open."}</div>`;
-	const kinds = `<div class="kinds">${SECTIONS.map(([k, label]) => `<span class="k-${k}">${kindIcon(k)}${esc(label)}</span>`).join("")}</div>`;
-	const ic = (d) => `<div class="vault-ic">${svg16(d, 1.4)}</div>`;
-	if (!state.projects.length) {
-		return `<div class="empty-card">${ic(TAB_IC.projects)}<h3>Nothing on the board yet</h3>
-			<p>The Workbench keeps the open work of all your projects in one place: what agents are doing or will do, and the decisions, checks, reviews and setup steps they leave for you.</p>${kinds}
-			${CAN_SHARE ? `<div class="row"><button type="button" class="primary" data-empty="welcome">Set up the Workbench</button><button type="button" class="ghost" data-empty="add-project">Add a project</button></div>`
-				: `<p class="hint">Projects are added on the computer the board runs on.</p>`}</div>`;
-	}
-	const p = state.project && state.projects.find((x) => x.slug === state.project);
-	const rules = setup.data?.rules.projects.filter((r) => r.folder && (!p || r.slug === p.slug)) ?? [];
-	const behind = rules.filter((r) => r.state !== "current");
-	const newBtn = `<button type="button" class="ghost" data-empty="new">New item</button>`;
-	if (p) {
-		const r = rules[0];
-		const teach = r && r.state !== "current"
-			? `<p>Agents in this project don't know about the board yet. Paste this prompt into a Claude Code session in its folder: it gives the project the board's rules for agents.</p>
-				<div class="row"><button type="button" class="primary" data-copy="${esc(r.prompt)}">Copy the setup prompt</button>${newBtn}</div>`
-			: `<p>Agents working in <code>${esc(p.path)}</code> put their tasks here as they go, and what they leave for you. Give one something to do, or add an item yourself.</p><div class="row">${newBtn}</div>`;
-		return `<div class="empty-card">${ic(GLYPH.check)}<h3>Nothing open in ${esc(p.name)}</h3>${teach}</div>`;
-	}
-	const hint = behind.length && CAN_SHARE ? `<p>${behind.length === 1 ? `${esc(behind[0].name)} doesn't` : `${behind.length} of your projects don't`} have the board's rules for agents yet, so agents there don't know about it. <a href="#welcome/rules">Set them up</a></p>` : "";
-	return `<div class="empty-card">${ic(GLYPH.check)}<h3>Nothing open</h3><p>When agents work in your projects, their tasks show here, with whatever they leave for you. You can add one yourself with New.</p>${hint}<div class="row">${newBtn}</div></div>`;
-}
-$("#sections").addEventListener("click", (e) => {
-	const b = e.target.closest("[data-empty]");
-	if (!b) return;
-	if (b.dataset.empty === "welcome") location.hash = "#welcome";
-	else if (b.dataset.empty === "add-project") openProjectDlg(null);
-	else if (b.dataset.empty === "new") $("#new").click();
-});
 /* ---------- end: Setup guide ---------- */

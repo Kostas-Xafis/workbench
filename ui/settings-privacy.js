@@ -218,12 +218,12 @@ $("#settings-view").addEventListener("click", async (e) => {
 			const r = await api(`/api/reports/${id}/share/extend`, { method: "POST" });
 			toast(`Sharing until ${clockOf(r.expiresAt)}`);
 		} else if (act === "stop") {
-			if (s && s.status !== "failed" && !confirm(`Stop sharing “${s.title}”? The link stops working at once, for everyone who has it.`)) return;
+			if (s && s.status !== "failed" && !(await confirmIn(b, { text: `Stop sharing “${s.title}”? The link stops working at once, for everyone who has it.`, yes: "Stop sharing", danger: true }))) return;
 			await api(`/api/reports/${id}/share`, { method: "DELETE" });
 			if (s?.status !== "failed") toast("Stopped sharing");
 		} else if (act === "stop-all") {
 			const n = privacy.shares?.length ?? 0;
-			if (!confirm(`Stop all ${n} share link${n === 1 ? "" : "s"}? They stop working at once, for everyone who has them.`)) return;
+			if (!(await confirmIn(b, { text: `Stop all ${n} share link${n === 1 ? "" : "s"}? They stop working at once, for everyone who has them.`, yes: "Stop all", danger: true }))) return;
 			await api("/api/shares/stop-all", { method: "POST" });
 			toast("Stopped every share");
 		} else return;

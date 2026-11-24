@@ -1,13 +1,6 @@
-/* Phones. The nav is a bar at the bottom (nav.css); the board's side column opens over the page from its bar. */
+/* Phones. The nav is a bar at the bottom (nav.css). */
 @media (max-width: 760px) {
-	#board-view, .rail-collapsed #board-view { grid-template-columns: minmax(0, 1fr); }
-	#rail { position: fixed; z-index: 6; right: 0; top: 0; bottom: 0; width: min(300px, calc(100vw - 48px)); box-shadow: var(--shadow); border-left: 1px solid var(--line); }
-	body.rail-collapsed #rail { display: none; }
-	#rail-open { display: grid; }
-	/* One line: the switch scrolls sideways, the buttons stay at the right. */
-	.board-bar { flex-wrap: nowrap; }
-	.board-bar .seg { min-width: 0; flex: 0 1 auto; }
-	#board, #vault-view { padding: var(--sp-2) var(--sp-3) var(--sp-6); }
+	#vault-view { padding: var(--sp-2) var(--sp-3) var(--sp-6); }
 	#usage-btn { display: none; } /* Usage opens only on this computer */
 	.secret { grid-template-columns: minmax(0, 1fr) auto; }
 	.s-val { grid-column: 1 / -1; grid-row: 2; }

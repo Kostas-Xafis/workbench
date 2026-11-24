@@ -1,11 +1,9 @@
 /* ---------- Rulings: a project's standing answers (rulings.ts) ---------- */
 
-// A part of the sidebar (folded, like Links), a view of them by project (#rulings, #rulings/<slug>), the ruling an
-// answered item made in the reader, and a group in search. Live and retired ones come in one list.
+// A view of them by project (#rulings, #rulings/<slug>), the Rulings tab of a project's page (project.js), the ruling
+// an answered item made in the reader, and a group in search. Live and retired ones come in one list.
 state.rulings = [];
 const GAVEL = `<svg class="doc-ic" viewBox="0 0 16 16" fill="none" stroke="currentColor"><g stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="m6.2 2.6 4.2 4.2M4.4 4.4l4.2 4.2M5.3 3.5l-1.8 1.8M10.4 6.8l-1.8 1.8M7.5 5.7l6.25 6.25a.9.9 0 0 1-1.3 1.3L6.2 7"/><path d="M2 14h5"/></g></svg>`;
-// The sidebar shows this many; the rest are in the view.
-const RULINGS_SHOWN = 4;
 let rulingsLoaded = false;
 
 async function loadRulings() {
@@ -14,7 +12,7 @@ async function loadRulings() {
 		const changed = JSON.stringify(list) !== JSON.stringify(state.rulings);
 		state.rulings = list;
 		rulingsLoaded = true;
-		if (changed) { renderRail(); for (const [el, st] of rulingPanes) if (rulingPaneShown(el)) renderRulings(el, st); }
+		if (changed) { redraw(); for (const [el, st] of rulingPanes) if (rulingPaneShown(el)) renderRulings(el, st); }
 	} catch {}
 }
 hooks.start.push(loadRulings);
@@ -22,27 +20,6 @@ hooks.refresh.push(() => { if (!rulingEditing()) loadRulings(); });
 
 const liveRulings = (slug) => state.rulings.filter((r) => !r.retired_at && (slug ? r.project === slug : !isArchived(r.project)));
 const rulingsHref = (slug, id) => `#rulings${slug ? `/${encodeURIComponent(slug)}` : ""}${id ? `/${id}` : ""}`;
-
-/* Sidebar */
-hooks.rail.push((collapsed) => {
-	const list = liveRulings(state.project);
-	if (collapsed) return list.length ? `<a class="ritem" href="${rulingsHref(state.project)}" title="Rulings (${list.length})"><span class="tile">${GAVEL}</span></a>` : "";
-	const row = (r) => `<a class="ritem ruling" href="${rulingsHref(r.project, r.id)}" title="${esc(r.text)}${r.drafted ? "\n(drafted from the answer: an agent rewrites it)" : ""}">${GAVEL}<span>${esc(!state.project ? `${projectName(r.project)} · ${r.text}` : r.text)}</span></a>`;
-	const rest = list.length - RULINGS_SHOWN;
-	const tools = `<span class="tools"><button class="icon-btn" id="ruling-new" title="Add a ruling" aria-label="Add a ruling"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor"><g stroke-width="1.6"><path d="M8 3v10M3 8h10"/></g></svg></button></span>`;
-	const body = list.length
-		? list.slice(0, RULINGS_SHOWN).map(row).join("") + `<a class="ritem more-link" href="${rulingsHref(state.project)}"><span>${rest > 0 ? `All ${list.length} rulings` : "Search, edit, retire"}</span></a>`
-		: `<div class="rail-empty">None yet. When you answer a decision, its answer becomes a ruling here: a standing answer agents read before they ask you again.</div>`;
-	return `<details class="rsec fold" data-key="rail-rulings"${isOpen("rail-rulings", false)}><summary>Rulings <span class="count">${list.length || ""}</span>${tools}</summary>${body}</details>`;
-});
-$("#rail").addEventListener("click", (e) => {
-	if (e.target.closest("#ruling-new")) {
-		e.preventDefault();
-		location.hash = rulingsHref(state.project, "new");
-		return;
-	}
-	if (e.target.closest('a[href^="#rulings"]') && narrow()) setCollapsed(true);
-});
 
 /* The view */
 const rulingsView = document.createElement("section");
@@ -123,7 +100,7 @@ function renderRulings(el = rulingsView, st = rv) {
 			<button class="ghost sm" type="button" id="ruling-retired" aria-pressed="${st.retired}">${st.retired ? "Live ones" : `Retired${retiredN ? ` (${retiredN})` : ""}`}</button>
 		</div>
 		<div class="ruling-addbox">${add}</div>
-		${groups || `<p class="rail-empty ruling-none">${empty}</p>`}
+		${groups || `<p class="ruling-none">${empty}</p>`}
 	</div>`);
 }
 

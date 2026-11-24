@@ -59,7 +59,7 @@
 .wl-who ul { margin: 0; padding: 0; list-style: none; display: flex; flex-wrap: wrap; gap: 4px 12px; }
 .wl-who li { display: flex; align-items: center; gap: 5px; font-size: 13px; }
 .wl-kinds { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 7px 14px; margin: 0; align-items: center; }
-.wl-kinds dt { display: flex; align-items: center; gap: 7px; font-weight: 600; font-size: 13px; color: var(--k); }
+.wl-kinds dt { display: flex; align-items: center; gap: 7px; font-weight: 600; font-size: 13px; color: var(--ink); }
 .wl-kinds dd { margin: 0; font-size: 13px; color: var(--muted); }
 .wl-kinds .gl { width: 15px; height: 15px; }
 .wl-ref { display: flex; gap: 12px; align-items: center; }

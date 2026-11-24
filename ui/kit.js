@@ -13,8 +13,6 @@ const KIND_GLYPH = {
 };
 /** The kind's glyph, inline SVG in the muted colour (16 px; `.kg` sizes it). Its title is the kind, for a tooltip. */
 const kindGlyph = (kind) => `<span class="kg" title="${esc(kind)}"><svg class="gl" viewBox="0 0 16 16" aria-hidden="true">${KIND_GLYPH[kind] ?? KIND_GLYPH.task}</svg></span>`;
-// The older name, still used by files the rework hasn't reached.
-const kindIcon = kindGlyph;
 
 /** A small label in a state's colour: state is "yours", "running", "stuck", "failed", "done", or nothing (neutral). */
 const chip = (text, state) => `<span class="chip${state ? ` st-${state}` : ""}">${esc(text)}</span>`;
@@ -23,9 +21,20 @@ const chip = (text, state) => `<span class="chip${state ? ` st-${state}` : ""}">
 const emptyState = (title, text = "", action = "") =>
 	`<div class="k-empty"><b>${esc(title)}</b>${text ? `<p>${esc(text)}</p>` : ""}${action ? `<div class="k-empty-act">${action}</div>` : ""}</div>`;
 
+// Stale work (stale.ts): an agent's item in progress with no sign of life for a day, or waiting a week or more.
+const STALE_TIP = {
+	stalled: "In progress with no sign of life for a day: no note, and no call to the board about it",
+	waiting: "Waiting for a week or more",
+};
+const staleDays = (s) => Math.max(0, Math.floor((Date.now() - parseTime(s.since)) / 86400e3));
+/** "stalled 3 d", in the stuck colour, with why in its tooltip; "" when the item isn't stale. */
+const staleMark = (i) => (i.stale ? `<span class="k-stale" title="${esc(STALE_TIP[i.stale.why] ?? "")} (since ${esc(i.stale.since)})">${esc(i.stale.why)} ${staleDays(i.stale)} d</span>` : "");
+/** "deferred to Thu" while an open item is out of the Inbox until a day (Later); "" otherwise. */
+const deferredMark = (i) => (i.deferred_until && OPEN.includes(i.status) && parseTime(i.deferred_until) > Date.now()
+	? `<span title="Out of the Inbox until then">deferred to ${esc(day(i.deferred_until, { weekday: true, relative: true }))}</span>` : "");
 /**
- * The meta line of an item's row: project · area · recommends: X · unblocks N · age. `project: false` leaves the
- * project out (a list of one project's items).
+ * The meta line of an item's row: project · area · recommends: X · unblocks N · stalled N d · deferred to … · age.
+ * `project: false` leaves the project out (a list of one project's items).
  */
 function rowMeta(i, { project = true } = {}) {
 	const rec = i.kind === "decision" && typeof askRecommends === "function" ? askRecommends(i) : "";
@@ -34,6 +43,8 @@ function rowMeta(i, { project = true } = {}) {
 		i.area ? esc(i.area) : "",
 		rec ? `recommends: <b>${esc(rec)}</b>` : "",
 		i.unblocks > 0 ? `unblocks ${i.unblocks}` : "",
+		staleMark(i),
+		deferredMark(i),
 		i.created_at ? esc(ago(i.created_at, { short: true })) : "",
 	].filter(Boolean).join(" · ");
 }

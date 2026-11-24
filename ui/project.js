@@ -5,11 +5,11 @@
 // - Work: a box to write the next piece of work (Enter files it as an agent's task, Ctrl+Enter files it and starts an
 //   agent), In progress, Next up in the order Kostas sets (drag, or Alt+↑/↓; PUT /api/projects/:slug/order), Waiting
 //   with why and on what, and Ideas, folded. Kostas's own asks are the Inbox's: one line says how many.
-// - Pages: the project's reports, links and data sources, drawn with rail.js's renderers and dialogs.
+// - Pages: the project's reports, links and data sources, drawn with pages.js's renderers and dialogs.
 // - Rulings: rulings.js's list for this project (wireRulings, renderRulings).
 // - Done: what agents finished lately, with the finishing note's first line (GET /api/today).
 // It reads what the board already loads (state.items for state.project, which it sets with useProject; the repos,
-// trackers, reports, links, goals and runs), and draws again whenever the board does (see the end of this file).
+// trackers, reports, links, goals and runs), and draws again whenever that changes (hooks.redraw, at the end).
 
 const projectView = document.createElement("section");
 projectView.id = "project-view";
@@ -80,7 +80,13 @@ function pjRepoLine() {
 		r.unmerged.length ? "Unmerged:\n" + r.unmerged.map((b) => `${b.name}  (${b.date})`).join("\n") : "",
 		r.worktrees.length ? "Worktrees:\n" + r.worktrees.map((w) => `${w.branch}  ${w.path}`).join("\n") : "",
 	].filter(Boolean).join("\n\n");
-	const warns = repoWarnings(r);
+	const warns = [
+		r.dirty.length && `${r.dirty.length} uncommitted`,
+		r.ahead && `${r.ahead} unpushed`,
+		r.behind && `${r.behind} behind`,
+		r.unmerged.length && `${r.unmerged.length} unmerged branch${r.unmerged.length > 1 ? "es" : ""}`,
+		r.worktrees.length && `${r.worktrees.length} worktree${r.worktrees.length > 1 ? "s" : ""}`,
+	].filter(Boolean);
 	return `<span class="pj-git" title="${esc(detail)}">⎇ ${esc(r.branch || "detached")}${warns.length ? warns.map((w) => ` · ${esc(w)}`).join("") : " · clean"}</span>`;
 }
 
@@ -292,15 +298,15 @@ const pjFit = (ta) => { if (!ta) return; ta.style.height = "auto"; ta.style.heig
 
 function pjPages() {
 	// Day pages, folded under their label, go after the pages people wrote.
-	const all = railReports(), days = (g) => g.reports.every(isDay);
+	const all = reportGroups(), days = (g) => g.reports.every(isDay);
 	const reports = [...all.filter((g) => !days(g)), ...all.filter(days)];
-	const sources = railSourceList();
-	const reportsHtml = railReportList(reports, { foldDays: true });
+	const sources = sourceList();
+	const reportsHtml = reportList(reports, { foldDays: true });
 	return `<div class="pj-pages">
-		<section class="pj-col"><div class="pj-h"><h2>Pages</h2>${railReportTools(reports)}</div>
+		<section class="pj-col"><div class="pj-h"><h2>Pages</h2>${reportTools(reports)}</div>
 			<div class="pj-plain">${reportsHtml || `<p class="pj-none">${NO_REPORTS}</p>`}</div></section>
-		<section class="pj-col"><div class="pj-h"><h2>Links</h2>${railLinkTools()}</div>
-			<div class="pj-plain">${railLinkList() || `<p class="pj-none">No links for this project yet: + adds one (for this project or every project).</p>`}</div>
+		<section class="pj-col"><div class="pj-h"><h2>Links</h2>${linkTools()}</div>
+			<div class="pj-plain">${linkListHtml() || `<p class="pj-none">No links for this project yet: + adds one (for this project or every project).</p>`}</div>
 			${sources.length ? `<div class="pj-h"><h2>Data sources</h2><span class="pj-n">${sources.length}</span></div><div class="pj-plain">${sources.map(sourceRow).join("")}</div>` : ""}</section></div>`;
 }
 
@@ -333,7 +339,7 @@ function projectDraw() {
 	$("#pj").hidden = !p;
 	$("#pj-missing").hidden = !!p;
 	if (!p) {
-		paint($("#pj-missing"), state.projects.length ? emptyState("No such project", `There's no project "${pv.slug}" on the board (it may be archived).`, `<a class="ghost sm" href="#board">All projects</a>`) : "");
+		paint($("#pj-missing"), state.projects.length ? emptyState("No such project", `There's no project "${pv.slug}" on the board (it may be archived).`, `<a class="ghost sm" href="#inbox">The Inbox</a>`) : "");
 		return;
 	}
 	$("#pj-tabs").setAttribute("aria-label", p.name);
@@ -464,8 +470,8 @@ projectView.addEventListener("click", async (e) => {
 	const k = t.closest("[data-kind]");
 	if (k) { pv.kind = k.dataset.kind; projectDraw(); return $("#pj-new").focus(); }
 	if (t.closest("#pj-full")) return openNewItem();
-	// Pages: rail.js's tools (add, edit and refresh links, move report groups)
-	if (pv.tab === "pages" && railTools(e, projectView)) return;
+	// Pages: pages.js's tools (add, edit and refresh links, move report groups)
+	if (pv.tab === "pages" && pageTools(e, projectView)) return;
 	if (t.closest("#pj-done-more")) { pv.doneShown += PJ_DONE_STEP; return projectDraw(); }
 	// Rows
 	const run = t.closest("[data-run]");
@@ -524,18 +530,10 @@ projectView.addEventListener("keydown", (e) => {
 
 wireRulings($("#pj-pane-rulings"), pv.rulings);
 
-/* ---------- Drawing again when the board does ---------- */
+/* ---------- Drawing again when what it shows changed ---------- */
 
-// Every loader draws the board or its side column (renderBoard, renderRail) when what it loaded changed, and so do
-// the goal and link dialogs when they save: the page draws again then too, from the same data.
-for (const name of ["renderBoard", "renderRail"]) {
-	const draw = window[name];
-	window[name] = function (...args) {
-		const out = draw.apply(this, args);
-		try { projectDraw(); } catch (e) { console.error(e); }
-		return out;
-	};
-}
+// Every loader calls redraw() when what it loaded changed, and so do the goal and link dialogs when they save.
+hooks.redraw.push(() => projectDraw());
 // The run box and the tracker dialog change what a row or a meter shows.
 hooks.readerClosed.push(() => projectDraw());
 hooks.refresh.push(() => { if (!projectView.hidden && pv.tab === "done") loadProjectDone(); });

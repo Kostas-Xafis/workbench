@@ -88,15 +88,15 @@ describe("server", () => {
 		const page = await fetch(`${BASE}/`);
 		expect(page.headers.get("cache-control")).toBe("no-cache");
 		const html = await page.text();
-		const m = html.match(/src="\/ui\/board\.js\?v=([\w-]+)"/);
+		const m = html.match(/src="\/ui\/router\.js\?v=([\w-]+)"/);
 		expect(m).not.toBeNull();
 		expect(html).not.toMatch(/(?:href|src)="\/ui\/[^"?]+"/);
 		const again = await fetch(`${BASE}/`, { headers: { "if-none-match": page.headers.get("etag")! } });
 		expect(again.status).toBe(304);
-		const kept = await fetch(`${BASE}/ui/board.js?v=${m![1]}`);
+		const kept = await fetch(`${BASE}/ui/router.js?v=${m![1]}`);
 		expect(kept.headers.get("cache-control")).toBe("private, max-age=31536000, immutable");
-		expect(await kept.text()).toContain("function renderBoard");
-		expect((await fetch(`${BASE}/ui/board.js`)).headers.get("cache-control")).toBe("no-cache");
+		expect(await kept.text()).toContain("function defineView");
+		expect((await fetch(`${BASE}/ui/router.js`)).headers.get("cache-control")).toBe("no-cache");
 	});
 
 	test("the write guard: a write that isn't JSON gets 415 and changes nothing", async () => {

@@ -9,7 +9,7 @@ let shares = [];
 let shareCheck = null;
 let sharePoll = 0;
 let shareHours = 1;
-// The lengths share.ts allows (SHARE_HOURS in settings.ts). Settings → Privacy and security picks the most a link
+// The lengths share.ts allows (SHARE_HOURS in settings.ts). Settings → Data → Sharing picks the most a link
 // runs (counting extensions) and the one the dialog starts on; read when used, like the server does.
 const SHARE_LENGTHS = [1, 2, 4, 8, 12, 24];
 const shareMax = () => setting("share.max-hours") ?? 8;

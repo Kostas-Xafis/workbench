@@ -1,7 +1,7 @@
 async function afterProjectChange() {
 	await Promise.all([loadSettingsProjects(), loadProjects()]);
 	if (!$("#welcome-view").hidden) { wlFolders(); setupLoad(); }
-	renderRail();
+	redraw();
 	loadItems();
 	loadRepos();
 	loadCode();
@@ -95,16 +95,16 @@ projForm.addEventListener("submit", async (e) => {
 		if (!p || body.path !== p.path) checkHealth();
 	} catch (err) { $("#proj-err").textContent = err.message; }
 });
-$("#proj-archive").onclick = async () => {
+$("#proj-archive").onclick = async (e) => {
 	const p = currentProj;
-	if (!p.archived_at && p.open && !confirm(`Archive ${p.name}? Its ${p.open} open item${p.open === 1 ? "" : "s"} leave the board with it (search still finds them), and its trackers stop reading. New work for it brings it back.`)) return;
+	if (!p.archived_at && p.open && !(await confirmIn(e.currentTarget, { text: `Archive ${p.name}? Its ${p.open} open item${p.open === 1 ? "" : "s"} leave the board with it (search still finds them), and its trackers stop reading. New work for it brings it back.`, yes: "Archive", danger: true }))) return;
 	if (!(await saveProject(p.slug, { archived: !p.archived_at }))) return;
 	projDlg.close();
 	toast(p.archived_at ? `${p.name} is back on the board` : `${p.name} archived`);
 };
-$("#proj-remove").onclick = async () => {
+$("#proj-remove").onclick = async (e) => {
 	const p = currentProj;
-	if (!confirm(`Remove ${p.name} from the workbench? Nothing points at it, and its folder isn't touched.`)) return;
+	if (!(await confirmIn(e.currentTarget, { text: `Remove ${p.name} from the workbench? Nothing points at it, and its folder isn't touched.`, yes: "Remove", danger: true }))) return;
 	try {
 		await api(`/api/projects/${encodeURIComponent(p.slug)}`, { method: "DELETE" });
 		projDlg.close();
@@ -136,7 +136,7 @@ $("#settings-view").addEventListener("click", (e) => {
 	if (b.dataset.tracker) return openTracker(Number(b.dataset.tracker));
 	const slug = b.closest("[data-slug]")?.dataset.slug;
 	const p = settings.projects?.find((x) => x.slug === slug);
-	if (b.dataset.act === "board") goBoard();
+	if (b.dataset.act === "board") goHome();
 	else if (b.dataset.act === "add") openProjectDlg(null);
 	else if (b.dataset.act === "edit" && p) openProjectDlg(p);
 	else if (b.dataset.act === "check") checkHealth();

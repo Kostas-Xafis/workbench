@@ -11,8 +11,9 @@
 //   settles (hooks.settled), the list is asked for again and the selection moves to the item that took its place.
 // - Addresses: #inbox (every project), #inbox/<slug> (one), #queue and #queue/<slug> (the same in focus mode). The
 //   board's own address ("") opens it on the project last picked. The tab and the project are kept in this browser.
-// - "Since you were away": your last visit as Today keeps it (todaySince, today.js); finished and stuck come from
+// - "Since you were away": your last visit, kept in this browser (inboxSince); finished and stuck come from
 //   GET /api/agents.
+// - While the setup guide isn't finished, its checklist sits at the top ("Finish setting up", #setup-card, setup.js).
 const IB_TABS = [
 	["answer", "Answer", "Decisions"],
 	["errands", "Errands", "Checks and setup: at a device or away from the desk"],
@@ -39,6 +40,7 @@ inboxEl.className = "ib";
 inboxEl.setAttribute("aria-label", "Inbox");
 inboxEl.hidden = true;
 inboxEl.innerHTML = `<div class="ib-col">
+		<div id="setup-card"></div>
 		<div class="ib-head"></div>
 		<div class="ib-tabs" role="tablist" aria-label="What you do"></div>
 		<div class="ib-tools"></div>
@@ -101,10 +103,22 @@ function ibPrimary(i) {
 
 /* ---------- Loading ---------- */
 
+// Counts this as a visit and says from when "since you were away" runs: a new visit starts after an hour away, and
+// the first one counts the last day. At most a week back.
+const IB_GAP = 3600e3, IB_MAX = 7 * 86400e3;
+function inboxSince() {
+	const now = Date.now(), last = Number(localGet("inbox.last")) || 0;
+	let since = Number(localGet("inbox.since")) || 0;
+	if (!since || now - last > IB_GAP) since = last || now - 86400e3;
+	localSet("inbox.since", String(since));
+	localSet("inbox.last", String(now));
+	return Math.max(since, now - IB_MAX);
+}
+
 async function inboxLoad() {
 	try {
 		const q = await api("/api/queue");
-		const since = typeof todaySince === "function" && ibOn() ? todaySince() : ib.since || Date.now() - 86400e3;
+		const since = ibOn() ? inboxSince() : ib.since || Date.now() - 86400e3;
 		const changed = q !== ib.q || since !== ib.since;
 		Object.assign(ib, { q, since, loaded: true });
 		inboxCount();
@@ -157,7 +171,7 @@ function ibToolsHtml() {
 	const acc = ibAcceptable();
 	const accept = acc.length > 1 && !ib.focus ? `<button type="button" class="ib-accept" data-ib-accept title="Answer each of them with what the agent recommends">Accept ${acc.length} recommendations</button>` : "";
 	const hint = localGet("inbox.hint") === "off" || ibPhone() ? "" : `<div class="ib-hint"><span><b>J</b> <b>K</b> move · <b>1–9</b> pick · <b>Enter</b> takes the recommendation · <b>D</b> later · <b>G</b> give back · <b>X</b> drop · <b>F</b> one at a time</span>
-		<button type="button" class="icon-btn" data-ib-hint-off title="Hide the keys (Settings → Appearance lists them all)" aria-label="Hide the keys"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor"><g stroke-width="1.6"><path d="m4.5 4.5 7 7M11.5 4.5l-7 7"/></g></svg></button></div>`;
+		<button type="button" class="icon-btn" data-ib-hint-off title="Hide the keys (Settings → About → Look lists them all)" aria-label="Hide the keys"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor"><g stroke-width="1.6"><path d="m4.5 4.5 7 7M11.5 4.5l-7 7"/></g></svg></button></div>`;
 	return accept || hint ? `${accept}${hint}` : "";
 }
 // A day ahead, short: "today", "tomorrow", "on Thu" (this week), "on 3 Dec".
@@ -396,9 +410,10 @@ document.addEventListener("keydown", (e) => {
 	if (e.altKey || e.ctrlKey || e.metaKey || e.defaultPrevented) return;
 	if (document.querySelector("dialog[open]") || rdTyping()) return;
 	const k = e.key, low = k.length === 1 ? k.toLowerCase() : k;
-	// Q, the old key for One at a time, from anywhere: the Inbox in focus mode.
+	// From anywhere: T opens the Inbox, and Q (the old key for One at a time) the Inbox in focus mode.
 	if (!ibOn()) {
 		if (low === "q" && !e.shiftKey) { e.preventDefault(); go(ibHash(true)); }
+		else if (low === "t" && !e.shiftKey) { e.preventDefault(); goHome(); }
 		return;
 	}
 	if (e.shiftKey && k !== "Enter") return;
@@ -495,15 +510,19 @@ defineView({
 	name: "inbox",
 	el: "#inbox-view",
 	default: true,
-	// #inbox, #inbox/<slug>; #queue, #queue/<slug> in focus mode. "" (the board's own address) comes here too.
+	// #inbox, #inbox/<slug>; #queue, #queue/<slug> in focus mode. "" (the board's own address) comes here too, and so
+	// do the old addresses of what the Inbox took over: #board (every project's open work) and #today (Today's brief,
+	// which the "While you were away" notification opened).
 	match(h) {
+		if (h === "#board" || h === "#today") return {};
 		const m = h.match(/^#(inbox|queue)(?:\/([^/]+))?$/);
 		return m ? { focus: m[1] === "queue", project: m[2] ? decodeURIComponent(m[2]) : "" } : null;
 	},
 	show(p, { from }) {
 		// The board's own address: the project last picked, said in the address.
 		if (p.focus === undefined) {
-			if (ib.project) return go(ibHash(false, ib.project), { replace: true });
+			// (Not under an item opened by its address: the reader keeps that address.)
+			if (!/^#item\//.test(location.hash) && (ib.project || location.hash)) return go(ibHash(false, ib.project), { replace: true });
 			p = { focus: false, project: "" };
 		}
 		const entering = from !== "inbox" || p.focus !== ib.focus;

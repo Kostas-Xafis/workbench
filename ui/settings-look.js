@@ -4,13 +4,6 @@ const MAC = /Mac|iPhone|iPad/.test(navigator.userAgentData?.platform || navigato
 const MOD = MAC ? "⌘" : "Ctrl";
 const osDark = matchMedia("(prefers-color-scheme: dark)");
 const lookTheme = () => { const t = pref("look.theme", "system"); return t === "light" || t === "dark" ? t : "system"; };
-// startWho() is in core.js: `state` needs it while it's built.
-// The board's sections are no longer ordered per browser (the order, density and "the board opens on" settings are
-// gone). board.js still asks for sectionOrder(): it gets the default order. Stale saved values are dropped.
-const sectionOrder = () => SECTIONS;
-for (const k of ["look.sections", "look.density", "look.start"]) { try { localStorage.removeItem(`wb.pref.${k}`); } catch {} }
-// core.js read look.start while `state` was built, before the saved value could be dropped: read it again.
-state.who = startWho();
 // A report in the frame gets the theme on its address (so its first paint is right) and by message when it changes.
 function withFrameTheme(src) {
 	const u = new URL(src, location.href), t = lookTheme();
@@ -81,7 +74,7 @@ addEventListener("storage", (e) => {
 	if (e.key === "wb.notify") { notify.on = e.newValue === "on"; notify.items = notify.reports = notify.trackers = null; renderNotify(); }
 	if (!e.key?.startsWith("wb.pref.") && e.key !== "wb.notify") return;
 	applyLook();
-	renderBoard();
+	redraw();
 	renderNotify();
 	renderSettings();
 });
