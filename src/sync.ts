@@ -20,6 +20,8 @@ export const SYNC_FORMAT = 1;
 
 /** Kept by each board for itself: devices (their tokens belong to the board they paired with) and the cloud board's open pairing code. */
 export const NOT_MOVED = new Set(["devices", "pairing_code", "login_tickets"]);
+// Push notifications (worker/src/push.ts): the cloud board's own keys, and subscriptions that belong to its devices.
+for (const t of ["push_keys", "push_subscriptions"]) NOT_MOVED.add(t);
 
 /** A batch of rows to or from the cloud board stays under this much JSON: well inside a Worker's 100 MB request. */
 export const BATCH_BYTES = 8 * 1024 * 1024;

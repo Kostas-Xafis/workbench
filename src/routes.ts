@@ -140,7 +140,11 @@ export const PAIR_OPEN = ["/pair", "/api/pair", "/manifest.webmanifest", "/icons
 const defineRoutes = <R extends string>(routes: Bun.Serve.Routes<unknown, R>) => routes;
 
 type Check = (req: Request, srv: Server<unknown>) => boolean;
-export type BoardFile = "page" | "usage" | "icon" | "pair" | "icon-256.png" | "icon-512.png";
+export type BoardFile = "page" | "usage" | "icon" | "pair" | AppIcon;
+/** The app's icons, at /icons/<name>: the home screen's (any shape, and maskable for Android's), and the badge
+ *  Android shows a notification by in the status bar (white on transparent). */
+export const APP_ICONS = ["icon-192.png", "icon-256.png", "icon-512.png", "maskable-192.png", "maskable-512.png", "badge-96.png"] as const;
+export type AppIcon = (typeof APP_ICONS)[number];
 
 /** Where the board runs, as the routes need to know it. server.ts makes the one for this computer, worker/ the cloud's. */
 export type BoardHost = {
@@ -310,15 +314,25 @@ export function boardRoutes(h: BoardHost) {
 					display: "standalone",
 					background_color: "#f6f5f2",
 					theme_color: "#f6f5f2",
+					categories: ["productivity"],
+					// Chrome on Android wants 192 and 512, and a maskable one to fill its own icon shape.
 					icons: [
-						{ src: "/icons/icon-256.png", sizes: "256x256", type: "image/png" },
-						{ src: "/icons/icon-512.png", sizes: "512x512", type: "image/png" },
+						{ src: "/icons/icon-192.png", sizes: "192x192", type: "image/png", purpose: "any" },
+						{ src: "/icons/icon-256.png", sizes: "256x256", type: "image/png", purpose: "any" },
+						{ src: "/icons/icon-512.png", sizes: "512x512", type: "image/png", purpose: "any" },
+						{ src: "/icons/maskable-192.png", sizes: "192x192", type: "image/png", purpose: "maskable" },
+						{ src: "/icons/maskable-512.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
+					],
+					// A long press on the app's icon.
+					shortcuts: [
+						{ name: "Today", url: "/#today", icons: [{ src: "/icons/icon-192.png", sizes: "192x192", type: "image/png" }] },
+						{ name: "Answer what needs you", short_name: "Queue", url: "/#queue", icons: [{ src: "/icons/icon-192.png", sizes: "192x192", type: "image/png" }] },
 					],
 				},
 				{ headers: { "content-type": "application/manifest+json", "cache-control": "max-age=3600" } },
 			),
 		"/icons/:file": (req) => {
-			const png = req.params.file === "icon-256.png" || req.params.file === "icon-512.png" ? h.file(req.params.file) : null;
+			const png = (APP_ICONS as readonly string[]).includes(req.params.file) ? h.file(req.params.file as AppIcon) : null;
 			return png
 				? new Response(png, { headers: { "content-type": "image/png", "cache-control": "max-age=86400" } })
 				: new Response("not found", { status: 404 });

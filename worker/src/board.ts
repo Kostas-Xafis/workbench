@@ -21,6 +21,10 @@ import pairHtml from "../../ui/pair.html";
 import iconSvg from "../../ui/icon.svg" with { type: "text" };
 import icon256 from "../../src-tauri/icons/256x256.png";
 import icon512 from "../../src-tauri/icons/icon.png";
+import icon192 from "../../ui/icons/icon-192.png";
+import maskable192 from "../../ui/icons/maskable-192.png";
+import maskable512 from "../../ui/icons/maskable-512.png";
+import badge96 from "../../ui/icons/badge-96.png";
 import pkg from "../../package.json";
 import { createSchema, tidy, type Db } from "../../src/db";
 import { applyDue } from "../../src/asks";
@@ -32,6 +36,7 @@ import { SqliteDb } from "./sqlite";
 import { runCloudCli } from "./cloudcli";
 import { compile, dispatch } from "./router";
 import { Helpers } from "./helper";
+import { Push } from "./push";
 
 export type Env = {
 	BOARD: DurableObjectNamespace;
@@ -85,6 +90,8 @@ export class Board extends DurableObject<Env> {
 	private dueAt = 0;
 	private claimMisses: number[] = [];
 	private readonly helpers: Helpers;
+	/** Push notifications (push.ts): who gets what after each write. */
+	private readonly push: Push;
 
 	constructor(ctx: DurableObjectState, env: Env) {
 		super(ctx, env);
@@ -124,6 +131,10 @@ export class Board extends DurableObject<Env> {
 			icon: iconSvg,
 			"icon-256.png": icon256 as unknown as ArrayBuffer,
 			"icon-512.png": icon512 as unknown as ArrayBuffer,
+			"icon-192.png": icon192 as unknown as ArrayBuffer,
+			"maskable-192.png": maskable192 as unknown as ArrayBuffer,
+			"maskable-512.png": maskable512 as unknown as ArrayBuffer,
+			"badge-96.png": badge96 as unknown as ArrayBuffer,
 		};
 		this.host = {
 			db,
@@ -152,6 +163,9 @@ export class Board extends DurableObject<Env> {
 		};
 		this.match = compile(boardRoutes(this.host) as Record<string, unknown>);
 		this.helpers = new Helpers(ctx, db);
+		this.push = new Push(db);
+		// What a computer's helper changes (tracker readings, agents that ended, unblocked work sent) is news too.
+		this.helpers.changed = () => this.pushAfter(null);
 	}
 
 	/** Whether a device exists yet: until one does, only the owner key gets in. */
@@ -167,6 +181,11 @@ export class Board extends DurableObject<Env> {
 		this.due();
 		await this.tidyDaily();
 		const path = url.pathname;
+		// ---------- Push notifications (push.ts) ----------
+		// The service worker says nothing about the board, and a browser may fetch it without the cookie.
+		if (path === "/sw.js") return this.serviceWorker();
+		if (url.protocol === "https:") this.push.subject = url.origin;
+		// ---------- end: push ----------
 		if (path === "/api/sync/claim") return this.claim(req, ip);
 		if (path === "/login") return this.login(req, url, srv, ip);
 		const m = this.match(path);
@@ -175,14 +194,32 @@ export class Board extends DurableObject<Env> {
 			const no = this.host.gate.check(req, srv);
 			if (no) return no;
 		}
-		if (path.startsWith("/api/sync/")) return this.sync(req, url);
+		// ---------- Push notifications (push.ts) ----------
+		if (path === "/api/push" || path.startsWith("/api/push/")) {
+			const device = this.host.gate.device(req, srv);
+			if (!device) return json({ error: "push notifications are for a paired device" }, 403);
+			return this.push.route(req, path, device.id, this.host.boardOnly(req, srv));
+		}
+		if (path.startsWith("/api/sync/")) {
+			const res = await this.sync(req, url);
+			// A `wb` command (cloudcli.ts) is a write like any other. A board moved in or out isn't news: compare the
+			// next write with it, not with the board before.
+			if (path === "/api/sync/cli") this.pushAfter(this.host.gate.device(req, srv)?.id ?? null);
+			else this.push.watch.reset();
+			return res;
+		}
+		// ---------- end: push ----------
 		// ---- The computer helper (helper.ts): what needs a computer, done by one that syncs with this board. ----
 		if (path.startsWith("/api/helper/") || path === "/api/helper") return this.helpers.fetch(req, url, this.host.gate.device(req, srv));
 		if (!m) return new Response("not found", { status: 404 });
 		try {
 			const device = this.host.gate.device(req, srv);
 			const done = await this.helpers.route(m.pattern, req, url, { device, boardOnly: this.host.boardOnly(req, srv), localRead: this.host.localRead(req, srv) });
-			if (done) return done;
+			if (done) {
+				// Run, Stop, Refresh: what they changed goes to the other devices (push.ts), as any write's does.
+				if (req.method !== "GET" && req.method !== "HEAD") this.pushAfter(device?.id ?? null);
+				return done;
+			}
 			if (m.pattern === "/api/settings/projects") return await this.helpers.projectsTab(await dispatch(m, req, srv));
 		} catch (e) {
 			console.error(`${req.method} ${path}: ${(e as Error).stack ?? e}`);
@@ -192,7 +229,10 @@ export class Board extends DurableObject<Env> {
 		const why = NEEDS_COMPUTER[m.pattern];
 		if (why) return json({ error: why, cloud: true }, 501);
 		try {
-			return await dispatch(m, req, srv);
+			const res = await dispatch(m, req, srv);
+			// Push notifications: what this write changed goes to the other devices (push.ts).
+			if (req.method !== "GET" && req.method !== "HEAD") this.pushAfter(this.host.gate.device(req, srv)?.id ?? null);
+			return res;
 		} catch (e) {
 			// Something only a computer has (Bun, a file, a command): an answer rather than an uncaught error, which
 			// would restart this object.
@@ -207,7 +247,9 @@ export class Board extends DurableObject<Env> {
 		if (now - this.dueAt < 30e3) return;
 		this.dueAt = now;
 		try {
-			for (const ref of applyDue(this.db)) console.log(`ask: wb-${ref} went ahead with its default`);
+			const went = applyDue(this.db);
+			for (const ref of went) console.log(`ask: wb-${ref} went ahead with its default`);
+			if (went.length) this.pushAfter(null);
 		} catch (e) {
 			console.error(`asks: ${(e as Error).message}`);
 		}
@@ -232,13 +274,55 @@ export class Board extends DurableObject<Env> {
 
 	/** Once a day: what Settings → Data says not to keep goes (old report versions, tracker readings, closed items). */
 	async alarm() {
+		// ---------- Push notifications: the alarm also ends quiet hours (push.ts), so tidying keeps its own time. ----------
+		try {
+			await this.push.flush();
+		} catch (e) {
+			console.error(`push: ${(e as Error).message}`);
+		}
+		const tidyAt = (await this.ctx.storage.get<number>("tidy_at")) ?? 0;
+		if (Date.now() < tidyAt) return this.pushAlarm(tidyAt);
+		await this.ctx.storage.put("tidy_at", Date.now() + 24 * 3600e3);
+		// ---------- end: push ----------
 		try {
 			const gone = tidy(this.db);
 			if (Object.values(gone).some(Boolean)) console.log(`tidy: ${JSON.stringify(gone)}`);
 		} finally {
-			await this.ctx.storage.setAlarm(Date.now() + 24 * 3600e3);
+			await this.pushAlarm(Date.now() + 24 * 3600e3);
 		}
 	}
+
+	/* ---------- Push notifications (push.ts) ---------- */
+
+	/** ui/sw.js at the root, so it can show notifications for the whole board. Never cached, so updates show at once. */
+	private async serviceWorker() {
+		const res = await this.env.ASSETS.fetch(new Request("https://assets.local/sw.js"));
+		if (!res.ok) return new Response("not found", { status: 404 });
+		return new Response(res.body, { headers: { "content-type": "text/javascript; charset=utf-8", "cache-control": "no-cache", "service-worker-allowed": "/" } });
+	}
+
+	/** Sends what a write changed, after the answer has gone (the diff itself is taken now, before anything else runs). */
+	private pushAfter(from: string | null) {
+		const sending = this.push
+			.after(from)
+			.then(() => this.pushAlarm())
+			.catch((e) => console.error(`push: ${(e as Error).message}`));
+		this.ctx.waitUntil?.(sending);
+	}
+
+	/**
+	 * The one alarm a Durable Object has, at whichever comes first: the daily tidy (kept as `tidy_at`) or the next
+	 * look at whether quiet hours ended for a device with notifications waiting.
+	 */
+	private async pushAlarm(tidyAt?: number) {
+		const storage = this.ctx.storage;
+		const current = await storage.getAlarm();
+		tidyAt ??= (await storage.get<number>("tidy_at")) ?? current ?? Date.now() + 24 * 3600e3;
+		await storage.put("tidy_at", tidyAt);
+		const at = Math.min(tidyAt, this.push.nextCheck() ?? Infinity);
+		if (current !== at) await storage.setAlarm(at);
+	}
+	/* ---------- end: push ---------- */
 
 	/**
 	 * GET /login?ticket=…&next=/: a browser (the desktop app's window, `wb open`) gets a device cookie with a one-time

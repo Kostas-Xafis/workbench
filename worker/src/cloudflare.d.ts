@@ -13,11 +13,14 @@ interface DurableObjectStorage {
 	transactionSync<T>(fn: () => T): T;
 	getAlarm(): Promise<number | null>;
 	setAlarm(at: number | Date): Promise<void>;
+	get<T>(key: string): Promise<T | undefined>;
+	put<T>(key: string, value: T): Promise<void>;
 }
 
 interface DurableObjectState {
 	storage: DurableObjectStorage;
 	blockConcurrencyWhile<T>(fn: () => Promise<T>): Promise<T>;
+	waitUntil?(promise: Promise<unknown>): void;
 	// Hibernatable WebSockets (the computer helper, helper.ts).
 	acceptWebSocket(ws: WebSocket, tags?: string[]): void;
 	getWebSockets(tag?: string): WebSocket[];

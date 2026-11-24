@@ -29,6 +29,7 @@ import phoneCss from "../ui/phone.css" with { type: "file" };
 import phonesCss from "../ui/phones.css" with { type: "file" };
 import projectsCss from "../ui/projects.css" with { type: "file" };
 import projectsJs from "../ui/projects.js" with { type: "file" };
+import pushJs from "../ui/push.js" with { type: "file" };
 import queueCss from "../ui/queue.css" with { type: "file" };
 import queueJs from "../ui/queue.js" with { type: "file" };
 import railCss from "../ui/rail.css" with { type: "file" };
@@ -52,6 +53,7 @@ import setupJs from "../ui/setup.js" with { type: "file" };
 import shareJs from "../ui/share.js" with { type: "file" };
 import staleCss from "../ui/stale.css" with { type: "file" };
 import staleJs from "../ui/stale.js" with { type: "file" };
+import swJs from "../ui/sw.js" with { type: "file" };
 import todayCss from "../ui/today.css" with { type: "file" };
 import todayJs from "../ui/today.js" with { type: "file" };
 import topCss from "../ui/top.css" with { type: "file" };
@@ -88,6 +90,7 @@ export const UI: Record<string, string> = {
 	"phones.css": phonesCss,
 	"projects.css": projectsCss,
 	"projects.js": projectsJs,
+	"push.js": pushJs,
 	"queue.css": queueCss,
 	"queue.js": queueJs,
 	"rail.css": railCss,
@@ -111,6 +114,7 @@ export const UI: Record<string, string> = {
 	"share.js": shareJs,
 	"stale.css": staleCss,
 	"stale.js": staleJs,
+	"sw.js": swJs,
 	"today.css": todayCss,
 	"today.js": todayJs,
 	"top.css": topCss,

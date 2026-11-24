@@ -7,6 +7,10 @@ import iconPath from "../ui/icon.svg" with { type: "file" };
 import pairPath from "../ui/pair.html" with { type: "file" };
 import icon256Path from "../src-tauri/icons/256x256.png" with { type: "file" };
 import icon512Path from "../src-tauri/icons/icon.png" with { type: "file" };
+import icon192Path from "../ui/icons/icon-192.png" with { type: "file" };
+import maskable192Path from "../ui/icons/maskable-192.png" with { type: "file" };
+import maskable512Path from "../ui/icons/maskable-512.png" with { type: "file" };
+import badge96Path from "../ui/icons/badge-96.png" with { type: "file" };
 import pkg from "../package.json";
 import { backup, DB_PATH, listBackups, open, tidy } from "./db";
 import { deviceCookie, Pairing, phoneGate } from "./devices";
@@ -147,6 +151,10 @@ export function serve({ lan = false } = {}) {
 		pair: pairPath as unknown as string,
 		"icon-256.png": icon256Path,
 		"icon-512.png": icon512Path,
+		"icon-192.png": icon192Path,
+		"maskable-192.png": maskable192Path,
+		"maskable-512.png": maskable512Path,
+		"badge-96.png": badge96Path,
 	};
 	const host: BoardHost = {
 		db,

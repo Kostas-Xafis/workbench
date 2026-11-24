@@ -8,8 +8,17 @@ function notifyState() {
 		? ["bad", "This browser doesn't offer desktop notifications."]
 		: ["off", `Notifications need the board at localhost or over https. Opened over plain http, as from a phone on your network (${esc(location.host)}), the browser doesn't offer them.`];
 	const p = Notification.permission;
-	if (p === "denied") return ["bad", "Blocked for this page in the browser. To allow them, click the icon at the left of the address bar, set Notifications to Allow, then reload this page."];
+	if (p === "denied") {
+		// Installed as an app (push.js), there's no address bar: Android keeps the setting with the app.
+		if (matchMedia("(display-mode: standalone)").matches && /Android/.test(navigator.userAgent))
+			return ["bad", "Blocked for this app. To allow them, long-press Workbench's icon, tap App info → Notifications and turn them on, then open the app again."];
+		return ["bad", "Blocked for this page in the browser. To allow them, click the icon at the left of the address bar, set Notifications to Allow, then reload this page."];
+	}
 	if (p === "default") return ["off", "The browser hasn't been asked yet: turning them on asks it."];
+	// The cloud board's push notifications (push.js).
+	if (pushActive()) return ["ok", `On. The board sends them to this device, even with the board closed.${quietAt() ? " Quiet hours now." : ""}`];
+	if (notify.on && pushable() && push.busy) return ["ok", "On. Signing this device up with the board…"];
+	if (notify.on && pushable() && push.error) return ["warn", `On, but only while the board is open: this device couldn't sign up for them with the board closed (${esc(push.error)}). Turning them off and on again tries once more.`];
 	return notify.on ? ["ok", `On, and allowed in this browser.${quietAt() ? " Quiet hours now." : ""}`] : ["off", "Allowed in this browser, and off."];
 }
 const fmtClock = (hhmm) => {
@@ -29,7 +38,7 @@ function setNotifyRender() {
 	const on = notifyOn();
 	const blocked = !appNotify && (!supported || Notification.permission === "denied");
 	const master = optRow({
-		label: `Desktop notifications${browserScope}`,
+		label: `${pushable() ? "Notifications" : "Desktop notifications"}${browserScope}`,
 		hint: `<span class="nt-status"><span class="sdot ${dot}"></span><span>${status}</span></span>`,
 		control: `<label class="switch"><input type="checkbox" role="switch" data-notify-on${on ? " checked" : ""}${blocked ? " disabled" : ""} aria-label="Desktop notifications"><span></span></label>`,
 	});
@@ -53,11 +62,20 @@ function setNotifyRender() {
 	];
 	const test = optRow({
 		label: "Send a test notification",
-		hint: on ? "Shows one now, even with the board in front, so you can see how they look." : "Turn notifications on first.",
+		hint: !on ? "Turn notifications on first." : pushActive() ? "The board sends one to this device now, the way the others come, so you can see that they arrive." : "Shows one now, even with the board in front, so you can see how they look.",
 		control: `<button type="button" class="ghost sm" data-notify="test"${on ? "" : " disabled"}>Send a test</button>`,
 	});
-	return `<p class="set-intro">Notifications pop up only while the board isn't the window in front, and never for changes you make here yourself. ${app ? "This app has its own setting, apart from your browsers" : "Each browser has its own"}: turn them on wherever you want them.</p>
-		${optGroup("Notifications", [master, test])}
+	// Chrome offers to install the board as an app (push.js): with its own icon, and its notifications as an app's.
+	const install = push.install ? optRow({
+		label: "Install as an app",
+		hint: "Puts Workbench on your home screen and in your apps, opening in its own window.",
+		control: `<button type="button" class="ghost sm" data-notify="install">Install</button>`,
+	}) : "";
+	const intro = pushable()
+		? "The board sends notifications to this device, even when it's closed, but not while it's on screen, and never for changes you make on this device yourself."
+		: "Notifications pop up only while the board isn't the window in front, and never for changes you make here yourself.";
+	return `<p class="set-intro">${intro} ${app ? "This app has its own setting, apart from your browsers" : "Each browser has its own"}: turn them on wherever you want them.</p>
+		${optGroup("Notifications", [master, test, install].filter(Boolean))}
 		${optGroup("What to tell you about", [presets, ...kinds], on ? "" : "Saved now, used once notifications are on.")}
 		${optGroup("Quiet hours", quietRows, "Nothing pops up during quiet hours. When they end, one notification sums up what happened meanwhile, such as “While you were away: 3 things need you”, unless you're already looking at the board.")}`;
 }
@@ -77,8 +95,10 @@ $("#settings-view").addEventListener("click", (e) => {
 	const b = e.target.closest("[data-notify]");
 	if (!b) return;
 	const what = b.dataset.notify;
+	if (what === "install") return void pushInstall();
 	if (what === "test") {
 		if (!notifyOn()) return toast("Turn notifications on first");
+		if (pushActive()) return void pushTest();
 		if (!ping("Workbench", "Notifications work. They look like this, and clicking one opens what it's about.", "wb-test", null))
 			toast("This browser shows notifications only from installed apps");
 		return;

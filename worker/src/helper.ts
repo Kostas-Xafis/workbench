@@ -65,6 +65,8 @@ export class Helpers {
 	private readonly refreshing = new Map<string, Promise<unknown>>();
 	private costMemo: { key: string; at: number; value: Map<string, number> } | null = null;
 	private ticking = false;
+	/** After a helper's message changed the board (a job's answer, a run that ended, a tick): push.ts tells the devices. */
+	changed: () => void = () => {};
 
 	constructor(
 		private readonly ctx: DurableObjectState,
@@ -377,6 +379,7 @@ export class Helpers {
 				return this.hello(device, m, ws);
 			case "done":
 				this.done(device, m);
+				this.changed();
 				return [];
 			case "run": {
 				const r = getRun(db, Number(m.id));
@@ -389,6 +392,7 @@ export class Helpers {
 				const r = getRun(db, Number(m.id));
 				if (r && !r.ended_at) endRun(db, r, m.code === null ? null : Number(m.code), wire(m.live));
 				db.query("DELETE FROM helper_runs WHERE run_id = ?").run(Number(m.id));
+				this.changed();
 				return [{ t: "ack", id: Number(m.id) }];
 			}
 			case "adopt":
@@ -397,6 +401,7 @@ export class Helpers {
 				return [];
 			case "tick":
 				await this.tick();
+				this.changed();
 				return [{ t: "next", ms: this.nextTick() }];
 		}
 		return [];
