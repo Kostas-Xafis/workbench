@@ -102,7 +102,7 @@ import { etagRoutes, IMMUTABLE, versionedPage } from "./fresh";
 import { addStepPhoto, finishRun, removeStepPhoto, runState, saveStep, startOver } from "./checkruns";
 import { addImage, imageData, prepareImage, removeImage, setImageCaption } from "./images";
 import { mcpHttp } from "./mcp";
-import { getRun, listRuns, runPrompt, runsInfo, startRun, stopRun, testCommand, type From } from "./dispatch";
+import { getRun, listRuns, openInDesktop, runPrompt, runsInfo, startRun, stopRun, testCommand, type From } from "./dispatch";
 import { refreshUsage, usageData } from "./usage";
 import { agentFiles, integratePrompt, integrateSummary } from "./integrate";
 import { setupStatus } from "./setup";
@@ -1130,6 +1130,16 @@ export function boardRoutes(h: BoardHost) {
 				if (!runFrom(req, srv)) return json({ error: "runs stop only from the board on this computer, or a phone paired with it" }, 403);
 				try {
 					return json(await stopRun(db, Number(req.params.id)));
+				} catch (e) {
+					return fail(e);
+				}
+			}),
+		},
+		"/api/runs/:id/desktop": {
+			POST: jsonOnly(async (req, srv) => {
+				if (!boardOnly(req, srv)) return json({ error: "a run opens in Claude Desktop only from the board on this computer" }, 403);
+				try {
+					return json(openInDesktop(db, Number(req.params.id)));
 				} catch (e) {
 					return fail(e);
 				}

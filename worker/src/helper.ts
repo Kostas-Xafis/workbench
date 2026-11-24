@@ -18,7 +18,7 @@
  *   asked again in the background when it's old, so the page never waits on a computer twice.
  */
 import { getItem, logVaultAccess, projects, resolveItem, type Db, type VaultAccess } from "../../src/db";
-import { costs, endRun, getRun, launcher, places, runsInfo, save, sendUnblocked, startRun, type From, type Launch, type Launched, type Live } from "../../src/dispatch";
+import { costs, desktop, endRun, getRun, launcher, places, runsInfo, save, sendUnblocked, startRun, type From, type Launch, type Launched, type Live } from "../../src/dispatch";
 import { reader, RUN_TIMEOUT_MS, runDue, type Reading } from "../../src/trackers";
 import { getSetting } from "../../src/settings";
 
@@ -85,6 +85,7 @@ export class Helpers {
 		launcher.launch = (spec) => this.launch(spec);
 		places.has = (path) => this.online().some((h) => h.folders.includes(path));
 		costs.of = (sessions, since = 0) => this.costs(sessions, since);
+		desktop.here = false;
 		reader.read = (t, folder) =>
 			this.ask<Reading>("tracker", { tracker: { id: t.id, kind: t.kind, command: t.command, options: t.options, name: t.name, project: t.project }, folder }, { prefer: folder, timeout: RUN_TIMEOUT_MS + 15e3 });
 	}
@@ -365,7 +366,7 @@ export class Helpers {
 		const now = getRun(db, id)!;
 		// Its computer is gone: what's known is how it ended. (If it comes back, its helper is told to stop it.)
 		if (!now.ended_at && !there)
-			endRun(db, { ...now, status: "stopped" }, null, { offset: 1, lines: now.tail ? now.tail.split("\n") : [], session: now.session, cost: now.cost, result: "", isError: false });
+			endRun(db, { ...now, status: "stopped" }, null, { offset: 1, lines: now.tail ? now.tail.split("\n") : [], session: now.session, cost: now.cost, result: "", isError: false, refused: {} });
 		return json(getRun(db, id));
 	}
 
@@ -571,5 +572,12 @@ function wire(l: Partial<Wire> | undefined): Wire {
 		cost: typeof l?.cost === "number" ? l.cost : null,
 		result: String(l?.result ?? ""),
 		isError: !!l?.isError,
+		// Tool names and counts only (an older helper sends none).
+		refused: Object.fromEntries(
+			Object.entries(l?.refused && typeof l.refused === "object" ? l.refused : {})
+				.filter(([k, n]) => typeof n === "number" && n > 0 && k.length <= 100)
+				.slice(0, 50)
+				.map(([k, n]) => [k, Math.floor(n as number)]),
+		),
 	};
 }

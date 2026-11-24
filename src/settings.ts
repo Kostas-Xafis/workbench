@@ -201,10 +201,16 @@ const SETUP: Defs = {
 /* ---------- Agents ---------- */
 // dispatch.ts: the board starting a Claude Code agent on an item (Answer & send, Run). Off until turned on here.
 /** The command a run starts with, in the project's folder (bash, your shell's PATH). The prompt and the rest come in
- * as variables: WB_PROMPT, WB_ITEM (wb-xxxx), WB_TITLE, WB_PROJECT, WB_SESSION (a new session id). dontAsk: what
- * your Claude Code settings don't already allow is refused, never asked (nobody watches) and never skipped. */
+ * as variables: WB_PROMPT, WB_ITEM (wb-xxxx), WB_TITLE, WB_PROJECT, WB_SESSION (a new session id). auto: the agent
+ * edits and runs commands, and Claude Code's checks refuse what looks risky (nobody watches, so nothing is asked);
+ * -w: in a git worktree of its own, on a new branch, so your own checkout isn't touched. */
 export const AGENT_COMMAND =
-	'claude -p "$WB_PROMPT" --output-format stream-json --verbose --permission-mode dontAsk --allowedTools mcp__wb --session-id "$WB_SESSION" --name "$WB_TITLE"';
+	'claude -p "$WB_PROMPT" --output-format stream-json --verbose --permission-mode auto --allowedTools mcp__wb -w --session-id "$WB_SESSION" --name "$WB_TITLE"';
+/** The defaults before it, which left an agent able to do next to nothing ("don't ask" allows only what your
+ * settings list). A board that has one of them saved gets today's instead (createSettingsTable). */
+const FORMER_AGENT_COMMANDS = [
+	'claude -p "$WB_PROMPT" --output-format stream-json --verbose --permission-mode dontAsk --allowedTools mcp__wb --session-id "$WB_SESSION" --name "$WB_TITLE"',
+];
 const AGENTS: Defs = {
 	"agents.on": { about: "The board may start agents", default: false, check: bool },
 	"agents.command": { about: "The command that starts an agent", default: AGENT_COMMAND, check: text(2000, { empty: false }) },
@@ -227,6 +233,8 @@ export function createSettingsTable(db: Db) {
 		value TEXT NOT NULL,
 		updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 	)`);
+	// A former default saved as it was is the default: today's replaces it. A command you changed stays yours.
+	for (const old of FORMER_AGENT_COMMANDS) db.query("DELETE FROM settings WHERE key = 'agents.command' AND value = ?").run(JSON.stringify(old));
 }
 
 /** Every declared setting: the stored value, or its default. A stored value that no longer passes its check
