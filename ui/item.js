@@ -150,6 +150,9 @@ async function save(extra = {}) {
 }
 
 form.addEventListener("submit", (e) => { e.preventDefault(); save(); });
+// The title wraps (a textarea, so a long one shows whole on a phone) but stays one line: Enter saves, as it did.
+form.title.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.isComposing) { e.preventDefault(); form.requestSubmit(); } });
+form.title.addEventListener("input", () => { if (/[\r\n]/.test(form.title.value)) form.title.value = form.title.value.replace(/\s*[\r\n]+\s*/g, " "); });
 function showOptionsField() { $("#options-field").hidden = form.kind.value !== "decision"; }
 form.kind.addEventListener("change", showOptionsField);
 // Who acts: the owner "kostas" goes by the name in Settings, and a new item goes to whoever Settings says for its

@@ -95,7 +95,7 @@
 <div id="upd-note" role="status" aria-live="polite" hidden></div>
 
 <dialog id="dlg"><form class="dlg" method="dialog" id="form" autocomplete="off">
-	<div class="dlg-head"><button type="button" class="ref" id="dlg-ref" title="Copy" hidden></button><input class="title-input" name="title" placeholder="What needs doing?" required></div>
+	<div class="dlg-head"><button type="button" class="ref" id="dlg-ref" title="Copy" hidden></button><textarea class="title-input" name="title" rows="1" placeholder="What needs doing?" required></textarea></div>
 	<div class="fields">
 		<label>Status<select name="status"></select></label>
 		<label>Who acts<select name="owner"><option value="kostas">Kostas</option><option value="agent">Agent</option></select></label>
@@ -311,6 +311,7 @@
 <script src="/ui/checkrun.js"></script>
 <script src="/ui/queue.js"></script>
 <script src="/ui/dispatch.js"></script>
+<script src="/ui/push.js"></script>
 <!-- end: features -->
 <script src="/ui/boot.js"></script>
 </body>

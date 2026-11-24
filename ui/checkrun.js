@@ -17,6 +17,7 @@ const CK_IC = {
 	tick: '<path d="M3.5 8.5l3 3 6-7" stroke-width="2"/>',
 	cross: '<path d="M4 4l8 8M12 4l-8 8" stroke-width="2"/>',
 	camera: '<path d="M2 5.5h2.2l1-1.7h5.6l1 1.7H14v7.5H2z"/><circle cx="8" cy="9" r="2.3"/>',
+	image: '<rect x="2" y="3" width="12" height="10" rx="1.5"/><circle cx="5.75" cy="6.5" r="1"/><path d="m2.5 11.5 3-2.75 2.25 2 2.75-3 3 3.25"/>',
 };
 const ckIc = (n) => `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${CK_IC[n]}</svg>`;
 const ckRef = (ref) => String(ref).replace(/^wb-/i, "");
@@ -122,7 +123,7 @@ function ckStep(at) {
 		<div class="ck-step">${ckPlain(s.title)}</div>${detail}${ckExpect(last)}
 		<textarea class="ck-words${need ? " need" : ""}" data-ck-words rows="2" placeholder="A few words (needed if it fails)" aria-label="A few words about this step">${esc(words)}</textarea>
 		${need ? '<p class="ck-need">Say what went wrong, or add a photo.</p>' : ""}
-		<div class="ck-photos">${photos}<label class="ck-add">${ckIc("camera")}<span>Add photo</span><input type="file" accept="image/*" capture="environment" data-ck-photo></label></div>
+		<div class="ck-photos">${photos}<label class="ck-add">${ckIc("camera")}<span>Add photo</span><input type="file" accept="image/*" capture="environment" data-ck-photo></label><label class="ck-add ck-pick">${ckIc("image")}<span>From gallery</span><input type="file" accept="image/*" data-ck-photo></label></div>
 	</div>
 	<footer class="ck-bar"><div class="ck-nav"><button type="button" data-ck-step="${at}" ${at ? "" : "disabled hidden"}>← Step ${at}</button><button type="button" class="mid" data-ck-over>All steps</button>
 		<button type="button" data-ck-step="${at + 2}" ${last ? "disabled hidden" : ""}>Step ${at + 2} →</button></div>
@@ -198,7 +199,7 @@ async function ckPhoto(input) {
 	if (!file) return;
 	const at = ckStepAt();
 	ckStore();
-	ckEl.querySelector(".ck-add")?.classList.add("busy");
+	for (const b of ckEl.querySelectorAll(".ck-add")) b.classList.add("busy");
 	try {
 		const data = await ckRead(await ckShrink(file));
 		await ckCall(`/steps/${at + 1}/photos`, "POST", { data });

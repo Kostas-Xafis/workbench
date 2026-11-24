@@ -85,7 +85,7 @@ function renderNotify() {
 	b.hidden = !(appNotify || "Notification" in window);
 	const on = notifyOn();
 	b.setAttribute("aria-pressed", on);
-	b.title = on ? `Desktop notifications on${quietAt() ? ", quiet hours now" : ""}. Settings → Notifications chooses which` : "Turn on desktop notifications";
+	b.title = on ? `${pushActive() ? "Notifications on, even with the board closed" : "Desktop notifications on"}${quietAt() ? ", quiet hours now" : ""}. Settings → Notifications chooses which` : "Turn on notifications";
 }
 async function setNotifyOn(on) {
 	if (on && !appNotify && Notification.permission !== "granted" && (await Notification.requestPermission()) !== "granted") {
@@ -96,6 +96,13 @@ async function setNotifyOn(on) {
 	notify.on = on;
 	localSet("notify", on ? "on" : "off");
 	notify.items = notify.reports = notify.trackers = null;
+	// The cloud board sends them as push notifications instead (push.js); if that fails, the page pops them up itself.
+	if (pushable() && on && !(await pushSubscribe())) {
+		renderNotify();
+		renderSettings();
+		return toast("On, but only while the board is open: this device couldn't sign up for them with the board closed");
+	}
+	if (pushable() && !on) await pushUnsubscribe();
 	renderNotify();
 	renderSettings();
 	toast(on ? "Notifications on" : "Notifications off");
@@ -146,7 +153,9 @@ function summarise(held) {
 	ping("While you were away", parts.join(" · ") + (first ? `\n${first.body}` : ""), "wb-away", () => openTarget({ today: 1 }), { today: 1 });
 }
 async function notifyCheck() {
-	if (!notifyOn()) return;
+	// Push notifications come from the board itself (push.js): none from here as well.
+	if (pushActive()) notify.items = notify.reports = notify.trackers = null;
+	if (!notifyOn() || pushActive()) return;
 	const [items, reports, trackers] = await Promise.all([api("/api/items"), api("/api/reports"), api("/api/trackers")]);
 	const away = document.visibilityState !== "visible" || !document.hasFocus();
 	const mine = (i) => i && needsYou(i);

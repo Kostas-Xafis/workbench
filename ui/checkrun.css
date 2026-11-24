@@ -44,6 +44,9 @@
 .ck-add svg { width: 20px; height: 20px; flex: none; }
 .ck-add input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
 .ck-add.busy { opacity: .6; pointer-events: none; }
+/* On a phone "Add photo" opens the camera (capture); a screenshot or an older photo comes from the gallery. With a
+   mouse both would open the same file picker, so the second stays hidden. */
+@media (pointer: fine) { .ck-add.ck-pick { display: none; } }
 .ck-ph { position: relative; width: 72px; height: 72px; flex: none; }
 .ck-ph a { display: block; width: 100%; height: 100%; }
 .ck-ph img { width: 100%; height: 100%; object-fit: cover; border-radius: 10px; border: 1px solid var(--line); display: block; }
