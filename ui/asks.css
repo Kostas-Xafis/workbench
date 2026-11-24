@@ -1,33 +1,26 @@
-/* Asks that don't block (ui/asks.js): the notice kind's colour, Got it / Object…, ticks, deadlines. */
+/* Asks that don't block (ui/asks.js): the notice kind's colour, ticks (the queue), deadlines and recommendations. */
 :root { --notice: #0e7490; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --notice: #5ccfe6; } }
 :root[data-theme="dark"] { --notice: #5ccfe6; }
 .k-notice { --k: var(--notice); --dot: var(--notice); }
 
-/* Got it is the quiet yes; Object… the way to say no. */
-.opt.ask-ok { border-color: color-mix(in srgb, var(--notice) 45%, var(--line)); background: color-mix(in srgb, var(--notice) 8%, var(--card)); }
-.opt.ask-ok:hover { border-color: var(--notice); background: color-mix(in srgb, var(--notice) 20%, var(--card)); }
-.opt.ask-ok.picked { background: var(--notice); border-color: var(--notice); color: var(--card); }
-.opt.ask-no { border-color: var(--line); background: transparent; }
-.opt.ask-no:hover { border-color: var(--muted); background: var(--hover); }
+/* The recommended option, marked (the queue). */
 .opt small { margin-left: 6px; font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .3px; opacity: .75; }
 .opt.ask-rec { border-color: var(--decision); }
 
-/* Pick several: each option a tick box, then one Answer. */
+/* Pick several: each option a tick box, then one Answer (the queue). */
 .ask-pick { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; user-select: none; }
 .ask-pick input { margin: 0; accent-color: var(--decision); width: 14px; height: 14px; flex: none; }
 .ask-pick.on { border-color: var(--decision); background: color-mix(in srgb, var(--decision) 16%, var(--card)); }
-.opt.ask-send { background: var(--decision); color: var(--card); border-color: var(--decision); font-weight: 600; }
-.opt.ask-send:hover { background: color-mix(in srgb, var(--decision) 85%, #000); }
 
-/* When it goes ahead by itself; within a day it stands out. */
+/* On a card: what the agent recommends, and when it goes ahead by itself; within a day that stands out. */
+.ask-rec-tag { color: var(--ink); opacity: .8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 .ask-due { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 .ask-due.soon { background: var(--warn-bg); color: var(--warn-ink); border-radius: 6px; padding: 0 6px; font-weight: 500; }
 .ask-none { padding: 10px 2px 2px; }
 
-/* In the item dialog. */
-.ask-box .ask-what { margin: 0 0 8px; }
-.ask-when { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 8px; }
-.ask-when label { display: inline-flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12.5px; }
-.ask-when input[type=date] { border: 1px solid var(--line); border-radius: 8px; padding: 4px 8px; background: var(--card); color: var(--ink); }
-#ask-reply .opts { margin: 0 0 8px; }
+/* In the reader: the line under the title. */
+.ask-lead { margin: 10px 0 0; font-size: var(--fs-13, 13px); line-height: 1.5; color: var(--muted); }
+.ask-lead .rd-link, .ask-lead input { margin-left: 10px; vertical-align: baseline; }
+.ask-lead.soon { color: var(--warn-ink); background: var(--warn-bg); border-radius: 8px; padding: 6px 10px; width: fit-content; }
+.ask-lead-date { border: 1px solid var(--line); border-radius: 6px; padding: 1px 6px; background: var(--card); color: var(--ink); font-size: var(--fs-12, 12px); }

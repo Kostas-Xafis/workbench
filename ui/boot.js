@@ -17,9 +17,10 @@ async function start() {
 	hookRun(hooks.start);
 }
 start();
-// Agents write through the `wb` CLI, so the page polls; it pauses while a dialog is open.
+// Agents write through the `wb` CLI, so the page polls; it pauses while a form dialog is open (not the reader, which
+// takes what changed: ui/reader.js).
 setInterval(() => {
-	if (document.visibilityState !== "visible" || dlg.open || linkDlg.open || projDlg.open) return;
+	if (document.visibilityState !== "visible" || linkDlg.open || projDlg.open) return;
 	loadSettings();
 	if (!$("#settings-view").hidden && !(currentTab().local && !OWNER) && !(currentTab().computer && CLOUD)) currentTab().poll?.();
 	loadProjects();

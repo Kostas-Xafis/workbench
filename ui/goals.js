@@ -3,7 +3,7 @@
 // Above the board's sections: with a project selected, its open goals as a strip (title, target date, progress, what
 // waits on you, what blocks it). A click filters the board to that goal's items, and the filter lives in the URL
 // hash (#goal/<id>), so a reload keeps it. Under "All", one line per project with an active goal. A goal is added,
-// changed, moved, and closed from a small dialog; the item dialog has a Goal picker; a card names its goal.
+// changed, moved, and closed from a small dialog; the reader has a Goal picker; a card names its goal.
 // The server side is goals.ts; what blocks a goal (blocksGoal there) is worked out here from the items the board
 // already has, so the numbers move the moment an item does.
 
@@ -151,7 +151,7 @@ $("#sections").addEventListener("click", (e) => {
 	if (e.target.closest("[data-goal-add]")) return openGoal(null);
 	if (e.target.closest("[data-goal-clear]")) return clearGoal();
 	const it = e.target.closest("[data-goal-item]");
-	if (it) return api(`/api/items/${it.dataset.goalItem}`).then(openItem).catch((err) => toast(err.message));
+	if (it) return openItemById(it.dataset.goalItem).catch((err) => toast(err.message));
 	const open = e.target.closest("[data-goal-open]");
 	if (open) return showGoal(open.dataset.goalOpen);
 	const c = e.target.closest(".goal[data-goal]");
@@ -250,33 +250,25 @@ $("#goal-order").addEventListener("click", async (e) => {
 	catch (err) { $("#goal-err").textContent = err.message; }
 });
 
-/* The item dialog: a Goal picker beside Project. Saving goes through the dialog's own Save (hooks.itemSave). */
+/* The reader: a Goal picker after Area, when the item's project has goals. Saved when changed. */
 
-function goalPicker() {
-	if (form.elements.goal) return form.elements.goal;
-	const label = document.createElement("label");
-	label.id = "goal-field";
-	label.innerHTML = `Goal<select name="goal"></select>`;
-	form.querySelector(".fields").append(label);
-	// Another project has other goals.
-	form.project.addEventListener("change", () => fillGoalPicker(form.project.value, null));
-	return form.elements.goal;
-}
-function fillGoalPicker(project, current) {
-	const sel = goalPicker();
-	const list = goals.filter((g) => g.project === project && (g.status === "open" || g.id === current));
-	setOptions(sel, [{ value: "", label: "No goal" }, ...list.map((g) => ({ value: g.id, label: g.status === "open" ? g.title : `${g.title} (${g.status})` }))]);
-	sel.value = current != null && list.some((g) => g.id === current) ? String(current) : "";
-	// A project with no goals has nothing to pick.
-	$("#goal-field").hidden = !list.length;
-}
-hooks.itemOpen.push((item, isNew) => {
-	// A new item made while the board is filtered to a goal serves that goal.
-	const filtered = isNew && goalFilterId() !== null && goalById(goalFilterId())?.project === item.project ? goalFilterId() : null;
-	fillGoalPicker(item.project, item.goal_id ?? filtered);
-});
-hooks.itemSave.push((patch) => {
-	const sel = form.elements.goal;
-	if (!sel) return;
-	patch.goal_id = sel.value ? Number(sel.value) : null;
+hooks.readerProps.push({
+	order: 65,
+	html(i, r) {
+		// A new item made while the board is filtered to a goal serves that goal.
+		const filtered = goalFilterId() !== null && goalById(goalFilterId())?.project === i.project ? goalFilterId() : null;
+		const current = r.compose && i.goal_id === undefined ? filtered : i.goal_id ?? null;
+		const list = goals.filter((g) => g.project === i.project && (g.status === "open" || g.id === current));
+		// A project with no goals has nothing to pick.
+		if (!list.length) return "";
+		const value = current != null && list.some((g) => g.id === current) ? String(current) : "";
+		return readerProp("Goal", `<select class="rd-val" data-goal-pick aria-label="Goal">${[["", "No goal"], ...list.map((g) => [g.id, g.status === "open" ? g.title : `${g.title} (${g.status})`])]
+			.map(([v, l]) => `<option value="${esc(v)}"${String(v) === value ? " selected" : ""}>${esc(l)}</option>`).join("")}</select>`);
+	},
+	wire(el, i, r) {
+		const sel = el.querySelector("[data-goal-pick]");
+		// A new item takes what the picker shows (another project's goal can't come along).
+		if (r.compose) r.draft.goal_id = sel.value ? Number(sel.value) : null;
+		sel.addEventListener("change", () => r.set({ goal_id: sel.value ? Number(sel.value) : null }));
+	},
 });

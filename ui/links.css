@@ -1,17 +1,4 @@
-/* Waiting on another item */
-.links-box { border-top: 1px solid var(--line); padding-top: 10px; font-size: 13px; }
-.links-box h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); margin: 0 0 2px; }
-.links-box h3:not(:first-child) { margin-top: 10px; }
-.links-box .hint { margin: 0 0 6px; }
-.links-box ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
-.links-box li { display: flex; gap: 8px; align-items: baseline; min-width: 0; }
-.links-box .ref { flex: none; cursor: pointer; }
-.links-box .lk-title { min-width: 0; flex: 1; overflow-wrap: anywhere; }
-.links-box .lk-st { flex: none; color: var(--muted); white-space: nowrap; }
-.links-box .lk-answered, .links-box .lk-done { color: var(--check); }
-.links-box .lk-waiting { color: var(--review); }
+/* Waiting on another item: in the reader's properties, and "unblocks N" on a card. */
+.rd-reflist .lk-answered, .rd-reflist .lk-done { color: var(--check); }
+.rd-reflist .lk-waiting { color: var(--review); }
 .unblocks { color: var(--decision); font-weight: 600; white-space: nowrap; }
-@media (max-width: 760px) {
-	.links-box li { flex-wrap: wrap; row-gap: 0; }
-	.links-box .lk-title { flex-basis: 60%; }
-}

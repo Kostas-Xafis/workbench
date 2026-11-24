@@ -6,6 +6,7 @@
  */
 import { hashOf } from "./fresh";
 import pagePath from "../ui/index.html" with { type: "file" };
+import answerJs from "../ui/answer.js" with { type: "file" };
 import asksCss from "../ui/asks.css" with { type: "file" };
 import asksJs from "../ui/asks.js" with { type: "file" };
 import baseCss from "../ui/base.css" with { type: "file" };
@@ -22,7 +23,6 @@ import dispatchJs from "../ui/dispatch.js" with { type: "file" };
 import goalsCss from "../ui/goals.css" with { type: "file" };
 import goalsJs from "../ui/goals.js" with { type: "file" };
 import hooksJs from "../ui/hooks.js" with { type: "file" };
-import itemJs from "../ui/item.js" with { type: "file" };
 import linksCss from "../ui/links.css" with { type: "file" };
 import linksJs from "../ui/links.js" with { type: "file" };
 import notifyJs from "../ui/notify.js" with { type: "file" };
@@ -35,6 +35,8 @@ import queueCss from "../ui/queue.css" with { type: "file" };
 import queueJs from "../ui/queue.js" with { type: "file" };
 import railCss from "../ui/rail.css" with { type: "file" };
 import railJs from "../ui/rail.js" with { type: "file" };
+import readerCss from "../ui/reader.css" with { type: "file" };
+import readerJs from "../ui/reader.js" with { type: "file" };
 import reportCss from "../ui/report.css" with { type: "file" };
 import reportJs from "../ui/report.js" with { type: "file" };
 import rulingsCss from "../ui/rulings.css" with { type: "file" };
@@ -67,6 +69,7 @@ import vaultJs from "../ui/vault.js" with { type: "file" };
 
 /** ui/<name> → the file's path (a path inside the binary when compiled). */
 export const UI: Record<string, string> = {
+	"answer.js": answerJs,
 	"asks.css": asksCss,
 	"asks.js": asksJs,
 	"base.css": baseCss,
@@ -83,7 +86,6 @@ export const UI: Record<string, string> = {
 	"goals.css": goalsCss,
 	"goals.js": goalsJs,
 	"hooks.js": hooksJs,
-	"item.js": itemJs,
 	"links.css": linksCss,
 	"links.js": linksJs,
 	"notify.js": notifyJs,
@@ -96,6 +98,8 @@ export const UI: Record<string, string> = {
 	"queue.js": queueJs,
 	"rail.css": railCss,
 	"rail.js": railJs,
+	"reader.css": readerCss,
+	"reader.js": readerJs,
 	"report.css": reportCss,
 	"report.js": reportJs,
 	"rulings.css": rulingsCss,

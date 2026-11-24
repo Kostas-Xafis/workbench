@@ -1,0 +1,184 @@
+/* The reader (ui/reader.js): one item as a document, its properties in a narrow column. Its own type scale; the
+   colours are base.css's, both themes. */
+.rd {
+	--fs-11: 11px; --fs-12: 12px; --fs-13: 13px; --fs-14: 14px; --fs-15: 15px; --fs-18: 18px; --fs-22: 22px;
+	--rd-soft: color-mix(in srgb, var(--ink) 4%, var(--card));
+	--rd-mine: color-mix(in srgb, var(--accent) 7%, var(--card));
+	position: relative; flex-direction: column; min-height: 0; background: var(--card); color: var(--ink); font-size: var(--fs-15);
+}
+.rd:not(dialog), dialog.rd[open] { display: flex; }
+.rd-scroll { flex: 1; min-height: 0; overflow-y: auto; outline: none; overscroll-behavior: contain; }
+.rd-cols { display: grid; grid-template-columns: minmax(0, 1fr) 216px; min-height: 100%; }
+.rd-doc { min-width: 0; padding: 40px 48px 64px; }
+.rd-doc > * { max-width: 64ch; margin-inline: auto; }
+.rd-doc > :empty { display: none; }
+.rd-side { border-left: 1px solid var(--line); padding: 56px 18px 32px; background: var(--rd-soft); }
+.rd-props { position: sticky; top: 52px; display: flex; flex-direction: column; }
+.rd-props > :empty { display: none; }
+.rd-props-toggle { display: none; }
+
+/* The bar: previous, next, close. */
+.rd-bar { position: absolute; top: 10px; right: 12px; z-index: 2; display: flex; gap: 2px; }
+
+/* Context, title. */
+.rd-ctx { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; font-size: var(--fs-12); color: var(--muted); margin-bottom: 10px; }
+.rd-ctx .ref { font-size: var(--fs-11); }
+.rd-kind { display: inline-flex; align-items: center; gap: 4px; }
+.rd-kind .gl { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
+.rd-status { color: var(--ink); }
+.rd-status.st-doing { color: var(--accent); } .rd-status.st-waiting { color: var(--review); }
+.rd-title { display: block; width: 100%; border: 0; border-radius: 6px; margin: 0 -6px; padding: 2px 6px; width: calc(100% + 12px); background: transparent; color: var(--ink);
+	font-family: inherit; font-weight: 600; font-size: var(--fs-22); line-height: 1.3; letter-spacing: -.2px; resize: none; field-sizing: content; min-height: 0; overflow: hidden; }
+.rd-title:hover { background: var(--hover); }
+.rd-title:focus { outline: none; background: var(--hover); }
+
+/* The brief: the reason the item exists, at reading size. */
+.rd-brief { margin-top: 18px; line-height: 1.6; overflow-wrap: anywhere; }
+.rd-md p { margin: 0 0 .75em; }
+.rd-md ul, .rd-md ol { margin: 0 0 .75em; padding-left: 1.4em; }
+.rd-md li + li { margin-top: .25em; }
+.rd-md li > ul, .rd-md li > ol { margin: .25em 0 0; }
+.rd-md h4 { margin: 1.2em 0 .35em; font-size: var(--fs-15); }
+.rd-md h4:first-child { margin-top: 0; }
+.rd-md blockquote { margin: 0 0 .75em; padding: 2px 0 2px 12px; border-left: 3px solid var(--line); color: var(--muted); }
+.rd-md pre { margin: 0 0 .75em; padding: 10px 12px; background: var(--bg); border-radius: 8px; overflow-x: auto; font-size: var(--fs-13); line-height: 1.5; }
+.rd-md code { font-size: .87em; }
+.rd-md > :last-child { margin-bottom: 0; }
+.rd-brief-edit { display: block; width: 100%; margin-top: 18px; min-height: 220px; field-sizing: content; max-height: 70vh; resize: vertical; padding: 10px 12px; border: 1px solid var(--line);
+	border-radius: 8px; background: var(--bg); color: var(--ink); font: var(--fs-14)/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.rd-tools { display: flex; align-items: center; gap: 14px; margin-top: 8px; font-size: var(--fs-12); }
+.rd-link { border: 0; background: none; padding: 0; color: var(--muted); font-size: var(--fs-12); cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+.rd-link:hover { color: var(--ink); text-decoration: underline; text-underline-offset: 2px; }
+.rd-muted { color: var(--muted); }
+.rd-small { font-size: var(--fs-12); }
+.rd-k { display: inline-block; min-width: 16px; padding: 0 4px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; font: 500 var(--fs-11)/14px ui-monospace, SFMono-Regular, Menlo, monospace;
+	color: var(--muted); text-align: center; background: var(--card); }
+
+/* Pictures, under the brief. */
+.rd-images { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; margin-top: 18px; align-items: start; }
+.rd-images figure { margin: 0; min-width: 0; }
+.rd-images a { display: block; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--bg); line-height: 0; }
+.rd-images img { display: block; width: 100%; height: auto; max-height: 60vh; object-fit: contain; }
+.rd-images figcaption { display: flex; gap: 8px; align-items: flex-start; margin-top: 5px; font-size: var(--fs-13); color: var(--muted); }
+.rd-images .cap { flex: 1; min-width: 0; border: 1px solid transparent; background: transparent; border-radius: 6px; padding: 2px 5px; margin: -2px 0 0 -5px; font: inherit; color: inherit; }
+.rd-images .cap:hover { border-color: var(--line); }
+.rd-images .cap:focus { outline: none; border-color: var(--accent); background: var(--bg); color: var(--ink); }
+.rd-images figure.pending img { opacity: .55; }
+.rd.rd-dropping .rd-doc { outline: 2px dashed var(--accent); outline-offset: -10px; border-radius: 12px; }
+
+/* What it asks of you. */
+[data-slot="action"]:not(:empty) { margin-top: 26px; }
+[data-slot="action"] > .rd-sec:empty, [data-slot="lead"] > .rd-sec:empty { display: none; }
+.rd-label { display: block; font-size: var(--fs-11); font-weight: 600; letter-spacing: .4px; text-transform: uppercase; color: var(--muted); margin-bottom: 4px; }
+.rd-act { display: flex; flex-direction: column; gap: 10px; }
+.rd-choices { display: flex; flex-direction: column; gap: 6px; }
+.rd-acts { display: flex; flex-wrap: wrap; gap: 8px; }
+.rd-choice { display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); color: var(--ink);
+	font-size: var(--fs-15); line-height: 1.4; text-align: left; cursor: pointer; }
+.rd-acts .rd-choice { width: auto; }
+.rd-choice:hover { border-color: color-mix(in srgb, var(--ink) 35%, var(--line)); background: var(--hover); }
+.rd-choice > span { flex: 1; min-width: 0; }
+.rd-choice small { font-size: var(--fs-11); font-weight: 600; letter-spacing: .3px; text-transform: uppercase; color: var(--decision); }
+.rd-choice.rec { border: 1.5px solid var(--decision); }
+.rd-choice.picked { background: var(--hover); border-color: var(--ink); }
+.rd-pick input { margin: 0; accent-color: var(--decision); width: 15px; height: 15px; flex: none; }
+.rd-pick.on { background: color-mix(in srgb, var(--decision) 7%, var(--card)); }
+.rd-ok.rd-choice { border-color: color-mix(in srgb, var(--ink) 30%, var(--line)); }
+.rd-act-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
+.rd-resume { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-12); color: var(--muted); cursor: pointer; }
+.rd-resume input { margin: 0; accent-color: var(--run, var(--accent)); }
+.rd-resume:has(input:checked) { color: var(--run, var(--accent)); }
+.rd-answered { padding: 10px 14px; border-left: 3px solid var(--check); background: var(--rd-soft); border-radius: 0 8px 8px 0; font-size: var(--fs-15); }
+
+/* Done, Drop, Later, Give back: quiet, in one row. */
+.rd-quiet { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; margin-top: 22px; padding-top: 12px; border-top: 1px solid var(--line); }
+.rd-q { display: inline-flex; align-items: center; gap: 6px; border: 0; background: none; border-radius: 7px; padding: 4px 8px; font-size: var(--fs-13); color: var(--muted); cursor: pointer; }
+.rd-q:hover { background: var(--hover); color: var(--ink); }
+.rd-q input[type=date] { border: 1px solid var(--line); border-radius: 6px; background: var(--card); color: var(--ink); font-size: var(--fs-12); padding: 1px 4px; }
+.rd-later .rd-muted { font-size: var(--fs-13); margin-right: 4px; }
+.rd-create { gap: 14px; border-top: 0; }
+.rd-create .rd-muted { font-size: var(--fs-12); }
+
+/* The agent's run (ui/dispatch.js's box, in its slot). */
+[data-part="runtop"], [data-part="runend"] { margin-top: 22px; }
+[data-part="runtop"] { margin-top: 0; margin-bottom: 16px; }
+.rd .run-box { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; font-size: var(--fs-13); }
+.rd .run-box h3 { font-size: var(--fs-11); text-transform: uppercase; letter-spacing: .4px; color: var(--muted); margin: 0 0 6px; }
+
+/* The history, as a thread. */
+.rd-h { font-size: var(--fs-11); font-weight: 600; letter-spacing: .4px; text-transform: uppercase; color: var(--muted); margin: 34px auto 10px; }
+.rd-thread { display: flex; flex-direction: column; gap: 14px; font-size: var(--fs-14); line-height: 1.55; }
+.rd-note { overflow-wrap: anywhere; }
+.rd-note.mine { background: var(--rd-mine); border-radius: 10px; padding: 8px 12px; margin-left: 32px; }
+.rd-who { font-size: var(--fs-12); color: var(--muted); margin-bottom: 2px; }
+.rd-who b { color: var(--ink); font-weight: 600; margin-right: 4px; }
+.rd-note .rd-md p { margin-bottom: .4em; }
+.rd-change, .rd-changes > summary { font-size: var(--fs-12); color: var(--muted); line-height: 1.5; overflow-wrap: anywhere; }
+.rd-changes > summary { cursor: pointer; width: fit-content; }
+.rd-changes > summary:hover { color: var(--ink); }
+.rd-changes[open] > summary { margin-bottom: 2px; }
+.rd-changes .rd-change { padding-left: 12px; }
+.rd-dot { opacity: .6; }
+.rd-earlier { align-self: flex-start; }
+
+/* The one reply box. */
+.rd-reply { margin-top: 20px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); padding: 8px 10px 6px; }
+.rd-reply:focus-within { border-color: color-mix(in srgb, var(--accent) 55%, var(--line)); }
+.rd-reply textarea { display: block; width: 100%; border: 0; background: transparent; color: var(--ink); resize: none; field-sizing: content; min-height: 44px; max-height: 40vh;
+	font-family: inherit; font-size: var(--fs-14); line-height: 1.5; padding: 2px; outline: none; }
+.rd-reply-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; font-size: var(--fs-12); margin-top: 4px; }
+.rd-reply-foot .rd-k { font-size: 10px; }
+.rd-err { color: var(--bug); font-size: var(--fs-13); margin: 12px auto 0; }
+
+/* Properties: label above value; the value reads as text until you point at it. */
+.rd-prop { padding: 7px 0; min-width: 0; font-size: var(--fs-13); }
+.rd-prop .rd-label { margin-bottom: 1px; }
+.rd-val { display: block; width: calc(100% + 12px); margin: 0 -6px; padding: 3px 6px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--ink);
+	font: inherit; font-size: var(--fs-13); min-width: 0; text-overflow: ellipsis; appearance: none; -webkit-appearance: none; cursor: pointer; }
+select.rd-val { background-image: none; }
+input.rd-val, textarea.rd-val { cursor: text; }
+.rd-val:hover { background: var(--card); border-color: var(--line); }
+.rd-val:focus { outline: none; background: var(--card); border-color: color-mix(in srgb, var(--accent) 55%, var(--line)); }
+.rd-val::placeholder { color: var(--muted); opacity: .7; }
+textarea.rd-val { resize: none; field-sizing: content; line-height: 1.45; }
+.rd-prop a.rd-small { display: inline-block; margin-top: 2px; }
+.rd-text { display: block; overflow-wrap: anywhere; color: var(--muted); font-size: var(--fs-12); }
+.rd-code { list-style: none; margin: 2px 0 0; padding: 0; display: flex; flex-direction: column; gap: 3px; font-size: var(--fs-12); }
+.rd-code li { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rd-code code { font-size: var(--fs-11); padding: 0 3px; }
+.rd-reflist { list-style: none; margin: 2px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: var(--fs-12); }
+.rd-reflist li { min-width: 0; display: flex; flex-direction: column; }
+.rd-reflist button { all: unset; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); }
+.rd-reflist button:hover { text-decoration: underline; }
+.rd-reflist button:focus-visible { outline: 2px solid var(--accent); border-radius: 3px; }
+.rd-reflist small { color: var(--muted); }
+
+/* Compose: a new item. */
+.rd-composing [data-rd-nav] { display: none; }
+.rd-composing .rd-title { margin-top: 4px; }
+
+/* The sheet: from the right, the board dimmed behind it. */
+dialog.rd-sheet { margin: 0 0 0 auto; padding: 0; width: min(1080px, 94vw); max-width: none; height: 100dvh; max-height: none; border: 0; border-left: 1px solid var(--line);
+	border-radius: 14px 0 0 14px; box-shadow: var(--shadow); overflow: hidden; }
+dialog.rd-sheet[open] { animation: rd-in .16s ease-out; }
+dialog.rd-sheet::backdrop { background: rgb(0 0 0 / .28); }
+@keyframes rd-in { from { transform: translateX(28px); } }
+@media (prefers-reduced-motion: reduce) { dialog.rd-sheet[open] { animation: none; } }
+
+/* A phone: full screen, the properties under the thread, folded. */
+@media (max-width: 760px) {
+	dialog.rd-sheet { width: 100vw; border-radius: 0; border: 0; }
+	.rd-cols { display: block; }
+	.rd-doc { padding: 52px 16px 24px; }
+	.rd-side { border-left: 0; border-top: 1px solid var(--line); padding: 4px 16px 40px; }
+	.rd-props { position: static; display: none; }
+	.rd-props-open .rd-props { display: flex; }
+	.rd-props-toggle { display: flex; align-items: center; gap: 8px; width: 100%; border: 0; background: none; padding: 12px 0; color: var(--muted); font-size: var(--fs-13); font-weight: 600; cursor: pointer; }
+	.rd-props-toggle::before { content: ""; width: 0; height: 0; border-left: 4.5px solid currentColor; border-top: 4px solid transparent; border-bottom: 4px solid transparent; opacity: .6; transition: transform .12s; }
+	.rd-props-open .rd-props-toggle::before { transform: rotate(90deg); }
+	.rd-bar { top: 0; right: 0; left: 0; justify-content: flex-end; padding: 8px 10px; background: var(--card); border-bottom: 1px solid var(--line); }
+	.rd-title { font-size: var(--fs-18); }
+	.rd-note.mine { margin-left: 16px; }
+	.rd-k, .rd-reply-foot > .rd-muted, .rd-create .rd-muted { display: none; }
+	.rd-choice .rd-k { display: inline-block; }
+}

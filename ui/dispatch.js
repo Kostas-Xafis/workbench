@@ -1,12 +1,19 @@
 /* ---------- Answer & send: agents the board starts (dispatch.ts) ---------- */
-// Run on an agent's to-do, and Answer & send on a decision (or Object & send on a review or notice): the board starts
-// Claude Code headless in the project's folder on that item. A card shows a running agent, and Run; the item dialog
-// shows its output live, Stop, and afterwards how it went, what it cost and how to continue the session.
+// Run on an agent's to-do, and "resume the agent" with an answer or an objection (ui/answer.js, { send: true }): the
+// board starts Claude Code headless in the project's folder on that item. A card shows a running agent, and Run; the
+// reader shows its output live, Stop, and afterwards how it went, what it cost and how to continue the session.
 // Settings → Agents turns it on and holds the limits.
 // The calls below don't touch the page, so other views (the one-at-a-time queue) can use them: canSend(item),
-// sendWhy(item), sendItem(id), answerAndSend(id, answer | picks[]), objectAndSend(id, text), stopAgent(runId).
+// sendWhy(item), sendItem(id), stopAgent(runId).
+// What the reader (ui/reader.js) asks of this file, its whole contract:
+//   runPanel(item) → HTML: the run box for the item ("" for none): its newest run, or Run on an agent's to-do.
+//   wireRunPanel(el, item): `el` holds runPanel's HTML; its clicks (Stop, Run, Open in Claude Desktop) and, while
+//     the run is live, its output every 2 s, drawn into `el` until `el` leaves the page or is wired again.
+//   runLive(item) → boolean: a run is going, so the reader puts the box near the top.
+//   canResume(item) → boolean: the "resume the agent" tick shows next to Answer and Object.
+// When a run ends, this calls readerRefresh(itemId): the item's status and history have changed.
 
-const runs = { info: null, byItem: new Map(), detail: null, timer: 0, fast: 0, test: null, testing: false, armed: new Set() };
+const runs = { info: null, byItem: new Map(), detail: null, timer: 0, fast: 0, test: null, testing: false, panel: null };
 const RUN_ASKS = ["decision", "review", "notice"];
 
 async function runsLoad() {
@@ -58,18 +65,13 @@ const canSend = (i) => !sendWhy(i);
 async function runAfter(id, body) {
 	touched(id);
 	const res = await api("/api/runs", { method: "POST", body: JSON.stringify({ item: Number(id), ...body }) });
-	if (typeof askTicks !== "undefined") askTicks.delete(Number(id));
 	await Promise.all([loadItems(), loadProjects(), runsLoad()]);
 	refreshReport();
 	return res;
 }
-/** Starts an agent on an agent's to-do. Returns { run, item }. */
+/** Starts an agent on an agent's to-do. Returns { run, item }. (Answering and starting: act.answer and act.object
+ * with { send: true }, ui/answer.js.) */
 const sendItem = (id) => runAfter(id, {});
-/** Answers a decision (an option, your words, or the ticked options of a pick-many one), then starts an agent on it.
- * Nothing is answered when the agent can't start. Returns { run, item }. */
-const answerAndSend = (id, answer) => runAfter(id, { answer });
-/** Objects to a review or notice in your words, then starts an agent on it. Returns { run, item }. */
-const objectAndSend = (id, text) => runAfter(id, { object: text });
 /** Stops a run: the agent and everything it started. */
 async function stopAgent(runId) {
 	const r = await api(`/api/runs/${runId}/stop`, { method: "POST", body: "{}" });
@@ -77,7 +79,7 @@ async function stopAgent(runId) {
 	return r;
 }
 
-/* Words and bits shared by the card, the dialog and Settings. */
+/* Words and bits shared by the card, the reader and Settings. */
 const runFor = (from, to) => {
 	const m = Math.round(((to ? parseTime(to) : new Date()) - parseTime(from)) / 60e3);
 	return m < 1 ? "under a minute" : m < 90 ? `${m} min` : `${(m / 60).toFixed(1)} h`;
@@ -98,78 +100,32 @@ hooks.cardMeta.push((i) => {
 	else if (r && OPEN.includes(i.status) && r.refused && Date.now() - parseTime(r.ended_at) < 2 * 86400e3)
 		out.push(`<span class="run-chip failed" title="${esc(`The agent's permissions refused ${r.refused}`)}">agent refused tools</span>`);
 	if (!runs.info?.on || !OPEN.includes(i.status)) return out.join("");
-	const kind = sendKind(i);
-	if (kind === "run" && canSend(i))
+	if (sendKind(i) === "run" && canSend(i))
 		out.push(`<button type="button" class="run-go card-act" data-run-send="${i.id}" title="Start Claude Code on it in ${esc(runFolder(i))}">${glyph("play")}Run</button>`);
-	// Answer & send on a decision you answer on the card: when on, the answer also starts the agent.
-	else if (kind === "answer" && i.kind === "decision" && optionsOf(i).length && canSend(i)) {
-		const on = runs.armed.has(i.id);
-		out.push(`<button type="button" class="run-arm card-act${on ? " on" : ""}" data-run-arm="${i.id}" aria-pressed="${on}" title="${on ? "Your answer also starts an agent on it" : "Then your answer also starts an agent on it, in " + esc(runFolder(i))}">${on ? "✓ " : ""}Answer &amp; send</button>`);
-	}
 	return out.join("");
 });
 
-// The board's and asks.js's answer buttons, when Answer & send is on for that card: answer and start in one go.
-// Capture phase, so their own handlers don't answer it first.
 $("#sections").addEventListener("click", async (e) => {
-	const b = e.target.closest("[data-answer], [data-ask-answer], [data-ask-send]");
-	const id = Number(b?.dataset.answer || b?.dataset.askAnswer || b?.dataset.askSend);
-	if (!b || !runs.armed.has(id)) return;
-	e.stopPropagation();
-	e.preventDefault();
-	const i = state.items.find((x) => x.id === id);
-	const answer = b.dataset.askSend ? [...askTicked(i)] : b.dataset.choice;
-	b.classList.add("picked");
-	try {
-		await answerAndSend(id, answer);
-		runs.armed.delete(id);
-		toast("Answered. The agent is on it");
-	} catch (err) { b.classList.remove("picked"); toast(err.message); }
-}, true);
-$("#sections").addEventListener("click", async (e) => {
-	const b = e.target.closest("[data-run-send], [data-run-arm]");
+	const b = e.target.closest("[data-run-send]");
 	if (!b) return;
 	e.stopPropagation();
-	if (b.dataset.runArm) {
-		const id = Number(b.dataset.runArm);
-		if (runs.armed.has(id)) runs.armed.delete(id); else runs.armed.add(id);
-		return renderBoard();
-	}
 	b.disabled = true;
 	try { await sendItem(b.dataset.runSend); toast("The agent is on it"); }
 	catch (err) { b.disabled = false; toast(err.message); }
 });
 
-/* ---------- In the item dialog ---------- */
+/* ---------- In the reader: the run box (the contract is at the top of this file) ---------- */
 
-const runBox = document.createElement("div");
-runBox.className = "answer-box run-box";
-runBox.id = "run-box";
-runBox.hidden = true;
-$("#code-box").before(runBox);
-// "Then start the agent" next to a decision's answer, and next to an objection to a review or notice.
-const runArmRow = (where) => `<label class="run-arm-row" data-run-where="${where}"><input type="checkbox" data-run-dlg> <span><b>Answer &amp; send</b> <small></small></span></label>`;
-$("#answer-box").insertAdjacentHTML("beforeend", runArmRow("answer"));
-$("#ask-reply")?.insertAdjacentHTML("beforeend", runArmRow("object"));
-
-function runArmFill(item) {
-	const ok = !!item.id && sendKind(item) === "answer" && canSend(item);
-	for (const row of document.querySelectorAll("#dlg .run-arm-row")) {
-		const object = row.dataset.runWhere === "object";
-		row.hidden = !ok || (object && item.kind === "decision");
-		row.querySelector("input").checked = runs.armed.has(item.id);
-		row.querySelector("b").textContent = object ? "Object & send" : "Answer & send";
-		row.querySelector("small").textContent = `then start an agent on it in ${runFolder(item)}`;
-	}
-}
-
-function runBoxFill(item) {
-	clearTimeout(runs.timer);
-	const r = item.id ? (runs.detail?.item_id === item.id ? runs.detail : runs.byItem.get(item.id)) : null;
-	const kind = sendKind(item);
-	const offer = item.id && runs.info?.on && kind === "run";
-	runBox.hidden = !r && !offer;
-	if (runBox.hidden) return;
+const runOf = (item) => (item?.id ? (runs.detail?.item_id === item.id ? runs.detail : runs.byItem.get(item.id)) ?? null : null);
+/** A run is going on the item. */
+const runLive = (item) => !!(item?.id && runActive(item.id));
+/** The "resume the agent" tick shows: an ask of yours that the board can start an agent on now. */
+const canResume = (item) => !!item?.id && sendKind(item) === "answer" && canSend(item);
+/** The run box for an item, as HTML ("" when there's no run and nothing to start). */
+function runPanel(item) {
+	const r = runOf(item);
+	const offer = !!item?.id && runs.info?.on && sendKind(item) === "run";
+	if (!r && !offer) return "";
 	let html = `<h3>Agent</h3>`;
 	if (r && !r.ended_at)
 		html += `<div class="run-head"><span class="run-chip running">running</span><span>for ${esc(runFor(r.started_at))} · started from ${esc(r.started_from)}</span><span class="spacer"></span><button type="button" class="ghost sm danger" data-run-stop="${r.id}">Stop</button></div>`;
@@ -179,7 +135,7 @@ function runBoxFill(item) {
 			+ (r.refused ? `<p class="run-err">Its permissions refused ${esc(r.refused)}. What a run may do is in Settings → Agents → The command.</p>` : "")
 			+ (r.result ? `<div class="run-result">${md(r.result)}</div>` : "");
 	if (r?.tail !== undefined) {
-		const tail = `<pre class="run-tail" id="run-tail">${esc(r.tail || "No output yet.")}</pre>`;
+		const tail = `<pre class="run-tail">${esc(r.tail || "No output yet.")}</pre>`;
 		html += r.ended_at ? `<details class="run-out"><summary>Output (the last ${Math.min(200, (r.tail || "").split("\n").length)} lines)</summary>${tail}</details>` : tail;
 	}
 	if (r?.session) {
@@ -189,47 +145,47 @@ function runBoxFill(item) {
 	}
 	if (offer && !(r && !r.ended_at)) {
 		const why = sendWhy(item);
-		html += `<div class="run-offer"><button type="button" class="primary sm" data-run-start${why ? " disabled" : ""}>${glyph("play")}${r ? "Run again" : "Run"}</button><small>${esc(why || `Starts Claude Code on it in ${runFolder(item)}, headless. It reads the item, works it and finishes or waits, as an agent you started would.`)}</small></div>`;
+		html += `<div class="run-offer"><button type="button" class="ghost sm" data-run-start${why ? " disabled" : ""}>${glyph("play")}${r ? "Run again" : "Run"}</button><small>${esc(why || `Starts Claude Code on it in ${runFolder(item)}, headless. It reads the item, works it and finishes or waits, as an agent you started would.`)}</small></div>`;
 	}
-	runBox.innerHTML = html;
-	const t = $("#run-tail");
-	if (t && !r.ended_at) t.scrollTop = t.scrollHeight;
-	// The output, live, while the dialog shows it.
-	if (r && !r.ended_at) runs.timer = setTimeout(() => runDetail(item.id, r.id), 2000);
+	return `<div class="run-box">${html}</div>`;
 }
-async function runDetail(itemId, runId) {
-	if (!dlg.open || state.current?.id !== itemId) return;
+// Draws the panel again in place (keeping where the output was scrolled), and looks again in 2 s while it runs.
+function runPanelDraw() {
+	const p = runs.panel;
+	clearTimeout(runs.timer);
+	if (!p || !p.el.isConnected) return;
+	const old = p.el.querySelector(".run-tail");
+	const atEnd = !old || old.scrollHeight - old.scrollTop - old.clientHeight < 30;
+	const html = runPanel(p.item);
+	if (p.el._html !== html) { p.el.innerHTML = html; p.el._html = html; }
+	const t = p.el.querySelector(".run-tail");
+	if (t) t.scrollTop = atEnd ? t.scrollHeight : old.scrollTop;
+	const r = runOf(p.item);
+	if (r && !r.ended_at) runs.timer = setTimeout(() => runPanelPoll(p, r.id), 2000);
+}
+async function runPanelPoll(p, runId) {
+	if (runs.panel !== p || !p.el.isConnected) return;
 	try {
 		const r = await api(`/api/runs/${runId}`);
 		const ended = r.ended_at && !runs.detail?.ended_at;
 		runs.detail = r;
-		if (ended) {
-			// It's over: the item has changed too (its history, maybe its status).
-			await runsLoad();
-			const fresh = await api(`/api/items/${itemId}`);
-			if (dlg.open && state.current?.id === itemId) { state.current = { ...state.current, status: fresh.status, owner: fresh.owner, notes: fresh.notes }; renderHistory(); }
-		}
-		const t = $("#run-tail");
-		const atEnd = !t || t.scrollHeight - t.scrollTop - t.clientHeight < 30;
-		runBoxFill(state.current);
-		if (!atEnd && $("#run-tail")) $("#run-tail").scrollTop = t.scrollTop;
-	} catch { runs.timer = setTimeout(() => runDetail(itemId, runId), 4000); }
+		// It's over: the item has changed too (its history, maybe its status).
+		if (ended) { await runsLoad(); if (typeof readerRefresh === "function") readerRefresh(p.item.id); }
+		runPanelDraw();
+	} catch { if (runs.panel === p) runs.timer = setTimeout(() => runPanelPoll(p, runId), 4000); }
 }
-hooks.itemOpen.push(async (item, isNew) => {
-	runs.detail = null;
-	runArmFill(isNew ? {} : item);
-	runBoxFill(isNew ? {} : item);
+/** Wires the panel in `el` (which holds runPanel(item)): its buttons, and its output while the run goes on. */
+function wireRunPanel(el, item) {
+	const p = { el, item };
+	runs.panel = p;
+	if (runs.detail && runs.detail.item_id !== item.id) runs.detail = null;
+	el.addEventListener("click", (e) => runPanelClick(e, p));
+	runPanelDraw();
 	// The newest run with its output.
-	const r = !isNew && runs.byItem.get(item.id);
-	if (r) {
-		try {
-			runs.detail = await api(`/api/runs/${r.id}`);
-			if (state.current?.id === item.id) runBoxFill(state.current);
-		} catch {}
-	}
-});
-dlg.addEventListener("close", () => clearTimeout(runs.timer));
-runBox.addEventListener("click", async (e) => {
+	const r = runs.byItem.get(item.id);
+	if (r && runs.detail?.id !== r.id) api(`/api/runs/${r.id}`).then((d) => { if (runs.panel === p) { runs.detail = d; runPanelDraw(); } }).catch(() => {});
+}
+async function runPanelClick(e, p) {
 	const stop = e.target.closest("[data-run-stop]");
 	const start = e.target.closest("[data-run-start]");
 	const desk = e.target.closest("[data-run-desktop]");
@@ -243,7 +199,6 @@ runBox.addEventListener("click", async (e) => {
 		return;
 	}
 	if (!stop && !start) return;
-	const item = state.current;
 	try {
 		if (stop) {
 			stop.disabled = true;
@@ -251,46 +206,15 @@ runBox.addEventListener("click", async (e) => {
 			runs.detail = await stopAgent(stop.dataset.runStop);
 		} else {
 			start.disabled = true;
-			const { run } = await sendItem(item.id);
+			const { run } = await sendItem(p.item.id);
 			runs.detail = { ...run };
 			toast("The agent is on it");
 		}
-		const fresh = await api(`/api/items/${item.id}`);
-		if (state.current?.id === item.id) { state.current = { ...state.current, status: fresh.status, notes: fresh.notes }; renderHistory(); runBoxFill(state.current); }
-	} catch (err) { $("#err").textContent = err.message; runBoxFill(item); }
-});
-$("#dlg").addEventListener("change", (e) => {
-	if (!e.target.matches("[data-run-dlg]") || !state.current?.id) return;
-	if (e.target.checked) runs.armed.add(state.current.id); else runs.armed.delete(state.current.id);
-	runArmFill(state.current);
-	renderBoard();
-});
-// The dialog's answers and objection, with Answer & send ticked: answer (or object) and start in one go. Capture
-// phase, so item.js and asks.js don't send it first.
-async function runDlgSend(e, how) {
-	const id = state.current?.id;
-	if (!id || !runs.armed.has(id)) return;
-	e.stopPropagation();
-	e.preventDefault();
-	try {
-		const { item } = how.object !== undefined ? await objectAndSend(id, how.object) : await answerAndSend(id, how.answer);
-		runs.armed.delete(id);
-		toast("Sent. The agent is on it");
-		openItem(item);
-	} catch (err) { $("#err").textContent = err.message; }
+		if (typeof readerRefresh === "function") readerRefresh(p.item.id);
+		runPanelDraw();
+	} catch (err) { toast(err.message); runPanelDraw(); }
 }
-$("#dlg").addEventListener("click", (e) => {
-	const choice = e.target.closest("#answer-opts [data-choice]");
-	if (choice) return runDlgSend(e, { answer: choice.dataset.choice });
-	if (e.target.closest("#answer-send") && $("#answer-own").value.trim()) return runDlgSend(e, { answer: $("#answer-own").value.trim() });
-	if (e.target.closest("#ask-dsend")) return runDlgSend(e, { answer: [...$("#answer-opts").querySelectorAll("[data-ask-dtick]:checked")].map((b) => b.value) });
-	if (e.target.closest("#ask-object-send") && $("#ask-object").value.trim()) return runDlgSend(e, { object: $("#ask-object").value.trim() });
-}, true);
-$("#dlg").addEventListener("keydown", (e) => {
-	if (e.key !== "Enter") return;
-	if (e.target.id === "answer-own" && e.target.value.trim()) runDlgSend(e, { answer: e.target.value.trim() });
-	else if (e.target.id === "ask-object" && e.target.value.trim()) runDlgSend(e, { object: e.target.value.trim() });
-}, true);
+hooks.readerClosed.push(() => { clearTimeout(runs.timer); runs.panel = null; });
 
 /* ---------- Settings → Agents ---------- */
 

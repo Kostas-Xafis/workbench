@@ -17,18 +17,26 @@ const hooks = {
 	cardMeta: [],
 	// (kind, items) → HTML: more in a kind section's header, after its counts; `items` are the open ones it lists.
 	sectionMeta: [],
-	// (item) → HTML: buttons under an open card's title, in place of a decision's answer buttons when any returns
-	// some. Wrap them in an element with class card-act: the board then leaves their clicks to you.
+	// (item) → HTML: a button under an open card's title that starts something (never an answer: those are in the
+	// reader). Wrap it in an element with class card-act: the board then leaves its clicks to you.
 	cardActions: [],
-	// (item, isNew) → nothing: the item dialog is filled and about to open; show or fill your own part of it.
-	itemOpen: [],
-	// (item) → nothing: an item opened from the board's list (no history, pictures or links yet) has loaded them all.
-	itemLoaded: [],
-	// (patch) → nothing: Save is about to send `patch` (an item's fields); add your own part of the form to it.
-	itemSave: [],
+	// The reader (ui/reader.js), an item shown as a document. A feature adds its own sections, each an object
+	// { html(item, r) → HTML ("" for none), wire?(el, item, r) }: `el` is the section's own element, made afresh
+	// whenever its HTML changes, so wire its listeners on it. `r` is the reader: r.item, r.compose (a new item being
+	// written; r.draft holds its fields), r.set(patch) saves fields (or changes the draft), r.render() draws again,
+	// r.reload() asks the server again, r.take(item) shows an item the server gave back, r.error(text), r.open(id).
+	// `item` may be one from the board's list, still loading (item.loading): no notes, pictures or links yet.
+	// In the document: { slot: "lead" (under the title), "action" (where it's answered), …section }.
+	readerDoc: [],
+	// In the properties column: { order (status 10, who acts 20, kind 30, priority 40, project 50, area 60, branch
+	// 70, session 80, code 110), …section }. Use readerProp(label, valueHtml) for a label above its value.
+	readerProps: [],
+	// () → nothing: the reader sheet closed (to reload a view that shows what it may have changed).
+	readerClosed: [],
 	// (collapsed) → HTML: in the sidebar, under the trackers (the folded rail when `collapsed`).
 	rail: [],
-	// () → nothing: every 10 s with the board's own reloads (not while a dialog is open or the tab is hidden).
+	// () → nothing: every 10 s with the board's own reloads (not while the tab is hidden, or a form dialog is open;
+	// the reader doesn't stop it).
 	refresh: [],
 	// () → nothing: once, when the board has loaded and shown the first view.
 	start: [],
