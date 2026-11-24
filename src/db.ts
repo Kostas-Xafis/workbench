@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, readdirSync, rmSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { createTables as createImageTables, itemImages, type ImageInfo } from "./images";
 import { staleOf, type Stale } from "./stale";
+import { liveRunItems, recent } from "./alive";
 import { blockersOf, clearLinks, createLinkTable, LINK_COUNTS, resumeWaiting, waitersOf, type LinkRef } from "./links";
 import { checkItemGoal, createGoalTables, goalTitle, searchGoals } from "./goals";
 import { createSettingsTable, getSetting, getSettings, ownerFor } from "./settings";
@@ -59,6 +60,10 @@ export type Item = {
 	image_count?: number;
 	/** Quiet for too long (see stale.ts), or null (listItems and getItem). */
 	stale?: Stale | null;
+	/** When an agent last called the board about it (alive.ts), UTC 'YYYY-MM-DD HH:MM:SS'; NULL = never. */
+	alive_at: string | null;
+	/** An agent is on it now: a live run, or a call about it in the last few minutes (alive.ts; listItems and getItem). */
+	alive?: boolean;
 	/** The link that opens its agent session in Claude Desktop (dispatch.ts desktopLink), when `session` is one (listItems and getItem). */
 	desktop?: string;
 	/** How many waiting items this open one holds up, and how many items it waits on (listItems and getItem; see links.ts). */
@@ -160,6 +165,8 @@ export function createSchema(db: Db) {
 	if (!itemCols.includes("picks")) db.run("ALTER TABLE items ADD COLUMN picks TEXT NOT NULL DEFAULT ''");
 	// Queue mode (queue.ts): out of the one-at-a-time pass until this time, UTC; NULL = not deferred.
 	if (!itemCols.includes("deferred_until")) db.run("ALTER TABLE items ADD COLUMN deferred_until TEXT");
+	// When an agent last called the board about it (alive.ts).
+	if (!itemCols.includes("alive_at")) db.run("ALTER TABLE items ADD COLUMN alive_at TEXT");
 	const linkCols = (db.query("PRAGMA table_info(links)").all() as { name: string }[]).map((c) => c.name);
 	if (!linkCols.includes("icon_url")) {
 		db.run("ALTER TABLE links ADD COLUMN icon_url TEXT NOT NULL DEFAULT ''");
@@ -525,8 +532,9 @@ export function listItems(db: Db, f: ItemFilter = {}): Item[] {
 		(db.query("SELECT item_id, MAX(at) AS at FROM notes GROUP BY item_id").all() as { item_id: number; at: string }[]).map((r) => [r.item_id, r.at]),
 	);
 	const now = Date.now();
+	const runs = liveRunItems(db);
 	for (const i of items) {
-		i.stale = staleOf(i, last.get(i.id), now);
+		lifeOf(i, last.get(i.id), runs.has(i.id), now);
 		if (i.session && desktopLink(i.session)) i.desktop = desktopLink(i.session);
 	}
 	return items;
@@ -542,7 +550,16 @@ export function getItem(
 	const notes = db.query("SELECT * FROM notes WHERE item_id = ? ORDER BY at, id").all(id) as Note[];
 	const images = itemImages(db, id);
 	const desktop = item.session ? desktopLink(item.session) : "";
-	return { ...item, ...(desktop ? { desktop } : {}), notes, images, image_count: images.length, stale: staleOf(item, notes.at(-1)?.at), waits_on: blockersOf(db, id), blocks: waitersOf(db, id) };
+	lifeOf(item, notes.at(-1)?.at, liveRunItems(db).has(id));
+	return { ...item, ...(desktop ? { desktop } : {}), notes, images, image_count: images.length, waits_on: blockersOf(db, id), blocks: waitersOf(db, id) };
+}
+
+/** `alive` and `stale` (alive.ts, stale.ts): an item with a live run on it is alive, and never stalled. */
+function lifeOf(i: Item, lastNote: string | undefined, liveRun: boolean, now = Date.now()) {
+	i.alive_at ??= null;
+	i.alive = liveRun || recent(i.alive_at, now);
+	const stale = staleOf(i, lastNote, now);
+	i.stale = liveRun && stale?.why === "stalled" ? null : stale;
 }
 
 export function addItem(db: Db, item: ItemPatch & { title: string; project: string }, author = ""): number {

@@ -74,6 +74,7 @@ import {
 } from "./rulings";
 import { ownerDefaultsText, yourName } from "./settings";
 import { noteMcpContact } from "./setup";
+import { noteAlive } from "./alive";
 import { listSources } from "./sources";
 import { STALLED_DAYS, WAITING_DAYS, staleLabel } from "./stale";
 import {
@@ -370,7 +371,7 @@ const linkJson = (l: { ref: string; title: string; status: string; owner: string
 /** The latest agent run the board started on it (dispatch.ts), for get_item; undefined when none. */
 function runJson(db: Db, id: number) {
 	const r = latestRun(db, id);
-	return r ? { id: r.id, status: r.status, started_at: r.started_at, ended_at: r.ended_at ?? undefined, session: r.session || undefined, cost: r.cost ?? undefined, error: r.error || undefined, result: r.result ? r.result.slice(0, 500) : undefined } : undefined;
+	return r ? { id: r.id, ...(r.kind === "land" ? { kind: r.kind } : {}), status: r.status, started_at: r.started_at, ended_at: r.ended_at ?? undefined, session: r.session || undefined, cost: r.cost ?? undefined, error: r.error || undefined, result: r.result ? r.result.slice(0, 500) : undefined } : undefined;
 }
 
 function itemText(c: Conn, i: NonNullable<ReturnType<typeof getItem>>) {
@@ -1516,6 +1517,9 @@ async function callTool(params: Json, c: Conn, era: Era): Promise<Json> {
 	const fail = (text: string) => ({ content: [{ type: "text", text }], isError: true });
 	const bad = check(args, tool.input, "");
 	if (bad) return fail(bad);
+	// A sign of life (alive.ts): a call naming an item, or from the session an item records. After the call, so
+	// start_item's own session counts, and whether the call worked or not.
+	const alive = () => noteAlive(c.db, { ids: [typeof args.ref === "string" ? resolveItem(c.db, args.ref) : undefined], session: c.session });
 	try {
 		// Defaults whose deadline passed go ahead first, so what the tool reads or changes is current (asks.ts).
 		applyDue(c.db);
@@ -1528,6 +1532,8 @@ async function callTool(params: Json, c: Conn, era: Era): Promise<Json> {
 		if (e instanceof RpcError) throw e;
 		// Everything a tool refuses (a bad ref, a validation rule) is something the model can fix.
 		return fail((e as Error).message || String(e));
+	} finally {
+		alive();
 	}
 }
 
@@ -1999,7 +2005,9 @@ export async function mcpHttp(req: Request, db: Db, { loopback, cloud = false }:
 	const project = asked && projects(db).some((p) => p.slug === asked) ? asked : undefined;
 	if (asked && !project) return refuse(400, `no project "${asked}" (?project= takes a slug)`);
 	const hv = req.headers.get("mcp-protocol-version");
-	const conn: Conn = { transport: "http", db, project, header: hv ?? undefined };
+	// The session `wb mcp`'s relay runs in (relay.ts), as a stdio server has it: start_item links it, alive.ts counts it.
+	const session = req.headers.get("x-wb-session")?.trim();
+	const conn: Conn = { transport: "http", db, project, header: hv ?? undefined, ...(session && /^[\w.:-]{1,120}$/.test(session) ? { session } : {}) };
 
 	const one = async (m: unknown): Promise<{ reply: Json | null; status: number }> => {
 		if (!validRpc(m)) return answer(m, conn);

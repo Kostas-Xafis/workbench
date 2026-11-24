@@ -28,6 +28,7 @@ import { sessionsCost } from "./usage";
 
 export { AGENT_COMMAND };
 export type RunStatus = "running" | "done" | "failed" | "stopped";
+export type RunKind = "run" | "land";
 export type Run = {
 	id: number;
 	item_id: number;
@@ -46,6 +47,8 @@ export type Run = {
 	cwd: string;
 	/** The run whose session this one continues (POST /api/runs/:id/continue); null for a fresh session. */
 	continues: number | null;
+	/** "run": work on the item (Run, Answer & send, Continue). "land": merge a done item's branch (Merge it, startLand). */
+	kind: RunKind;
 	/** `claude://resume?session=…`, which opens the session in Claude Desktop on whatever computer the page is on
 	 * (it imports it there); '' while it runs, or with no session. Not a column: getRun and listRuns add it. */
 	desktop: string;
@@ -95,12 +98,14 @@ export function createRunTables(db: Db) {
 		tag TEXT NOT NULL DEFAULT '',
 		refused TEXT NOT NULL DEFAULT '',
 		cwd TEXT NOT NULL DEFAULT '',
-		continues INTEGER
+		continues INTEGER,
+		kind TEXT NOT NULL DEFAULT 'run'
 	)`);
 	const cols = (db.query("PRAGMA table_info(runs)").all() as { name: string }[]).map((c) => c.name);
 	if (!cols.includes("refused")) db.run("ALTER TABLE runs ADD COLUMN refused TEXT NOT NULL DEFAULT ''");
 	if (!cols.includes("cwd")) db.run("ALTER TABLE runs ADD COLUMN cwd TEXT NOT NULL DEFAULT ''");
 	if (!cols.includes("continues")) db.run("ALTER TABLE runs ADD COLUMN continues INTEGER");
+	if (!cols.includes("kind")) db.run("ALTER TABLE runs ADD COLUMN kind TEXT NOT NULL DEFAULT 'run'");
 	db.run("CREATE INDEX IF NOT EXISTS runs_item ON runs(item_id, id)");
 	db.run("CREATE INDEX IF NOT EXISTS runs_started ON runs(started_at)");
 	db.run("CREATE INDEX IF NOT EXISTS runs_session ON runs(session)");
@@ -135,6 +140,7 @@ export function listRuns(db: Db, { item, limit = 20 }: { item?: number; limit?: 
 	).map(withLink);
 }
 export const latestRun = (db: Db, item: number) => listRuns(db, { item, limit: 1 })[0];
+export const liveRuns = (db: Db) => running(db);
 const running = (db: Db) => (db.query(`SELECT ${COLS} FROM ${FROM} WHERE r.ended_at IS NULL ORDER BY r.id`).all() as Run[]).map(withLink);
 
 const sqlTime = (d: Date) => d.toISOString().slice(0, 19).replace("T", " ");
@@ -288,6 +294,7 @@ export function runLine(r: Run): string {
 	return [
 		`#${r.id} ${r.status}`,
 		r.continues && `continues #${r.continues}`,
+		r.kind === "land" && "merging the branch",
 		`started ${r.started_at.slice(0, 16)} UTC from ${r.started_from}`,
 		`${r.ended_at ? "" : "for "}${minutes(end - fromSql(r.started_at).getTime())}`,
 		r.cost != null && apiValue(r.cost),
@@ -476,11 +483,11 @@ async function launchNew(
 	db: Db,
 	i: Item,
 	from: From,
-	o: { session: string; command: string; cwd: string; vars: Record<string, string>; continues?: number; folder?: string; base?: string; resume?: string },
+	o: { session: string; command: string; cwd: string; vars: Record<string, string>; continues?: number; folder?: string; base?: string; resume?: string; kind?: RunKind },
 ): Promise<number> {
 	const { id } = db
-		.query("INSERT INTO runs (item_id, project, session, started_by, started_from, command, cwd, continues) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id")
-		.get(i.id, i.project, o.session, from.by ?? (from.where === "auto" ? "board" : "kostas"), from.label, o.command, o.cwd, o.continues ?? null) as { id: number };
+		.query("INSERT INTO runs (item_id, project, session, started_by, started_from, command, cwd, continues, kind) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id")
+		.get(i.id, i.project, o.session, from.by ?? (from.where === "auto" ? "board" : "kostas"), from.label, o.command, o.cwd, o.continues ?? null, o.kind ?? "run") as { id: number };
 	const tag = tagOf(db, id);
 	db.query("UPDATE runs SET tag = ? WHERE id = ?").run(tag, id);
 	const spec: Launch = {
@@ -503,6 +510,68 @@ async function launchNew(
 		throw new Error(`the agent couldn't start: ${(e as Error).message}`);
 	}
 	return id;
+}
+
+/* ---------- Merge it: a run that lands a done item's branch ---------- */
+
+/** Why this item's branch can't get a merge run now (its state, its folder, a run on it), or undefined. Whether the
+ * branch is merged yet is for the caller to say (agents.ts knows the git state, here or from a computer). */
+export function landRefusal(db: Db, i: Item): string | undefined {
+	if (i.status !== "done") return `wb-${i.ref} isn't done (${i.status}): Merge it is for finished work`;
+	if (i.owner === "kostas") return `wb-${i.ref} is ${yourName(db)}'s, not an agent's`;
+	if (!i.branch.trim()) return `wb-${i.ref} names no branch to merge`;
+	if (!folderOf(db, i.project)) return `the project ${i.project} has no folder on this computer (Settings → Projects)`;
+	const busy = db.query("SELECT id FROM runs WHERE item_id = ? AND ended_at IS NULL").get(i.id) as { id: number } | null;
+	if (busy) return `an agent is on wb-${i.ref} already (run #${busy.id})`;
+}
+
+/** What a merge run is told: land the branch by the project's own rules, check it, say where it went. */
+export function landPrompt(db: Db, i: Pick<Item, "ref" | "title" | "branch" | "project">, base = "", command = limits(db).command): string {
+	const name = yourName(db);
+	const main = base || "the project's main branch";
+	const folder = getProject(db, i.project)?.path ?? "";
+	const own = inWorktree(command)
+		? `\nYou start in a git worktree of your own: merge where this project's rules say (a local merge goes into the project's own checkout${folder ? `, ${folder}` : ""}, and only when that checkout has no uncommitted changes).`
+		: "";
+	return `Land wb-${i.ref} (${i.title}) from the workbench: its work is done on the branch ${i.branch}, which isn't merged into ${main} yet. ${name} sent this from the board; nobody watches this session, so don't ask questions here.
+1. Read it with the wb MCP server's get_item: what was done, where, and its notes.
+2. Merge ${i.branch} into ${main} the way this project's own rules say (its CLAUDE.md or AGENTS.md): some projects merge locally, some open a pull request. Bring the branch up to date first if it needs it, and settle conflicts with care.
+3. Run the project's checks (its tests, typecheck, build: what its rules name) on the merged result, and fix what the merge broke.
+4. Never force-push, and never rewrite ${main}'s history.
+5. Landed: add_note to wb-${i.ref} saying what landed where (the merge commit or the pull request, and the branch). Leave its status as it is: it's done.
+6. Can't land it (conflicts you can't settle, checks that fail, a permission you don't have): file what you need from ${name} as its own item (add_item), add_note to wb-${i.ref} saying why and naming that item, and stop there.${own}
+Without the MCP server, the wb command does the same: wb show, wb note, wb add.`;
+}
+
+/**
+ * Merge it: a run of kind "land" on a done agent item, whose job is to merge its branch (landPrompt). The same limits,
+ * command and launcher as Run (so the cloud board's computer helper starts it). `branch` says whether the branch is
+ * still unmerged, and into what: `why` refuses it. Returns the run.
+ */
+export async function startLand(db: Db, itemId: number, from: From, branch: (i: Item) => Promise<{ why?: string; base?: string }>): Promise<Run> {
+	const first = getItem(db, itemId);
+	if (!first) throw new Error(`no item #${itemId}`);
+	const early = landRefusal(db, first);
+	if (early) throw new Error(early);
+	const no = await startRefusal(db, from);
+	if (no) throw new Error(no.why);
+	const git = await branch(first);
+	if (git.why) throw new Error(git.why);
+	// Checked again with nothing awaited from here to the insert, as in startRun.
+	const i = getItem(db, itemId)!;
+	const now = countRefusal(db, from)?.why ?? landRefusal(db, i);
+	if (now) throw new Error(now);
+	const command = limits(db).command;
+	const session = crypto.randomUUID();
+	const id = await launchNew(db, i, from, {
+		session: command.includes("WB_SESSION") ? session : "",
+		command,
+		cwd: folderOf(db, i.project),
+		kind: "land",
+		vars: { WB_PROMPT: landPrompt(db, i, git.base, command), WB_SESSION: session },
+	});
+	addNote(db, i.id, `Agent merging ${i.branch}${git.base ? ` into ${git.base}` : ""} (run #${id}, from ${from.label})`, "workbench");
+	return getRun(db, id)!;
 }
 
 /** What a continuation is told: the message, and that nobody watches (as runPrompt says for a fresh one). */
