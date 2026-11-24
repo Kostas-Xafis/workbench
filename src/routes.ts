@@ -71,6 +71,7 @@ import { todayData } from "./today";
 import { buildQueue, deferItem, giveBack } from "./queue";
 import { resolveAsk } from "./asks";
 import { fileItem } from "./filing";
+import { setOrder } from "./order";
 import { codeLinks, repoState, type CodeLinks } from "./git";
 import { candidateFolders, checkFolder, folderState, health } from "./health";
 import { addGoal, goalsWithStats, itemGoals, moveGoal, updateGoal, type GoalPatch } from "./goals";
@@ -725,6 +726,18 @@ export function boardRoutes(h: BoardHost) {
 				try {
 					const { groups } = await req.json();
 					return json({ groups: setReportOrder(db, req.params.slug, groups) });
+				} catch (e) {
+					return fail(e);
+				}
+			}),
+		},
+		// The order of a project's agent work (order.ts): agents pick in it and the Projects page drags it.
+		"/api/projects/:slug/order": {
+			PUT: jsonOnly(async (req) => {
+				try {
+					if (!getProject(db, req.params.slug)) return json({ error: "not found" }, 404);
+					const { refs } = await req.json();
+					return json({ refs: setOrder(db, req.params.slug, refs) });
 				} catch (e) {
 					return fail(e);
 				}

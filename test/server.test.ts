@@ -210,3 +210,25 @@ echo '{"type":"result","subtype":"success","is_error":false,"total_cost_usd":0.1
 		expect(evil.status).toBe(403);
 	});
 });
+
+describe("the order of a project's agent work", () => {
+	const put = (path: string, body: unknown) =>
+		fetch(BASE + path, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+	test("PUT /api/projects/:slug/order sets it, and /api/items lists in it", async () => {
+		await post("/api/projects", JSON.stringify({ slug: "ord", name: "Ord", path: dir }), "application/json");
+		const refs: string[] = [];
+		for (const t of ["first", "second", "third"]) {
+			const r = await post("/api/items", JSON.stringify({ title: t, project: "ord", kind: "task", owner: "agent" }), "application/json");
+			const id = ((await r.json()) as { id: number }).id;
+			refs.push("wb-" + ((await (await fetch(`${BASE}/api/items/${id}`)).json()) as { ref: string }).ref);
+		}
+		const r = await put("/api/projects/ord/order", { refs: [refs[2], refs[0]] });
+		expect(r.status).toBe(200);
+		expect(((await r.json()) as { refs: string[] }).refs).toEqual([refs[2], refs[0], refs[1]]);
+		const items = (await (await fetch(`${BASE}/api/items?project=ord&owner=agent`)).json()) as { title: string }[];
+		expect(items.map((i) => i.title)).toEqual(["third", "first", "second"]);
+		expect((await put("/api/projects/ord/order", { refs: ["wb-nope"] })).status).toBe(400);
+		expect((await put("/api/projects/nowhere/order", { refs: [] })).status).toBe(404);
+		expect((await fetch(BASE + "/api/projects/ord/order", { method: "PUT", body: "{}" })).status).toBe(415);
+	});
+});

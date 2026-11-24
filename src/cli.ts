@@ -36,6 +36,7 @@ import {
 	type Status,
 } from "./db";
 import { exportAll, type Db } from "./db";
+import { agentOrder, moveInOrder } from "./order";
 import {
 	addGoal,
 	goalLine,
@@ -107,6 +108,9 @@ Items are named wb-xxxx (e.g. wb-k3f9); commands take that, the bare k3f9, or an
                                    open items (--all includes done); --mine = what waits on ${name}
                                    (notices, which don't wait, are counted after it: --kind notice lists them)
                                    ⚠ marks stale agent work (doing 2+ days quiet, waiting 7+)
+  wb order <ref> [--before <ref> | --after <ref> | --top | --bottom]
+                                   move an agent's to-do in its project's order: agents pick work in it, and
+                                   wb ls lists it that way (with no option, prints the order)
   wb show <ref>                     an item with its history
   wb goals [--project P] [--all]    a project's goals: target date, progress, what waits on ${name}, what blocks them
   wb goal add "Title" [--due YYYY-MM-DD] [--body "markdown"] [--active]   a goal items can serve
@@ -541,6 +545,28 @@ export async function runCli(ctx: CliCtx): Promise<number> {
 			case "show":
 				show(idArg());
 				break;
+			case "order": {
+				const id = idArg();
+				const places = [o.top, o.bottom, o.before, o.after].filter((x) => x !== undefined && x !== false).length;
+				if (places > 1) die("usage: wb order <ref> [--before <ref> | --after <ref> | --top | --bottom]");
+				const other = (s: string) => {
+					const x = resolveItem(db, s);
+					if (x === undefined) die(`no item "${s}"`);
+					return x;
+				};
+				const to = o.top
+					? { top: true as const }
+					: o.bottom
+						? { bottom: true as const }
+						: o.before
+							? { before: other(o.before) }
+							: o.after
+								? { after: other(o.after) }
+								: undefined;
+				const order = to ? moveInOrder(db, id, to) : agentOrder(db, getItem(db, id)!.project).map((i) => `wb-${i.ref}`);
+				for (const ref of order) out(row(getItem(db, resolveItem(db, ref)!)!, false));
+				break;
+			}
 			case "add": {
 				const title = args.slice(1).join(" ") || o.title;
 				if (!title) die('usage: wb add "title" [options]');
