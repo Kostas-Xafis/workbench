@@ -47,7 +47,7 @@ function setNotifyRender() {
 	const isNeeds = NOTIFY_KINDS.every(([k]) => wants[k] === NOTIFY_ONLY_NEEDS.includes(k));
 	const presets = optRow({
 		label: "Quick pick",
-		hint: "Everything, or only what waits on you: new things that need you and agents that got stuck.",
+		hint: "Only what needs me: new things for you, and agents that got stuck.",
 		control: `<div class="radios nt-presets" role="group" aria-label="Quick pick">
 			<button type="button" data-notify="all" aria-pressed="${isAll}">Everything</button>
 			<button type="button" data-notify="needs" aria-pressed="${isNeeds}">Only what needs me</button></div>`,
@@ -62,22 +62,19 @@ function setNotifyRender() {
 	];
 	const test = optRow({
 		label: "Send a test notification",
-		hint: !on ? "Turn notifications on first." : pushActive() ? "The board sends one to this device now, the way the others come, so you can see that they arrive." : "Shows one now, even with the board in front, so you can see how they look.",
+		hint: !on ? "Turn notifications on first." : "Shows one now, even with the board in front.",
 		control: `<button type="button" class="ghost sm" data-notify="test"${on ? "" : " disabled"}>Send a test</button>`,
 	});
 	// Chrome offers to install the board as an app (push.js): with its own icon, and its notifications as an app's.
 	const install = push.install ? optRow({
 		label: "Install as an app",
-		hint: "Puts Workbench on your home screen and in your apps, opening in its own window.",
+		hint: "On your home screen and in your apps, in its own window.",
 		control: `<button type="button" class="ghost sm" data-notify="install">Install</button>`,
 	}) : "";
-	const intro = pushable()
-		? "The board sends notifications to this device, even when it's closed, but not while it's on screen, and never for changes you make on this device yourself."
-		: "Notifications pop up only while the board isn't the window in front, and never for changes you make here yourself.";
-	return `<p class="set-intro">${intro} ${app ? "This app has its own setting, apart from your browsers" : "Each browser has its own"}: turn them on wherever you want them.</p>
+	return `<p class="set-intro">${app ? "This app has its own setting, apart from your browsers." : "Each browser has its own: turn them on wherever you want them."}</p>
 		${optGroup("Notifications", [master, test, install].filter(Boolean))}
 		${optGroup("What to tell you about", [presets, ...kinds], on ? "" : "Saved now, used once notifications are on.")}
-		${optGroup("Quiet hours", quietRows, "Nothing pops up during quiet hours. When they end, one notification sums up what happened meanwhile, such as “While you were away: 3 things need you”, unless you're already looking at the board.")}`;
+		${optGroup("Quiet hours", quietRows, "When they end, one notification sums up what happened meanwhile.")}`;
 }
 let notifyPermWatch = false;
 async function setNotifyLoad() {

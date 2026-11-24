@@ -65,7 +65,7 @@ function dtRestorePanel(b) {
 
 function setDataRender() {
 	const d = dataTab.info;
-	const intro = `<p class="set-intro">Everything on the board lives in one database on this computer. Keep copies of it, take it with you, and keep it from growing.</p>`;
+	const intro = "";
 	if (!d) return intro + (dataTab.error ? `<p class="error">${esc(dataTab.error)} <button type="button" class="ghost sm" data-data="reload">Try again</button></p>` : `<div class="set-empty">Loading…</div>`);
 	const err = dataTab.error ? `<p class="error" role="alert">${esc(dataTab.error)}</p>` : "";
 	const busy = (what) => dataTab.busy === what;

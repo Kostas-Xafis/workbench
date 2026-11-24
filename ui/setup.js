@@ -1,5 +1,5 @@
 /* ---------- Setup guide (#welcome, #welcome/<step>) and its checklist ---------- */
-// A first run for a new board, and the way back to it: Settings → Getting started, and the "Finish setting up"
+// A first run for a new board, and the way back to it: Settings → About, and the "Finish setting up"
 // checklist at the top of the board. Every step can be skipped. Whether one is done is checked now, never taken from
 // a click: GET /api/setup (setup.ts) for the board's side, and here in the page for notifications and the app's start
 // on login, which are per device. What the guide remembers (when it was first shown, skipped steps, the checklist
@@ -102,7 +102,7 @@ const wlFirstTodo = () => WL_STEPS.find((s) => wlStatus(s.key) === "todo")?.key 
 async function openWelcome(step) {
 	const el = $("#welcome-view");
 	if (!CAN_SHARE) {
-		return paint(el, `<div class="vault-card"><div class="vault-ic">${svg16(TAB_IC.start, 1.4)}</div><h2>The setup guide opens on this computer</h2>
+		return paint(el, `<div class="vault-card"><div class="vault-ic">${svg16(TAB_IC.about, 1.4)}</div><h2>The setup guide opens on this computer</h2>
 			<p>It adds projects and reads how Claude Code is set up there, so it opens only where the board runs, at <a href="http://localhost:${esc(location.port)}/#welcome">localhost</a>.</p>
 			<button type="button" class="ghost" data-wl="close">← Board</button></div>`);
 	}
@@ -135,7 +135,7 @@ const WL_BODY = {
 		const value = setup.nameDraft ?? (d?.name.set ? d.name.value : "");
 		return `<p class="wl-lede">The board is yours: it's where agents leave what waits on you. They call you by name in what they write for you, and so do day pages and the <code>wb</code> command.</p>
 			<div class="wl-body"><label class="wl-field"><span class="hint">Your name</span><input id="wl-name" value="${esc(value)}" placeholder="${esc(d?.name.value ?? "Your name")}" maxlength="40" autocomplete="given-name" spellcheck="false"></label>
-			<p class="hint">Only the words change: in commands, items for you keep the owner <code>kostas</code> whatever your name. When your work day starts, and who gets new items, are in Settings → You and your day.</p></div>`;
+			<p class="hint">Only the words change: in commands, items for you keep the owner <code>kostas</code> whatever your name. When your work day starts is in Settings → About; who gets new items, in Settings → Agents.</p></div>`;
 	},
 	projects() {
 		const rows = state.projects.map((p) => wlRow(logo(p), esc(p.name), `<span title="${esc(p.path)}">${esc(p.path || "No folder")}</span>`));
@@ -229,7 +229,7 @@ const WL_BODY = {
 			<h4>Also on the board</h4>
 			<ul style="margin:0;padding-left:20px;display:flex;flex-direction:column;gap:3px"><li><b>Reports</b> in the sidebar: pages agents publish (a status, a plan, release notes), and a page for each day of what moved.</li>
 				<li><b>Search</b> with ${esc(MOD)} K: items and their notes, reports, links.</li><li><b>Vault</b> (the lock at the top): secrets, encrypted in your browser.</li>
-				<li>This guide comes back from Settings → Getting started.</li></ul></div>`;
+				<li>This guide comes back from Settings → About.</li></ul></div>`;
 	},
 };
 
@@ -251,7 +251,7 @@ function renderWelcome() {
 		${c.done ? "" : `<button type="button" class="ghost quiet" data-wl="skip">${last ? "Skip" : "Skip this step"}</button>`}<button type="button" class="primary" data-wl="next">${next}</button></div>`;
 	// Polling redraws the step: keep the keyboard where it was (the name field, say).
 	const a = document.activeElement, focusId = el.contains(a) ? a.id : "", caret = focusId ? a.selectionStart : null;
-	paint(el, `<div class="wl-wrap"><div class="wl-head"><img class="plogo" src="/favicon.svg" alt=""><div><h2>Set up the Workbench</h2><small>Step ${i + 1} of ${WL_STEPS.length}<span class="wl-later">. Skip any of them: Settings → Getting started brings this back.</span></small></div><span class="spacer"></span><button type="button" class="ghost sm" data-wl="close">${setupComplete() ? "Close" : "Finish later"}</button></div>
+	paint(el, `<div class="wl-wrap"><div class="wl-head"><img class="plogo" src="/favicon.svg" alt=""><div><h2>Set up the Workbench</h2><small>Step ${i + 1} of ${WL_STEPS.length}<span class="wl-later">. Skip any of them: Settings → About brings this back.</span></small></div><span class="spacer"></span><button type="button" class="ghost sm" data-wl="close">${setupComplete() ? "Close" : "Finish later"}</button></div>
 		<div class="wl-layout"><nav aria-label="Setup steps"><ol class="wl-steps">${nav}</ol></nav><div class="wl-panel"><h3>${esc(s.title)}</h3>${WL_BODY[s.key]()}${check}${foot}</div></div></div>`);
 	if (focusId && document.activeElement !== document.getElementById(focusId)) {
 		const n = document.getElementById(focusId);
@@ -359,19 +359,19 @@ function renderSetupCard() {
 	}).join("");
 	paint(el, `<div class="setup-card" role="region" aria-label="Finish setting up"><span class="setup-ring" aria-hidden="true">${ringSvg((n / WL_STEPS.length) * 100, 34, 4.5)}<span>${n}/${WL_STEPS.length}</span></span>
 		<b>Finish setting up</b><div class="setup-chips">${chips}</div>
-		<div class="tools"><button type="button" class="primary" data-setup="go">Continue</button><button type="button" class="icon-btn" data-setup="dismiss" title="Hide this checklist (Settings → Getting started keeps it)" aria-label="Hide the checklist">${svg16('<path d="m4.5 4.5 7 7M11.5 4.5l-7 7"/>')}</button></div></div>`);
+		<div class="tools"><button type="button" class="primary" data-setup="go">Continue</button><button type="button" class="icon-btn" data-setup="dismiss" title="Hide this checklist (Settings → About keeps it)" aria-label="Hide the checklist">${svg16('<path d="m4.5 4.5 7 7M11.5 4.5l-7 7"/>')}</button></div></div>`);
 }
 $("#setup-card").addEventListener("click", (e) => {
 	const b = e.target.closest("[data-setup]");
 	if (!b) return;
 	if (b.dataset.setup === "go") wlGo(wlFirstTodo());
-	else { setupSave({ dismissed: true }); toast("Hidden. Settings → Getting started has the setup guide"); }
+	else { setupSave({ dismissed: true }); toast("Hidden. Settings → About has the setup guide"); }
 });
 
-// Settings → Getting started (tab "start"): every step with what its check found, and the way back into the guide.
+// Settings → About → Setup guide: every step with what its check found, and the way back into the guide.
 function setStartRender() {
-	if (!setup.data) return `<div class="set-empty">${esc(setup.err || "Checking…")}</div>`;
 	const saved = setupSaved();
+	if (!setup.data) return `<details class="so-fold fold" data-key="set-about-setup"${isOpen("set-about-setup")}><summary><span>Setup guide</span></summary><div class="set-empty">${esc(setup.err || "Checking…")}</div></details>`;
 	const rows = WL_STEPS.map((s) => {
 		const c = wlCheck(s.key), st = wlStatus(s.key);
 		return optRow({
@@ -383,13 +383,12 @@ function setStartRender() {
 	const complete = setupComplete();
 	const card = optRow({
 		label: "“Finish setting up” on the board",
-		hint: complete ? "Hidden: every step is done or skipped." : saved.dismissed ? "Hidden. Switch it on to keep what's left in view." : saved.seen ? "At the top of the board, until every step is done or skipped." : "Shows once you've opened the guide.",
+		hint: complete ? "Hidden: every step is done or skipped." : saved.dismissed ? "Hidden." : saved.seen ? "At the top of the board, until every step is done or skipped." : "Shows once you've opened the guide.",
 		control: `<label class="switch"><input type="checkbox" role="switch" data-setup-card${!saved.dismissed && !complete ? " checked" : ""}${complete ? " disabled" : ""} aria-label="Show the checklist on the board"><span></span></label>`,
 	});
 	const n = WL_STEPS.filter((s) => wlStatus(s.key) === "done").length;
-	return `<p class="set-intro">What makes the board useful, step by step: your name, your projects, agents that reach the board, each project's rules for agents, notifications. Each line is checked now, not taken from what you clicked.</p>
-		<div class="row" style="margin-bottom:18px"><button type="button" class="primary" data-act="welcome">${saved.seen ? "Open the setup guide" : "Start the setup guide"}</button><span class="hint">${n} of ${WL_STEPS.length} done${setup.at ? ` · checked at ${clockOf(setup.at)}` : ""}</span></div>
-		${optGroup("Steps", rows)}${optGroup("Checklist", [card])}`;
+	const open = `<div class="set-fold-bar"><button type="button" class="primary sm" data-act="welcome">${saved.seen ? "Open the setup guide" : "Start the setup guide"}</button></div>`;
+	return `<details class="so-fold fold" data-key="set-about-setup"${isOpen("set-about-setup")}><summary><span>Setup guide</span><small>${n} of ${WL_STEPS.length} done</small></summary>${open}<div class="so-list">${rows.join("")}${card}</div></details>`;
 }
 $("#settings-view").addEventListener("change", (e) => {
 	const t = e.target.closest("[data-setup-card]");
