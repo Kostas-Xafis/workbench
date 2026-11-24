@@ -574,7 +574,7 @@ function lifeOf(i: Item, lastNote: string | undefined, liveRun: boolean, now = D
 export function addItem(db: Db, item: ItemPatch & { title: string; project: string }, author = ""): number {
 	item = { ...item, ...normalize(item) };
 	validate(item);
-	// Nobody said who acts: the board's setting for the kind (Settings → You and your day).
+	// Nobody said who acts: the board's setting for the kind (Settings → Agents).
 	item.owner ||= ownerFor(db, item.kind || "task");
 	if (item.goal_id != null) checkItemGoal(db, item.project, item.goal_id);
 	item = { ...item, ...cleanAsk(db, item) };

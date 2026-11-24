@@ -5,7 +5,7 @@ import type { Report } from "./db";
  * so `window.wb` asks the board that frames it, which answers read-only questions only.
  */
 const CLIENT = `(() => {
-	// The theme picked on the board (Settings → Appearance): ?wbtheme= on the frame's address, so the first paint is
+	// The theme picked on the board (Settings → About): ?wbtheme= on the frame's address, so the first paint is
 	// right, then "theme" messages. The --wb-* colours follow it, and so do the page's own prefers-color-scheme
 	// rules: where the pick differs from the system, their media queries are flipped.
 	let theme = "";

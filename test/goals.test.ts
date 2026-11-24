@@ -319,8 +319,8 @@ describe("MCP", () => {
 			)
 		).json();
 		const instructions = (init as any).result.instructions as string;
-		expect(instructions).toContain("Don't create goals");
-		expect(instructions).toContain("list_goals");
+		expect(instructions).toContain("don't create goals");
+		expect(instructions).toContain("add_item goal");
 	});
 });
 

@@ -11,7 +11,7 @@ wb reports                                # list, with versions
 wb unreport <id>
 ```
 
-**Icons:** every report has its own icon in the sidebar, in colour, in place of the page glyph; the folded sidebar and search show it too. Agents have to give one: `publish_report`, and `wb report` run by an agent, refuse a report that would be left without, and `set_report_icon` changes it but won't remove it. Day pages keep their date. It's one emoji or a small SVG (up to 8 KB, with a viewBox, in its own colours rather than `currentColor`: the board draws it as a picture, so it can't take the theme's).
+**Icons:** every report has its own icon in the sidebar, in colour, in place of the page glyph; the folded sidebar and search show it too. Agents have to give one: `report` with `publish`, and `wb report` run by an agent, refuse a report that would be left without, and its `icon` action changes it but won't remove it. Day pages keep their date. It's one emoji or a small SVG (up to 8 KB, with a viewBox, in its own colours rather than `currentColor`: the board draws it as a picture, so it can't take the theme's).
 
 **Order of the groups:** the pencil in the Reports heading (with a project selected and at least two groups) puts arrows on each heading, to move Days, Release and the rest up and down. The order is kept per project, for every device. A new group starts at the bottom; reports without a group stay below the groups. Under "All", each project's groups follow its own order, the projects in their order down the left edge.
 
