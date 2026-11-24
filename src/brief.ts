@@ -4,7 +4,7 @@
  */
 import type { Item } from "./db";
 
-/** Fits a tool description (Claude Code cuts those at 2048 characters). {{name}} is filled in by whoever shows it. */
+/** The rules for writing an item, for `wb guide` ({{name}} is filled in by whoever shows it). add_item carries BRIEF_RULES_SHORT instead. */
 export const BRIEF_RULES = `{{name}} reads items on the board, often on a phone, with no repo open, no memory of the work and no time to open files. An item has to make sense by itself:
 - Title: what to do or decide, in plain words. No internal codes (M7, R50, DBS-3).
 - First lines: what this is, why it's here, what you need from {{name}}.
@@ -85,7 +85,7 @@ export function checkBrief(d: Draft, { name, images, attach }: { name: string; i
 	const sources = unique(body.matchAll(SOURCE));
 	if (forThem && sources.length >= 3) warnings.push(`It names source files (${sources.slice(0, 2).join(", ")}…). Say where each thing is in the app, and quote the wording, instead.`);
 	if (forThem && body.split("\n").some((line) => line.length > WALL)) warnings.push("It has a long paragraph. Break it into a list: numbered for steps or anything in order, bullets for the rest.");
-	if (d.kind === "check" && !/^\s*1[.)]\s/m.test(body)) warnings.push("A check needs numbered steps (the board runs them on the phone, one at a time): where to go, what to do, what right and wrong look like.");
+	if (d.kind === "check" && !/^\s*1[.)]\s/m.test(body)) warnings.push(`A check needs numbered steps (${name} runs them on the phone): where to go, what to do, what right and wrong look like.`);
 	if (d.kind === "decision" && !/recommend/i.test(body)) warnings.push("A decision needs your recommendation and why.");
 	if (!images && (forThem || d.kind === "bug") && ["check", "review", "notice", "bug"].includes(d.kind)) {
 		const hint = `${d.title}\n${body}`.match(ON_SCREEN);

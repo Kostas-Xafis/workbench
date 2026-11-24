@@ -1,5 +1,5 @@
 /**
- * Settings → Health: whether the tools and pieces the board leans on work, what each is for, and the command that
+ * Settings → About: whether the tools and pieces the board leans on work, what each is for, and the command that
  * fixes it when it doesn't. Every check is read-only and asked on demand (opening Settings, "Check again").
  */
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";

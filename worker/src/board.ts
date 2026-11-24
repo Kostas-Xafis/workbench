@@ -121,7 +121,7 @@ export class Board extends DurableObject<Env> {
 			open: [...OPEN],
 			cookie: COOKIE,
 			bearer: true,
-			unpaired: "This device isn't paired with the cloud board. On one that is, open Settings → Privacy and security and click Pair a phone, or run wb sync pair on a computer that syncs with it.",
+			unpaired: "This device isn't paired with the cloud board. On one that is, open Settings → Data and click Pair a phone, or run wb sync pair on a computer that syncs with it.",
 		});
 		// Owner checks: any paired device, from the board's own page or a tool (no other site's page).
 		const sameSite = (req: Request) => {

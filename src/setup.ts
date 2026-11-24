@@ -8,7 +8,7 @@
  *   transports note that call (mcp.ts → noteMcpContact), in the table `mcp_contact` (made in db.ts), at most
  *   once a minute each.
  * - Each project's agent rules (integrate.ts), with the prompt that sets them up.
- * - Start on login for a board in a browser (the systemd unit, as Settings → Health has it).
+ * - Start on login for a board in a browser (the systemd unit, as Settings → About has it).
  *
  * What the guide remembers (seen, steps done or skipped, dismissed) is the board setting `setup` (settings.ts).
  * Notifications and the app's own start on login are per device: the page checks those itself.

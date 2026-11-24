@@ -526,7 +526,7 @@ export class Helpers {
 
 	private hello(device: string, m: Hello, ws?: WebSocket): ToHelper[] {
 		const db = this.db;
-		// Named as its device is (Settings → Privacy and security lists it), not as it names itself.
+		// Named as its device is (Settings → Data lists it), not as it names itself.
 		const named = (db.query("SELECT name FROM devices WHERE id = ?").get(device) as { name: string } | null)?.name;
 		const hello = {
 			name: String(named || m.name || "a computer").slice(0, 80),

@@ -10,7 +10,7 @@
  *
  * Values go by default into a private .env file (this user only, in the runtime folder, deleted after FILE_MINUTES)
  * so they stay out of the agent's conversation and its saved transcript; `deliver: "text"` puts them in the reply.
- * Every request is logged (vault_access, by secret id) and shown in the vault. Settings → Privacy and security can
+ * Every request is logged (vault_access, by secret id) and shown in the vault. Settings → Data can
  * turn agent requests off (vault.agents).
  *
  * What this guards against: an agent taking secrets nobody agreed to, a request that misstates what it takes, and
@@ -110,7 +110,7 @@ export class VaultRefusal extends Error {}
  * computer's device token (cloudvault.ts). The window, the password and the decrypting stay on this computer either way.
  */
 export type VaultStore = {
-	/** Settings → Privacy and security → Vault: whether agents may ask at all. */
+	/** Settings → Data → Vault: whether agents may ask at all. */
 	agentsOn(): Promise<boolean>;
 	info(): Promise<Pick<VaultInfo, "salt" | "iterations"> | null>;
 	/** The sealed secrets, when `auth` (from the password) is the vault's; null when it isn't. */
@@ -148,7 +148,7 @@ async function unlock(w: Who, ask: Omit<Ask, "title">, log: Pick<VaultAccess, "w
 		store.log({ project: w.project ?? "", session: w.session ?? "", secrets: [], ...log, outcome });
 	if (!(await store.agentsOn())) {
 		await entry("off");
-		throw new VaultRefusal("agents may not ask for secrets on this board (Settings → Privacy and security → Vault). Ask Kostas to turn it on, or to give you the value another way.");
+		throw new VaultRefusal("agents may not ask for secrets on this board (Settings → Data → Vault). Ask Kostas to turn it on, or to give you the value another way.");
 	}
 	const info = await store.info();
 	if (!info) throw new VaultRefusal("Kostas has no vault yet (the board's Vault button sets one up).");

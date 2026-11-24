@@ -9,7 +9,7 @@
  *   MAX_GROUP; priority 1 items only group with each other.
  * - Notices come after the asks, as a quick "seen / object" pass. They don't wait on Kostas (needsKostas).
  * - Deferred items (`deferred_until`, set by deferItem) stay out of the queue until then. They still wait on him
- *   and count in "Needs you"; the queue says how many are deferred.
+ *   and count in the Inbox; the queue says how many are deferred.
  * - Giving an item back (giveBack) hands it to the agent with his line in the history.
  *
  * Deferring and giving back are history lines, so agents need nothing new to read them.

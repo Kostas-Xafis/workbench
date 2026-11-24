@@ -145,7 +145,7 @@ const running = (db: Db) => (db.query(`SELECT ${COLS} FROM ${FROM} WHERE r.ended
 
 const sqlTime = (d: Date) => d.toISOString().slice(0, 19).replace("T", " ");
 const fromSql = (s: string) => new Date(s.replace(" ", "T") + "Z");
-/** When today began, as the board counts days (Settings → You and your day: a work day starts at …). */
+/** When today began, as the board counts days (Settings → About: a work day starts at …). */
 export function dayStart(db: Db, now = new Date()) {
 	const h = dayStartHour(db);
 	const d = new Date(now.getTime() - h * 3600e3);

@@ -157,7 +157,7 @@ export type BoardHost = {
 	port: number;
 	/** Answering the network (`wb serve --lan`); always true in the cloud. */
 	lan: boolean;
-	/** The compiled server (the app's sidecar, the standalone server), for Settings → Updates. */
+	/** The compiled server (the app's sidecar, the standalone server), for Settings → About. */
 	compiled: boolean;
 	/** A request from this computer itself. Never in the cloud. */
 	loopback: Check;
@@ -339,8 +339,8 @@ export function boardRoutes(h: BoardHost) {
 					],
 					// A long press on the app's icon.
 					shortcuts: [
-						{ name: "Today", url: "/#today", icons: [{ src: "/icons/icon-192.png", sizes: "192x192", type: "image/png" }] },
-						{ name: "Answer what needs you", short_name: "Queue", url: "/#queue", icons: [{ src: "/icons/icon-192.png", sizes: "192x192", type: "image/png" }] },
+						{ name: "Inbox", url: "/#inbox", icons: [{ src: "/icons/icon-192.png", sizes: "192x192", type: "image/png" }] },
+						{ name: "Agents", url: "/#agents", icons: [{ src: "/icons/icon-192.png", sizes: "192x192", type: "image/png" }] },
 					],
 				},
 				{ headers: { "content-type": "application/manifest+json", "cache-control": "max-age=3600" } },
@@ -351,7 +351,7 @@ export function boardRoutes(h: BoardHost) {
 				? new Response(png, { headers: { "content-type": "image/png", "cache-control": "max-age=86400" } })
 				: new Response("not found", { status: 404 });
 		},
-		// Settings → Privacy and security → Phones: this computer only, like the rest of Settings.
+		// Settings → Data → Phones: this computer only, like the rest of Settings.
 		"/api/devices": {
 			GET: (req, srv) => (localRead(req, srv) ? json(devicesInfo()) : json({ error: SETTINGS_LOCAL }, 403)),
 			// Remove all: every phone has to pair again.
@@ -448,7 +448,7 @@ export function boardRoutes(h: BoardHost) {
 			}),
 		},
 		"/api/settings/defs": () => json(settingDefs()),
-		// Settings → Updates (updates.ts): this server's version, how it runs, and the newest release it knows of.
+		// Settings → About (updates.ts): this server's version, how it runs, and the newest release it knows of.
 		// Read by anyone who can open the board (the board bar says when there's a newer one); "Check now" calls the
 		// internet, so only from this computer.
 		"/api/update": () => json(updateInfo(db, h.compiled)),
@@ -460,8 +460,8 @@ export function boardRoutes(h: BoardHost) {
 			}),
 		},
 
-		// Settings → You and your day: routes
-		// end: You and your day routes
+		// Settings → About and Agents: routes
+		// end: About and Agents routes
 
 		// Settings → Notifications: routes
 		// end: Notifications routes
@@ -573,7 +573,7 @@ export function boardRoutes(h: BoardHost) {
 		})(),
 		// end: Data routes
 
-		// Settings → Privacy and security: routes
+		// Settings → Data: routes
 		// What's exposed and how secrets behave, for the tab: never a secret, a header value or the vault's salt.
 		// Only for the board's page on this computer (localRead: no other site, no DNS rebinding).
 		"/api/settings/privacy": (req, srv) => {
@@ -598,8 +598,8 @@ export function boardRoutes(h: BoardHost) {
 		},
 		// end: Privacy and security routes
 
-		// Settings → Appearance: routes
-		// end: Appearance routes
+		// Settings → About: routes
+		// end: About routes
 
 		// Settings: projects with their folder and what points at them, folders that could be projects, and health.
 		"/api/settings/projects": (req, srv) =>
@@ -654,7 +654,7 @@ export function boardRoutes(h: BoardHost) {
 				}
 			}),
 		},
-		// The Today view's part the page can't build alone: what agents finished since `since` (with the finishing
+		// What the Inbox and Agents pages can't build alone: what agents finished since `since` (with the finishing
 		// note's first line) and the reports updated since, day pages left out. ?project= (default all), ?since= (any time).
 		"/api/today": (req) => {
 			const u = new URL(req.url).searchParams;

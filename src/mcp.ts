@@ -1644,7 +1644,7 @@ const PROMPTS: Prompt[] = [
 	{
 		name: "today",
 		title: "Today's brief",
-		description: "A one-screen brief: what waits on {{name}}, what agents finished, what's stuck, reports updated. Read-only, same as the board's Today.",
+		description: "A one-screen brief: what waits on {{name}}, what agents finished, what's stuck, reports updated..",
 		arguments: [
 			{ name: "project", description: "Project slug (default: all projects)" },
 			{ name: "since", description: "From when, e.g. 2026-11-12 08:00 (UTC; default: the last 24 hours)" },
@@ -1700,7 +1700,7 @@ function complete(params: Json, c: Conn) {
 
 /* ---------- Dispatch ---------- */
 
-// The lists carry your name and who gets new items (Settings → You and your day), so clients don't keep them long.
+// The lists carry your name and who gets new items (Settings → Agents), so clients don't keep them long.
 const CACHE_STATIC = { ttlMs: 5 * 60_000, scope: "public" as const };
 
 /**
