@@ -116,7 +116,9 @@ export function deadlineText(i: Pick<Item, "kind" | "default_answer" | "pick" | 
  * without a deadline gets one: Settings → You and your day, "A default goes ahead after", 3 days unless changed.
  */
 export function cleanAsk(db: Db, patch: ItemPatch, before?: Item): ItemPatch {
-	const out: ItemPatch = { ...patch };
+	const out: ItemPatch = leftBehind(patch, before);
+	// The default before the change, unless the change leaves it behind (then a new one counts as new).
+	const beforeDefault = before && leftBehind({ ...patch, default_answer: undefined }, before).default_answer !== "" ? before.default_answer : "";
 	const kind = out.kind ?? before?.kind ?? "task";
 	const options = itemOptions({ options: String(out.options ?? before?.options ?? "") });
 	if (out.pick !== undefined) {
@@ -158,7 +160,7 @@ export function cleanAsk(db: Db, patch: ItemPatch, before?: Item): ItemPatch {
 	if (out.decide_by && !DEFAULT_KINDS.includes(kind)) throw new Error(`only decisions, reviews and notices take a deadline; a ${kind} waits until it's done`);
 	// A deadline by itself, when the agent gives none.
 	const after = { kind, default_answer: out.default_answer ?? before?.default_answer ?? "" } as Item;
-	const gained = !before || (!before.default_answer && !!after.default_answer) || (kind === "notice" && before.kind !== "notice");
+	const gained = !before || (!beforeDefault && !!after.default_answer) || (kind === "notice" && before.kind !== "notice");
 	const owner = out.owner ?? before?.owner;
 	if (gained && goesAhead(after) && owner === "kostas" && out.decide_by === undefined && !before?.decide_by) {
 		const days = askDays(db);
@@ -184,6 +186,31 @@ export const REVIEW_DEFAULT = "No objections";
 /** A list or a string holds a default: '' and nothing don't; [] (none of them) does. */
 const hasDefault = (v: unknown) => Array.isArray(v) || (v != null && String(v).trim() !== "");
 
+/** Options as given (a list, or as stored) or as stored. */
+const optionList = (v: unknown) => itemOptions({ options: Array.isArray(v) ? JSON.stringify(v) : String(v ?? "") });
+
+/**
+ * The ask fields an item already has that a change leaves behind, cleared ('') so the new kind's way out is worked
+ * out again (wayOut) instead of going ahead with something that no longer fits: a default belongs to its kind (a
+ * review's No objections is no answer to a decision), and a default or recommendation must be among the options.
+ * What the change itself gives is checked as usual (cleanAsk).
+ */
+export function leftBehind(patch: ItemPatch, before?: Item): ItemPatch {
+	if (!before) return patch;
+	const kind = patch.kind ?? before.kind;
+	const options = optionList(patch.options !== undefined ? patch.options : before.options);
+	const among = (l: string[]) => !options.length || l.every((x) => options.includes(x));
+	const out = { ...patch };
+	const d = before.default_answer;
+	if (patch.default_answer === undefined && d) {
+		const picks = (patch.pick ?? before.pick) === "many" && d.startsWith("[") ? jsonList(d) : [d];
+		if (kind !== before.kind || (kind === "decision" && !among(picks))) out.default_answer = "";
+	}
+	const rec = itemRecommended(before);
+	if (patch.recommended === undefined && rec.length && (kind !== "decision" || !options.length || !among(rec))) out.recommended = "";
+	return out;
+}
+
 /**
  * Gives an agent's ask for Kostas its way out, when it's filed or a change makes it one (another kind, or handed to
  * him): a review without a default closes with no objections, a decision's recommendation becomes its default, and
@@ -191,12 +218,15 @@ const hasDefault = (v: unknown) => Array.isArray(v) || (v != null && String(v).t
  * recommendation is refused, unless it's priority 1. Items that were already asks, checks and setup are left alone.
  * Returns the patch, and whether the board gave the default.
  */
-export function wayOut(db: Db, patch: ItemPatch, before?: Item): { patch: ItemPatch; gave: boolean } {
+export function wayOut(db: Db, given: ItemPatch, before?: Item): { patch: ItemPatch; gave: boolean } {
+	const patch = leftBehind(given, before);
 	const kind = patch.kind ?? before?.kind ?? (patch.options?.length ? "decision" : "task");
 	const owner = patch.owner || before?.owner || ownerFor(db, kind);
 	const none = { patch, gave: false };
 	if (owner !== "kostas" || kind === "notice" || !DEFAULT_KINDS.includes(kind)) return none;
-	if (before && before.kind === kind && before.owner === "kostas") return none;
+	// Already an ask for Kostas, unless the change left its default behind: then it's worked out again.
+	const dropped = given.default_answer === undefined && patch.default_answer === "";
+	if (before && before.kind === kind && before.owner === "kostas" && !dropped) return none;
 	if (hasDefault(patch.default_answer !== undefined ? patch.default_answer : before?.default_answer)) return none;
 	if (kind === "review") return { patch: { ...patch, default_answer: REVIEW_DEFAULT }, gave: true };
 	const rec = listArg(patch.recommended !== undefined ? patch.recommended : (before?.recommended ?? ""));
@@ -205,7 +235,7 @@ export function wayOut(db: Db, patch: ItemPatch, before?: Item): { patch: ItemPa
 	const name = yourName(db);
 	const days = askDays(db);
 	throw new Error(`A decision needs your recommendation, so it can go ahead if ${name} says nothing. Nothing was filed. Either:
-- Give recommended (one of the options; without options, a default in words). It becomes the default and goes ahead${days ? ` in ${days} days` : ""} unless ${name} says otherwise.
+- Give recommended (one of the options), or default if it has no options. It becomes the default and goes ahead${days ? ` in ${days} days` : ""} unless ${name} says otherwise.
 - Or, if it can't go ahead without ${name} (money, accounts, something that can't be undone), file it as priority 1.
 - Or decide it yourself, and say what you chose in a notice.`);
 }
