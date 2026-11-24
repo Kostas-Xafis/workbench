@@ -6,14 +6,17 @@
 // The calls below don't touch the page, so other views (the one-at-a-time queue) can use them: canSend(item),
 // sendWhy(item), sendItem(id), stopAgent(runId).
 // What the reader (ui/reader.js) asks of this file, its whole contract:
-//   runPanel(item) → HTML: the run box for the item ("" for none): its newest run, or Run on an agent's to-do.
-//   wireRunPanel(el, item): `el` holds runPanel's HTML; its clicks (Stop, Run, Open in Claude Desktop) and, while
-//     the run is live, its output every 2 s, drawn into `el` until `el` leaves the page or is wired again.
+//   runPanel(item) → HTML: the run box for the item ("" for none): its runs, what the agent did, the controls.
+//   wireRunPanel(el, item): `el` holds runPanel's HTML; its clicks and, while a run is live, what it does every 2 s,
+//     drawn into `el` (with el._html kept in step) until `el` leaves the page or is wired again.
 //   runLive(item) → boolean: a run is going, so the reader puts the box near the top.
-//   canResume(item) → boolean: the "resume the agent" tick shows next to Answer and Object.
-// When a run ends, this calls readerRefresh(itemId): the item's status and history have changed.
+//   canResume(item) → boolean: the "resume the agent" tick shows next to Answer and Object (a fresh agent).
+//   canContinue(item) → boolean, continueAgent(item, text) → item: the reply box's "send to the agent" tick, and
+//     sending a note that way (the agent carries on in its session). The conversation is that one box.
+// It calls readerRefresh(itemId) when a run starts, ends or is stopped, and readerTellAgent(itemId) for the panel's
+// "Tell the agent…" (the reader turns the tick on and puts you in its reply box).
 
-const runs = { info: null, byItem: new Map(), detail: null, timer: 0, fast: 0, test: null, testing: false, panel: null };
+const runs = { info: null, byItem: new Map(), timer: 0, fast: 0, test: null, testing: false, panel: null };
 const RUN_ASKS = ["decision", "review", "notice"];
 
 async function runsLoad() {
@@ -115,104 +118,282 @@ $("#sections").addEventListener("click", async (e) => {
 	catch (err) { b.disabled = false; toast(err.message); }
 });
 
-/* ---------- In the reader: the run box (the contract is at the top of this file) ---------- */
+/* ---------- In the reader: the agent's side of the item (the contract is at the top of this file) ---------- */
+// The run box: a header (state, how long, what it cost, where it ran, a switcher between the item's runs), what the
+// agent said and did (GET /api/runs/:id/events, followed every 2 s while it runs), and the controls: Stop, Open in
+// Claude Desktop (a claude:// link the page opens itself, so the cloud board's too), Copy the resume command, Tell
+// the agent… (which turns on "send to the agent" in the reader's reply box: the conversation is that one box) and
+// Run again.
 
-const runOf = (item) => (item?.id ? (runs.detail?.item_id === item.id ? runs.detail : runs.byItem.get(item.id)) ?? null : null);
+Object.assign(GLYPH, {
+	"ev-edit": '<path d="M3 13l.6-2.6L10.4 3.6a1.3 1.3 0 0 1 1.9 0l.1.1a1.3 1.3 0 0 1 0 1.9L5.6 12.4z"/>',
+	"ev-run": '<rect x="2" y="3" width="12" height="10" rx="1.5"/><path d="m4.75 6.25 1.75 1.5-1.75 1.5M8 9.5h2.75"/>',
+	"ev-read": '<path d="M4 2.5h5l3 3v8H4z"/><path d="M9 2.5v3h3"/>',
+	"ev-search": '<circle cx="7" cy="7" r="3.75"/><path d="m10 10 3 3"/>',
+	"ev-wb": '<rect x="2.5" y="2.5" width="11" height="11" rx="2"/><path d="M5.5 6h5M5.5 8.5h3"/>',
+	"ev-tool": '<circle cx="8" cy="8" r="2"/>',
+});
+const RUN_SHOWN = 12;
+const RUN_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+// What the panel knows about the item it shows: its runs (newest first), the one picked, each one's events.
+const runView = { item: 0, list: null, sel: 0, ev: new Map(), all: new Set(), busy: false };
+function rvFor(id) {
+	if (runView.item !== id) Object.assign(runView, { item: id, list: null, sel: 0, ev: new Map(), all: new Set() });
+	return runView;
+}
+/** The item's runs, newest first: what the panel loaded, else the newest the board knows of. */
+function runsOf(item) {
+	const v = runView.item === item.id ? runView : null;
+	const known = runs.byItem.get(item.id);
+	const list = v?.list ? [...v.list] : known ? [known] : [];
+	// The board's list may know of a newer one (started elsewhere) before the panel looks again.
+	if (known && !list.some((r) => r.id === known.id)) list.unshift(known);
+	return list.sort((a, b) => b.id - a.id);
+}
+const runOf = (item) => {
+	if (!item?.id) return null;
+	const list = runsOf(item);
+	return (runView.item === item.id && list.find((r) => r.id === runView.sel)) || list[0] || null;
+};
+/** Puts what the server said of a run into the panel's list. */
+function rvTake(r) {
+	if (!r || runView.item !== r.item_id) return;
+	const list = runView.list ?? [];
+	const at = list.findIndex((x) => x.id === r.id);
+	if (at < 0) list.unshift(r); else list[at] = { ...list[at], ...r };
+	runView.list = list;
+	// The board's newest-run map follows, so the card and the "live" check agree with the panel.
+	const known = runs.byItem.get(r.item_id);
+	if (!known || known.id <= r.id) runs.byItem.set(r.item_id, { ...(known?.id === r.id ? known : {}), ...r });
+}
 /** A run is going on the item. */
-const runLive = (item) => !!(item?.id && runActive(item.id));
+const runLive = (item) => !!(item?.id && (runActive(item.id) || runsOf(item).some((r) => !r.ended_at)));
 /** The "resume the agent" tick shows: an ask of yours that the board can start an agent on now. */
 const canResume = (item) => !!item?.id && sendKind(item) === "answer" && canSend(item);
+/** Why the item's agent can't be sent a message now ('' when it can): it continues the newest run's session. */
+function continueWhy(item) {
+	const info = runs.info;
+	if (!item?.id || !info) return "Loading…";
+	const r = runsOf(item)[0];
+	if (!r || !RUN_UUID.test(r.session || "")) return "No agent session on it to continue.";
+	if (runLive(item)) return "The agent is still working: wait for it to finish, or stop it.";
+	if (!info.on) return "The board doesn't start agents: turn it on in Settings → Agents.";
+	if (!info.allowed) return info.why || "Agents start only from this computer.";
+	if (!info.folders.includes(item.project)) return "No computer that's online has its project's folder.";
+	if (info.limited) return info.why;
+	return "";
+}
+/** The reader's reply box may send to the agent: its last run ended with a session it can carry on. */
+const canContinue = (item) => !continueWhy(item);
+/** Sends the agent `text`: a new run carries on in its session (POST /api/runs/:id/continue). Returns the item. */
+async function continueAgent(item, text) {
+	const r = runsOf(item)[0];
+	if (!r) throw new Error("No agent session on it to continue.");
+	touched(item.id);
+	const res = await api(`/api/runs/${r.id}/continue`, { method: "POST", body: JSON.stringify({ message: text }) });
+	rvFor(item.id);
+	rvTake(res.run);
+	runView.sel = res.run.id;
+	await Promise.all([loadItems(), runsLoad()]);
+	return res.item;
+}
+/** Run again: an agent's to-do, or one whose last run failed or was stopped, or that stalled while doing. */
+function restartKind(i) {
+	if (!i?.id || i.owner !== "agent" || i.kind === "idea" || !OPEN.includes(i.status) || runLive(i)) return "";
+	if (i.status === "todo") return "run";
+	const last = runsOf(i)[0];
+	const broke = !!last?.ended_at && ["failed", "stopped"].includes(last.status);
+	if (i.status === "doing" && (broke || i.stale?.why === "stalled")) return "restart";
+	if (i.status === "waiting" && broke && !(i.waits_on?.length ?? i.waiting_on)) return "restart";
+	return "";
+}
+function restartWhy(i) {
+	const info = runs.info;
+	if (!info) return "Loading…";
+	if (!info.on) return "The board doesn't start agents: turn it on in Settings → Agents.";
+	if (!info.allowed) return info.why || "Agents start only from this computer.";
+	if (!info.folders.includes(i.project)) return CLOUD ? "No computer that's online has its project's folder (Settings → Projects)." : "Its project has no folder on this computer (Settings → Projects).";
+	if (info.limited) return info.why;
+	return "";
+}
+
+/* What it said and did. */
+const runWhere = (r) => {
+	const c = r.cwd || "";
+	const wt = c.match(/\/\.claude\/worktrees\/([^/]+)\/?$/);
+	return wt ? wt[1] : c ? c.split("/").filter(Boolean).at(-1) ?? c : "";
+};
+const evGlyph = (tool = "") =>
+	/^(Edit|Write|MultiEdit|NotebookEdit)$/.test(tool) ? "ev-edit" : /^(Bash|PowerShell)$/.test(tool) ? "ev-run" : tool === "Read" ? "ev-read"
+		: /^(Grep|Glob|WebSearch|WebFetch)$/.test(tool) ? "ev-search" : tool.startsWith("mcp__wb__") ? "ev-wb" : "ev-tool";
+const evTool = (e) => (e.tool?.startsWith("mcp__wb__") ? e.text.replace(/^mcp__wb__/, "wb ") : e.text);
+const minsOf = (ms) => { const m = Math.round(ms / 60e3); return m < 1 ? "under a minute" : m < 90 ? `${m} min` : `${(m / 60).toFixed(1)} h`; };
+function evHtml(e) {
+	switch (e.kind) {
+		case "message": return `<div class="ev ev-msg"><span class="ev-who">${esc(typeof rdName === "function" ? rdName() : "You")}</span>${md(e.text)}</div>`;
+		case "start": return `<div class="ev ev-start">${esc(e.text)}</div>`;
+		case "text": return `<div class="ev ev-text">${md(e.text)}</div>`;
+		case "tool": return `<div class="ev ev-tool" title="${esc(e.text)}">${glyph(evGlyph(e.tool))}<span>${esc(evTool(e))}</span></div>`;
+		case "error": return `<div class="ev ev-err">${e.refused ? `<b>refused${e.tool ? ` ${esc(e.tool)}` : ""}</b> ` : e.tool ? `<b>${esc(e.tool)}</b> ` : ""}${esc(e.text)}</div>`;
+		case "result": {
+			const facts = [e.is_error ? "ended with an error" : "finished", e.turns != null && `${e.turns} turn${e.turns === 1 ? "" : "s"}`, e.duration_ms != null && minsOf(e.duration_ms), e.cost != null && `$${e.cost.toFixed(2)} at API prices`].filter(Boolean).join(" · ");
+			return `<div class="ev ev-result${e.is_error ? " bad" : ""}"><div class="ev-facts">${esc(facts)}</div>${e.text ? md(e.text) : ""}</div>`;
+		}
+		default: return `<div class="ev ev-out">${esc(e.text)}</div>`;
+	}
+}
+function feedHtml(r) {
+	const got = runView.ev.get(r.id);
+	if (!got) return `<div class="run-feed"><p class="run-muted">Loading what it did…</p></div>`;
+	// Older runs (and an old helper's) have no events: their last lines of output.
+	if (!got.events.length) return r.tail ? `<pre class="run-tail">${esc(r.tail)}</pre>` : `<div class="run-feed"><p class="run-muted">${r.ended_at ? "It left no output." : "Nothing yet."}</p></div>`;
+	const all = runView.all.has(r.id), n = got.events.length;
+	const shown = all ? got.events : got.events.slice(-RUN_SHOWN);
+	const more = n > shown.length ? `<button type="button" class="rd-link run-all" data-run-all>Show all ${n}</button>` : "";
+	return `<div class="run-feed${r.ended_at ? "" : " live"}" aria-live="polite">${more}${shown.map(evHtml).join("")}</div>`;
+}
+function headHtml(item, r, list) {
+	const live = !r.ended_at;
+	const state = live ? `<span class="run-chip running">running · ${esc(runFor(r.started_at))}</span>`
+		: `<span class="run-chip ${r.status}">${r.status === "done" ? "finished" : RUN_WORD[r.status]}</span>`;
+	const facts = [!live && runFor(r.started_at, r.ended_at), runCost(r)].filter(Boolean).join(" · ");
+	const where = runWhere(r);
+	const pick = list.length > 1 ? `<span class="run-pick" role="group" aria-label="The item's runs">${list.slice(0, 6).map((x) => `<button type="button" class="${x.id === r.id ? "on" : ""}${x.ended_at ? "" : " live"}" data-run-pick="${x.id}" title="${esc(`${RUN_WORD[x.status]} · ${ago(x.started_at)}`)}"${x.id === r.id ? ' aria-current="true"' : ""}>#${x.id}</button>`).join("")}</span>` : "";
+	return `<div class="run-top"><h3>Agent</h3>${state}${facts ? `<span class="run-muted">${esc(facts)}</span>` : ""}${where ? `<code class="run-where" title="${esc(r.cwd)}">${esc(where)}</code>` : ""}<span class="spacer"></span>${pick}</div>
+		<div class="run-sub">${esc([`#${r.id}`, r.continues && `continues #${r.continues}`, `${ago(r.started_at)} from ${r.started_from}`].filter(Boolean).join(" · "))}</div>`;
+}
+function actsHtml(item, r) {
+	const b = [];
+	const live = r && !r.ended_at;
+	if (live) b.push(`<button type="button" class="ghost sm danger" data-run-stop="${r.id}">Stop</button>`);
+	const newest = r && runsOf(item)[0]?.id === r.id;
+	if (r && newest && !live && RUN_UUID.test(r.session || "")) {
+		const why = continueWhy(item);
+		b.push(`<button type="button" class="${why ? "ghost" : "primary"} sm" data-run-tell${why ? ` disabled title="${esc(why)}"` : ' title="Write to the agent in the box below: it carries on in the same session"'}>Tell the agent…</button>`);
+	}
+	if (r?.desktop) b.push(`<a class="ghost sm btn" href="${esc(r.desktop)}" title="Opens the session in Claude Desktop on this computer (it shows in its sidebar from then on)">Open in Claude Desktop</a>`);
+	if (r?.session) b.push(`<button type="button" class="ghost sm" data-run-copy="${esc(`${r.cwd ? `cd ${shq(r.cwd)} && ` : ""}claude --resume ${r.session}`)}" title="To carry on in a terminal">Copy resume command</button>`);
+	const again = restartKind(item);
+	if (again) {
+		const why = restartWhy(item);
+		b.push(`<button type="button" class="${r ? "ghost" : "primary"} sm" data-run-start${why ? ` disabled title="${esc(why)}"` : ` title="${esc(`A fresh agent on it in ${runFolder(item)}: it reads the item and works it`)}"`}>${glyph("play")}${r ? "Run again" : "Run"}</button>`);
+	}
+	return b.length ? `<div class="run-acts">${b.join("")}</div>` : "";
+}
+const shq = (s) => (/^[\w@%+=:,./-]+$/.test(s) ? s : `'${s.replace(/'/g, `'\\''`)}'`);
+
 /** The run box for an item, as HTML ("" when there's no run and nothing to start). */
 function runPanel(item) {
+	if (!item?.id) return "";
 	const r = runOf(item);
-	const offer = !!item?.id && runs.info?.on && sendKind(item) === "run";
-	if (!r && !offer) return "";
-	let html = `<h3>Agent</h3>`;
-	if (r && !r.ended_at)
-		html += `<div class="run-head"><span class="run-chip running">running</span><span>for ${esc(runFor(r.started_at))} · started from ${esc(r.started_from)}</span><span class="spacer"></span><button type="button" class="ghost sm danger" data-run-stop="${r.id}">Stop</button></div>`;
-	else if (r)
-		html += `<div class="run-head"><span class="run-chip ${r.status}">${RUN_WORD[r.status]}</span><span>${esc([`after ${runFor(r.started_at, r.ended_at)}`, runCost(r), `${ago(r.started_at)} from ${r.started_from}`].filter(Boolean).join(" · "))}</span></div>`
-			+ (r.error ? `<p class="run-err">${esc(r.error)}</p>` : "")
-			+ (r.refused ? `<p class="run-err">Its permissions refused ${esc(r.refused)}. What a run may do is in Settings → Agents → The command.</p>` : "")
-			+ (r.result ? `<div class="run-result">${md(r.result)}</div>` : "");
-	if (r?.tail !== undefined) {
-		const tail = `<pre class="run-tail">${esc(r.tail || "No output yet.")}</pre>`;
-		html += r.ended_at ? `<details class="run-out"><summary>Output (the last ${Math.min(200, (r.tail || "").split("\n").length)} lines)</summary>${tail}</details>` : tail;
+	if (!r) {
+		if (!runs.info?.on || !restartKind(item)) return "";
+		const why = restartWhy(item);
+		return `<div class="run-box"><div class="run-top"><h3>Agent</h3></div>${actsHtml(item, null)}<p class="run-muted run-hint">${esc(why || `Starts Claude Code on it in ${runFolder(item)}, headless: it reads the item, works it, and finishes it or files what it needs from you and waits.`)}</p></div>`;
 	}
-	if (r?.session) {
-		const cmd = `claude --resume ${r.session}`;
-		const desk = r.ended_at && runs.info?.desktop ? `<button type="button" class="ghost sm" data-run-desktop="${r.id}">Open in Claude Desktop</button>` : "";
-		html += `<div class="run-resume"><span class="run-muted">${r.ended_at ? "Carry on in Claude Code, in" : "Its session, in"} <code>${esc(runFolder(item))}</code>:</span><div class="row"><code class="cmd">${esc(cmd)}</code><button type="button" class="ghost sm" data-copy="${esc(cmd)}">Copy</button></div>${desk ? `<div class="row">${desk}<small class="run-muted">It shows in Claude Desktop's sidebar from then on.</small></div>` : ""}</div>`;
-	}
-	if (offer && !(r && !r.ended_at)) {
-		const why = sendWhy(item);
-		html += `<div class="run-offer"><button type="button" class="ghost sm" data-run-start${why ? " disabled" : ""}>${glyph("play")}${r ? "Run again" : "Run"}</button><small>${esc(why || `Starts Claude Code on it in ${runFolder(item)}, headless. It reads the item, works it and finishes or waits, as an agent you started would.`)}</small></div>`;
-	}
-	return `<div class="run-box">${html}</div>`;
+	const list = runsOf(item);
+	return `<div class="run-box">${headHtml(item, r, list)}
+		${r.error ? `<p class="run-err">${esc(r.error)}</p>` : ""}
+		${r.refused ? `<p class="run-err">Its permissions refused ${esc(r.refused)}. What a run may do is in Settings → Agents → The command.</p>` : ""}
+		${feedHtml(r)}${actsHtml(item, r)}</div>`;
 }
-// Draws the panel again in place (keeping where the output was scrolled), and looks again in 2 s while it runs.
+
+/* Drawing it again in place, following what it does while it runs. */
 function runPanelDraw() {
 	const p = runs.panel;
-	clearTimeout(runs.timer);
 	if (!p || !p.el.isConnected) return;
-	const old = p.el.querySelector(".run-tail");
+	const old = p.el.querySelector(".run-feed, .run-tail");
 	const atEnd = !old || old.scrollHeight - old.scrollTop - old.clientHeight < 30;
+	const top = old?.scrollTop ?? 0;
 	const html = runPanel(p.item);
 	if (p.el._html !== html) { p.el.innerHTML = html; p.el._html = html; }
-	const t = p.el.querySelector(".run-tail");
-	if (t) t.scrollTop = atEnd ? t.scrollHeight : old.scrollTop;
-	const r = runOf(p.item);
-	if (r && !r.ended_at) runs.timer = setTimeout(() => runPanelPoll(p, r.id), 2000);
+	const feed = p.el.querySelector(".run-feed, .run-tail");
+	// It follows the bottom, unless you scrolled up in it.
+	if (feed) feed.scrollTop = atEnd ? feed.scrollHeight : top;
 }
-async function runPanelPoll(p, runId) {
+async function runEventsLoad(id) {
+	const got = runView.ev.get(id) ?? { events: [], next: -1 };
+	const res = await api(`/api/runs/${id}/events${got.next >= 0 ? `?after=${got.next}` : ""}`);
+	const events = got.next >= 0 ? [...got.events, ...res.events.filter((e) => e.n > got.next)] : res.events;
+	runView.ev.set(id, { events, next: res.next });
+	return res.run;
+}
+/** Looks again: the picked run's events (and the newest's while it runs), every 2 s while one runs. */
+async function runPanelPoll(p) {
+	clearTimeout(runs.timer);
 	if (runs.panel !== p || !p.el.isConnected) return;
+	const wasLive = runLive(p.item);
 	try {
-		const r = await api(`/api/runs/${runId}`);
-		const ended = r.ended_at && !runs.detail?.ended_at;
-		runs.detail = r;
-		// It's over: the item has changed too (its history, maybe its status).
-		if (ended) { await runsLoad(); if (typeof readerRefresh === "function") readerRefresh(p.item.id); }
+		const r = runOf(p.item);
+		const ids = new Set([r?.id, ...runsOf(p.item).filter((x) => !x.ended_at).map((x) => x.id)].filter(Boolean));
+		for (const id of ids) {
+			const was = runsOf(p.item).find((x) => x.id === id);
+			if (was?.ended_at && runView.ev.has(id)) continue;
+			const run = await runEventsLoad(id);
+			// Without events (an old helper), the output's last lines are on the run itself.
+			const full = !runView.ev.get(id).events.length ? await api(`/api/runs/${id}`) : run;
+			if (runs.panel !== p) return;
+			rvTake(full);
+		}
 		runPanelDraw();
-	} catch { if (runs.panel === p) runs.timer = setTimeout(() => runPanelPoll(p, runId), 4000); }
+		// It's over: the item has changed too (its history, maybe its status).
+		if (wasLive && !runLive(p.item)) {
+			await runsLoad();
+			runPanelDraw();
+			// The box moves below the brief now, and the reply box may send to the agent.
+			if (typeof readerRedraw === "function") readerRedraw(p.item.id);
+			if (typeof readerRefresh === "function") readerRefresh(p.item.id);
+		}
+	} catch {}
+	if (runs.panel === p && runLive(p.item)) runs.timer = setTimeout(() => runPanelPoll(p), 2000);
 }
 /** Wires the panel in `el` (which holds runPanel(item)): its buttons, and its output while the run goes on. */
 function wireRunPanel(el, item) {
 	const p = { el, item };
 	runs.panel = p;
-	if (runs.detail && runs.detail.item_id !== item.id) runs.detail = null;
+	clearTimeout(runs.timer);
+	const v = rvFor(item.id);
 	el.addEventListener("click", (e) => runPanelClick(e, p));
 	runPanelDraw();
-	// The newest run with its output.
-	const r = runs.byItem.get(item.id);
-	if (r && runs.detail?.id !== r.id) api(`/api/runs/${r.id}`).then((d) => { if (runs.panel === p) { runs.detail = d; runPanelDraw(); } }).catch(() => {});
+	// The item's runs (with their output), once per item; then what they did.
+	// (A copy: api() hands back the very object it cached.)
+	(v.list ? Promise.resolve() : api(`/api/runs?item=${item.id}`).then((list) => {
+		if (runView.item !== item.id) return;
+		runView.list = list.map((x) => ({ ...x }));
+		if (typeof readerRedraw === "function") readerRedraw(item.id);
+	}))
+		.catch(() => {})
+		.then(() => runPanelPoll(p));
 }
 async function runPanelClick(e, p) {
-	const stop = e.target.closest("[data-run-stop]");
-	const start = e.target.closest("[data-run-start]");
-	const desk = e.target.closest("[data-run-desktop]");
-	if (desk) {
-		desk.disabled = true;
-		try {
-			await api(`/api/runs/${desk.dataset.runDesktop}/desktop`, { method: "POST", body: "{}" });
-			toast("Opening it in Claude Desktop");
-		} catch (err) { toast(err.message); }
-		desk.disabled = false;
+	const q = (s) => e.target.closest(s);
+	const pick = q("[data-run-pick]");
+	if (pick) { runView.sel = Number(pick.dataset.runPick); runPanelDraw(); return runPanelPoll(p); }
+	if (q("[data-run-all]")) { runView.all.add(runOf(p.item)?.id); return runPanelDraw(); }
+	const copy = q("[data-run-copy]");
+	if (copy) {
+		toast((await copyText(copy.dataset.runCopy)) ? "Copied: paste it in a terminal on the computer it ran on" : `Couldn't copy it: ${copy.dataset.runCopy}`);
 		return;
 	}
+	if (q("[data-run-tell]")) { if (typeof readerTellAgent === "function") readerTellAgent(p.item.id); return; }
+	const stop = q("[data-run-stop]");
+	const start = q("[data-run-start]");
 	if (!stop && !start) return;
 	try {
 		if (stop) {
 			stop.disabled = true;
 			stop.textContent = "Stopping…";
-			runs.detail = await stopAgent(stop.dataset.runStop);
+			rvTake(await stopAgent(stop.dataset.runStop));
 		} else {
 			start.disabled = true;
 			const { run } = await sendItem(p.item.id);
-			runs.detail = { ...run };
+			rvTake(run);
+			runView.sel = run.id;
 			toast("The agent is on it");
 		}
 		if (typeof readerRefresh === "function") readerRefresh(p.item.id);
 		runPanelDraw();
+		runPanelPoll(p);
 	} catch (err) { toast(err.message); runPanelDraw(); }
 }
 hooks.readerClosed.push(() => { clearTimeout(runs.timer); runs.panel = null; });
