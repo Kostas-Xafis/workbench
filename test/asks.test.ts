@@ -327,4 +327,61 @@ describe("every ask has a way out", () => {
 		expect(getItem(db, web.id)!.default_answer).toBe("");
 		expect(web.goesAhead).toBe("");
 	});
+	test("a review made a decision leaves No objections behind: the recommendation, or a refusal", async () => {
+		const db = freshDb();
+		const call = mcp(db);
+		const r = await call("add_item", { title: "Check the wording", kind: "review", body: BRIEF });
+		const ref = r.data.item.ref;
+		const id = idOf(db, ref);
+		const refused = await call("update_item", { ref, kind: "decision", options: ["X", "Y"] });
+		expect(refused.error).toBe(true);
+		expect(refused.text).toContain("Nothing was changed");
+		expect(getItem(db, id)!.kind).toBe("review");
+		const ok = await call("update_item", { ref, kind: "decision", options: ["X", "Y"], recommended: "Y" });
+		expect(ok.error).toBe(false);
+		expect(getItem(db, id)!.default_answer).toBe("Y");
+		expect(getItem(db, id)!.decide_by).toBeTruthy();
+		past(db, id);
+		applyDue(db);
+		expect(getItem(db, id)!.answer).toBe("Y");
+		// Anyone's change (here Kostas's): a review's default never carries into a decision.
+		const mine = addItem(db, { title: "Mine", project: "demo", kind: "review", default_answer: "No objections", body: BRIEF }, "kostas");
+		updateItem(db, mine, { kind: "decision", options: ["X", "Y"] }, "kostas");
+		expect(getItem(db, mine)!.default_answer).toBe("");
+	});
+	test("new options drop a default or recommendation that isn't among them, then work the way out again", async () => {
+		const db = freshDb();
+		const call = mcp(db);
+		const d = await call("add_item", { title: "Pick a name", options: ["A", "B"], recommended: "B", body: `${BRIEF} I recommend B.` });
+		const ref = d.data.item.ref;
+		const id = idOf(db, ref);
+		expect(getItem(db, id)!.default_answer).toBe("B");
+		// Still among them: kept.
+		await call("update_item", { ref, options: ["A", "B", "C"] });
+		expect(getItem(db, id)!.default_answer).toBe("B");
+		const refused = await call("update_item", { ref, options: ["A", "C"] });
+		expect(refused.error).toBe(true);
+		expect(refused.text).toContain("Nothing was changed");
+		const ok = await call("update_item", { ref, options: ["A", "C"], recommended: "C" });
+		expect(ok.error).toBe(false);
+		expect(getItem(db, id)!).toMatchObject({ default_answer: "C", recommended: JSON.stringify(["C"]) });
+		// Kostas's own edit: what no longer fits is dropped.
+		updateItem(db, id, { options: ["D", "E"] }, "kostas");
+		expect(getItem(db, id)!).toMatchObject({ default_answer: "", recommended: "" });
+		// Pick many: one pick gone drops the default.
+		const m = addItem(db, { title: "Extras", project: "demo", kind: "decision", options: ["X", "Y"], pick: "many", default_answer: ["X", "Y"], body: BRIEF }, "kostas");
+		updateItem(db, m, { options: ["X", "Z"] }, "kostas");
+		expect(getItem(db, m)!.default_answer).toBe("");
+	});
+	test("a decision without options takes default; the refusal says so", async () => {
+		const db = freshDb();
+		const call = mcp(db);
+		const none = await call("add_item", { title: "When to launch", kind: "decision", body: BRIEF });
+		expect(none.error).toBe(true);
+		expect(none.text).toContain("or default if it has no options");
+		const ok = await call("add_item", { title: "When to launch", kind: "decision", default: "Friday", body: `${BRIEF} I recommend Friday.` });
+		expect(ok.error).toBe(false);
+		expect(ok.data.item.default).toBe("Friday");
+		expect(ok.text).toContain("goes ahead with Friday on");
+	});
 });

@@ -869,7 +869,7 @@ const TOOLS: Tool[] = [
 		name: "add_item",
 		title: "Add an item",
 		description:
-			`Files a new item. kind: task or bug (code work), check ({{name}} tries it on a device), review (something only {{name}} can judge), decision (a question only {{name}} can answer), setup (accounts, consoles, stores), notice (what changed; doesn't wait on {{name}}), idea. Returns the new wb-xxxx, what goes ahead if {{name}} says nothing, and warnings.\nAsk only what you can't decide. A decision needs recommended (it becomes the default) unless it's priority 1; related questions → one decision, pick "many". Changed something → a notice, not a review.\n\n${BRIEF_RULES}`,
+			`Files a new item. kind: task or bug (code work), check ({{name}} tries it on a device), review (something only {{name}} can judge), decision (a question only {{name}} can answer), setup (accounts, consoles, stores), notice (what changed; doesn't wait on {{name}}), idea. Returns the new wb-xxxx, what goes ahead if {{name}} says nothing, and warnings.\nAsk only what you can't decide. A decision needs recommended (it becomes the default; no options: give default) unless it's priority 1; related questions → one decision, pick "many". Changed something → a notice, not a review.\n\n${BRIEF_RULES}`,
 		input: obj(
 			{
 				title: str("Short, specific and in plain words: what to do or decide, as {{name}} would say it.", { minLength: 1, maxLength: 300 }),
