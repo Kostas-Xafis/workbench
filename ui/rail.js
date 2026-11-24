@@ -40,7 +40,7 @@ function railReports() {
 }
 // Day pages a week or more old, newest first: out of the way, not gone.
 const archivedDays = () => state.reports.filter((r) => r.archived && inRail(r)).sort((a, b) => b.name.localeCompare(a.name));
-async function moveReportGroup(grp, dir) {
+async function moveReportGroup(grp, dir, root = $("#rail")) {
 	const order = railReports().filter((g) => g.grp).map((g) => g.grp);
 	const i = order.indexOf(grp), j = i + (dir === "up" ? -1 : 1);
 	if (i < 0 || j < 0 || j >= order.length) return;
@@ -50,7 +50,7 @@ async function moveReportGroup(grp, dir) {
 		state.allProjects.find((p) => p.slug === state.project).report_order = JSON.stringify(groups);
 		renderRail();
 		// Keep the keyboard on the heading that moved, on the other arrow once it reaches an end.
-		const head = $(`#rail [data-group="${CSS.escape(grp)}"]`);
+		const head = root.querySelector(`[data-group="${CSS.escape(grp)}"]`);
 		const btn = head?.querySelector(`[data-move="${dir}"]`);
 		(btn && !btn.disabled ? btn : head?.querySelector(`[data-move="${dir === "up" ? "down" : "up"}"]`))?.focus();
 	} catch (err) { toast(err.message); }
@@ -68,6 +68,67 @@ function reportMark(r) {
 const reportHref = (r) => `#report/${r.id}`;
 const isCurrent = (r) => state.report?.id === r.id;
 
+// What the side column and the Projects page (project.js) draw reports and links with.
+const NO_REPORTS = "None yet. Agents publish pages here, such as a status, a plan or release notes (<code>wb report page.html</code>), and each day with activity gets a page of what moved.";
+// A report as a line: its icon (or the page glyph), its title and how long ago it changed.
+const ritem = (r) => `<a class="ritem" href="${reportHref(r)}" title="${esc(r.title)} · v${r.version}" aria-current="${isCurrent(r)}">${reportMark(r) || DOC}<span>${esc(r.title)}</span><small>${esc(ago(r.updated_at).replace(" ago", ""))}</small></a>`;
+const railCanMove = (reports) => !!state.project && reports.filter((g) => g.grp).length > 1;
+// The report groups (railReports()) as lines, then the archived days. Each group shows its first few (a Days group
+// its newest days); the rest fold away, and the fold opens by itself when the report on screen is in it. With the
+// pencil on, a project's group headings get arrows to move them. `foldDays`: a group of day pages folds whole under
+// its label instead (the Projects page).
+function railReportList(reports = railReports(), { foldDays = false } = {}) {
+	const named = reports.filter((g) => g.grp);
+	const moving = railCanMove(reports) && editingReports;
+	const moveBtn = (g, dir, off) => `<button type="button" class="icon-btn" data-move="${dir}" title="Move ${dir}" aria-label="Move ${esc(g.grp)} ${dir}"${off ? " disabled" : ""}>${svg16(dir === "up" ? '<path d="m4.5 10 3.5-3.5 3.5 3.5"/>' : '<path d="m4.5 6 3.5 3.5 3.5-3.5"/>')}</button>`;
+	const heading = (g) => {
+		if (!g.label) return "";
+		if (!moving || !g.grp) return `<div class="glabel">${esc(g.label)}</div>`;
+		const i = named.indexOf(g);
+		return `<div class="glabel moving" data-group="${esc(g.grp)}"><span>${esc(g.label)}</span>${moveBtn(g, "up", !i)}${moveBtn(g, "down", i === named.length - 1)}</div>`;
+	};
+	const reportList = reports.map((g) => {
+		const rs = g.reports, label = g.label;
+		if (foldDays && rs.every(isDay)) {
+			const key = `days-${g.project}`;
+			return `<details class="lgroup fold more days" data-key="${esc(key)}"${rs.some(isCurrent) ? " open" : isOpen(key, false)}><summary><span>${esc(label || "Days")} (${rs.length})</span></summary>${rs.map(ritem).join("")}</details>`;
+		}
+		const head = heading(g);
+		if (rs.length <= GROUP_SHOWN) return head + rs.map(ritem).join("");
+		const rest = rs.slice(GROUP_SHOWN);
+		const key = `more-${label}`;
+		const open = rest.some(isCurrent) ? " open" : isOpen(key, false);
+		const what = rs.every(isDay) ? `Older days (${rest.length})` : `${rest.length} more`;
+		return head + rs.slice(0, GROUP_SHOWN).map(ritem).join("") +
+			`<details class="lgroup fold more" data-key="${esc(key)}"${open}><summary><span>${what}</span></summary>${rest.map(ritem).join("")}</details>`;
+	}).join("");
+	const archived = archivedDays();
+	// Under "All", the archive says whose day each one is.
+	const archiveRows = state.project ? archived.map(ritem).join("") : [...new Set(archived.map((r) => r.project))]
+		.map((slug) => `<div class="glabel">${esc(projectName(slug))}</div>` + archived.filter((r) => r.project === slug).map(ritem).join("")).join("");
+	const archive = archived.length
+		? `<details class="lgroup fold more archive" data-key="reports-archive"${archived.some(isCurrent) ? " open" : isOpen("reports-archive", false)}><summary><span>Archived days (${archived.length})</span></summary>${archiveRows}</details>`
+		: "";
+	return reportList + archive;
+}
+// The pencil that moves report groups, when a project has groups to move.
+function railReportTools(reports = railReports()) {
+	if (!railCanMove(reports)) return "";
+	return `<span class="tools"><button class="icon-btn" id="report-edit" title="${editingReports ? "Done moving groups" : "Move groups"}" aria-pressed="${editingReports}" aria-label="Move report groups"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor"><g stroke-width="1.4"><path d="M10.5 2.5l3 3-8 8H2.5v-3z"/></g></svg></button></span>`;
+}
+// The links (railLinks()) as lines, a named group folded under its label.
+function railLinkList(links = railLinks()) {
+	return links.map((g) => {
+		const items = g.links.map((l) => `<a class="ritem link" href="${esc(l.url)}" target="_blank" rel="noreferrer" data-link="${l.id}" title="${esc(l.url)}">${fav(l)}<span>${esc(l.label)}</span></a>`).join("");
+		return g.label ? `<details class="lgroup fold" data-key="${esc(g.key)}"${isOpen(g.key, true)}><summary><span>${esc(g.label)}</span></summary>${items}</details>` : items;
+	}).join("");
+}
+// Add a link; the pencil, then a click on one, edits it; while editing, look up every site's icon again.
+const railLinkTools = () => `<span class="tools">
+	<button class="icon-btn" id="link-new" title="Add a link" aria-label="Add a link"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor"><g stroke-width="1.6"><path d="M8 3v10M3 8h10"/></g></svg></button>
+	${state.links.length ? `<button class="icon-btn" id="link-edit" title="${editingLinks ? "Done editing" : "Edit links"}" aria-pressed="${editingLinks}" aria-label="Edit links"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor"><g stroke-width="1.4"><path d="M10.5 2.5l3 3-8 8H2.5v-3z"/></g></svg></button>` : ""}
+	${editingLinks ? `<button class="icon-btn" id="link-refresh" title="Look up every site's icon again" aria-label="Refresh icons"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor"><g stroke-width="1.5"><path d="M13 8a5 5 0 1 1-1.6-3.7M13 2.5v2.8h-2.8"/></g></svg></button>` : ""}</span>`;
+
 function renderRail() {
 	document.body.classList.toggle("rail-collapsed", state.collapsed);
 	const toggle = `<button class="icon-btn" id="rail-toggle" title="${state.collapsed ? "Show reports and links" : "Fold the sidebar"}" aria-label="Toggle sidebar">
@@ -84,54 +145,13 @@ function renderRail() {
 			links.flatMap((g) => g.links).map((l) => `<a class="ritem link" href="${esc(l.url)}" target="_blank" rel="noreferrer" data-link="${l.id}" title="${esc(l.label)}">${fav(l)}</a>`).join("");
 	} else {
 		const nReports = reports.reduce((n, g) => n + g.reports.length, 0);
-		const ritem = (r) => `<a class="ritem" href="${reportHref(r)}" title="${esc(r.title)} · v${r.version}" aria-current="${isCurrent(r)}">${reportMark(r) || DOC}<span>${esc(r.title)}</span><small>${esc(ago(r.updated_at).replace(" ago", ""))}</small></a>`;
-		// Each group shows its first few (a Days group its newest days); the rest fold away, and the fold opens
-		// by itself when the report on screen is in it.
-		// With the pencil on, a project's group headings get arrows to move them.
-		const named = reports.filter((g) => g.grp);
-		const canMove = !!state.project && named.length > 1;
-		const moving = canMove && editingReports;
-		const moveBtn = (g, dir, off) => `<button type="button" class="icon-btn" data-move="${dir}" title="Move ${dir}" aria-label="Move ${esc(g.grp)} ${dir}"${off ? " disabled" : ""}>${svg16(dir === "up" ? '<path d="m4.5 10 3.5-3.5 3.5 3.5"/>' : '<path d="m4.5 6 3.5 3.5 3.5-3.5"/>')}</button>`;
-		const heading = (g) => {
-			if (!g.label) return "";
-			if (!moving || !g.grp) return `<div class="glabel">${esc(g.label)}</div>`;
-			const i = named.indexOf(g);
-			return `<div class="glabel moving" data-group="${esc(g.grp)}"><span>${esc(g.label)}</span>${moveBtn(g, "up", !i)}${moveBtn(g, "down", i === named.length - 1)}</div>`;
-		};
-		const reportList = reports.map((g) => {
-			const rs = g.reports, label = g.label;
-			const head = heading(g);
-			if (rs.length <= GROUP_SHOWN) return head + rs.map(ritem).join("");
-			const rest = rs.slice(GROUP_SHOWN);
-			const key = `more-${label}`;
-			const open = rest.some(isCurrent) ? " open" : isOpen(key, false);
-			const what = rs.every(isDay) ? `Older days (${rest.length})` : `${rest.length} more`;
-			return head + rs.slice(0, GROUP_SHOWN).map(ritem).join("") +
-				`<details class="lgroup fold more" data-key="${esc(key)}"${open}><summary><span>${what}</span></summary>${rest.map(ritem).join("")}</details>`;
-		}).join("");
-		const archived = archivedDays();
-		// Under "All", the archive says whose day each one is.
-		const archiveRows = state.project ? archived.map(ritem).join("") : [...new Set(archived.map((r) => r.project))]
-			.map((slug) => `<div class="glabel">${esc(projectName(slug))}</div>` + archived.filter((r) => r.project === slug).map(ritem).join("")).join("");
-		const archive = archived.length
-			? `<details class="lgroup fold more archive" data-key="reports-archive"${archived.some(isCurrent) ? " open" : isOpen("reports-archive", false)}><summary><span>Archived days (${archived.length})</span></summary>${archiveRows}</details>`
-			: "";
-		const reportTools = canMove ? `<span class="tools"><button class="icon-btn" id="report-edit" title="${moving ? "Done moving groups" : "Move groups"}" aria-pressed="${moving}" aria-label="Move report groups"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor"><g stroke-width="1.4"><path d="M10.5 2.5l3 3-8 8H2.5v-3z"/></g></svg></button></span>` : "";
-		const linkList = links.map((g) => {
-			const items = g.links.map((l) => `<a class="ritem link" href="${esc(l.url)}" target="_blank" rel="noreferrer" data-link="${l.id}" title="${esc(l.url)}">${fav(l)}<span>${esc(l.label)}</span></a>`).join("");
-			return g.label ? `<details class="lgroup fold" data-key="${esc(g.key)}"${isOpen(g.key, true)}><summary><span>${esc(g.label)}</span></summary>${items}</details>` : items;
-		}).join("");
-		const tools = `<span class="tools">
-			<button class="icon-btn" id="link-new" title="Add a link" aria-label="Add a link"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor"><g stroke-width="1.6"><path d="M8 3v10M3 8h10"/></g></svg></button>
-			${state.links.length ? `<button class="icon-btn" id="link-edit" title="${editingLinks ? "Done editing" : "Edit links"}" aria-pressed="${editingLinks}" aria-label="Edit links"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor"><g stroke-width="1.4"><path d="M10.5 2.5l3 3-8 8H2.5v-3z"/></g></svg></button>` : ""}
-			${editingLinks ? `<button class="icon-btn" id="link-refresh" title="Look up every site's icon again" aria-label="Refresh icons"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor"><g stroke-width="1.5"><path d="M13 8a5 5 0 1 1-1.6-3.7M13 2.5v2.8h-2.8"/></g></svg></button>` : ""}</span>`;
 		const trkNew = `<button class="icon-btn" id="trk-new" title="Add a status tracker" aria-label="Add a status tracker">${TRK_ADD}</button>`;
 		html = `<div class="rail-head"><b>${esc(state.project ? projectName(state.project) : "All projects")}</b>${trkNew}${toggle}</div>
 			${railTrackers(false)}${hookHtml(hooks.rail, false)}
-			<details class="rsec fold" data-key="rail-reports"${isOpen("rail-reports", true)}><summary>Reports <span class="count">${nReports || ""}</span>${reportTools}</summary>
-				${reportList + archive || `<div class="rail-empty">None yet. Agents publish pages here, such as a status, a plan or release notes (<code>wb report page.html</code>), and each day with activity gets a page of what moved.</div>`}</details>
-			<details class="rsec fold" data-key="rail-links"${isOpen("rail-links", true)}><summary>Links ${tools}</summary>
-				${linkList || `<div class="rail-empty">No links${state.project ? " for this project" : ""}.</div>`}</details>` +
+			<details class="rsec fold" data-key="rail-reports"${isOpen("rail-reports", true)}><summary>Reports <span class="count">${nReports || ""}</span>${railReportTools(reports)}</summary>
+				${railReportList(reports) || `<div class="rail-empty">${NO_REPORTS}</div>`}</details>
+			<details class="rsec fold" data-key="rail-links"${isOpen("rail-links", true)}><summary>Links ${railLinkTools()}</summary>
+				${railLinkList(links) || `<div class="rail-empty">No links${state.project ? " for this project" : ""}.</div>`}</details>` +
 			railSources();
 	}
 	const rail = $("#rail");
@@ -147,11 +167,12 @@ function renderRail() {
 
 // Data sources a report can call with wb.fetch (wb source add): names and base URLs, never header values.
 const PLUG = `<svg class="doc-ic" viewBox="0 0 16 16" fill="none" stroke="currentColor"><g stroke-width="1.3"><ellipse cx="8" cy="3.75" rx="5" ry="2"/><path d="M3 3.75v8.5c0 1.1 2.24 2 5 2s5-.9 5-2v-8.5M3 8c0 1.1 2.24 2 5 2s5-.9 5-2"/></g></svg>`;
+const railSourceList = () => state.sources.filter((s) => !state.project || s.project === state.project);
+const sourceRow = (s) => `<div class="ritem source" title="${esc(`${s.base_url}\n${s.write ? "read and write" : "read-only (GET)"}${s.header_names.length ? ` · headers: ${s.header_names.join(", ")}` : ""}\nwb.fetch("${s.name}", "/path")`)}">${PLUG}<span>${esc(state.project ? s.name : `${projectName(s.project)} · ${s.name}`)}</span><small>${s.write ? "write" : "read"}</small></div>`;
 function railSources() {
-	const list = state.sources.filter((s) => !state.project || s.project === state.project);
+	const list = railSourceList();
 	if (!list.length) return "";
-	const row = (s) => `<div class="ritem source" title="${esc(`${s.base_url}\n${s.write ? "read and write" : "read-only (GET)"}${s.header_names.length ? ` · headers: ${s.header_names.join(", ")}` : ""}\nwb.fetch("${s.name}", "/path")`)}">${PLUG}<span>${esc(state.project ? s.name : `${projectName(s.project)} · ${s.name}`)}</span><small>${s.write ? "write" : "read"}</small></div>`;
-	return `<details class="rsec fold" data-key="rail-sources"${isOpen("rail-sources", false)}><summary>Data sources <span class="count">${list.length}</span></summary>${list.map(row).join("")}</details>`;
+	return `<details class="rsec fold" data-key="rail-sources"${isOpen("rail-sources", false)}><summary>Data sources <span class="count">${list.length}</span></summary>${list.map(sourceRow).join("")}</details>`;
 }
 
 function setCollapsed(c) {
@@ -201,26 +222,33 @@ function openLink(link) {
 	linkForm.label.focus();
 }
 
-$("#rail").addEventListener("click", (e) => {
-	if (e.target.closest("#rail-toggle")) return setCollapsed(!state.collapsed);
-	if (e.target.closest("#trk-new")) return editTracker({ project: state.project });
-	const tb = e.target.closest("[data-tracker]");
-	if (tb) { hideTrkPop(true); return openTracker(Number(tb.dataset.tracker)); }
-	// The tools sit inside a <summary>: don't fold the section.
-	if (e.target.closest("#report-edit")) { e.preventDefault(); editingReports = !editingReports; return renderRail(); }
-	const mv = e.target.closest("[data-move]");
-	if (mv) return moveReportGroup(mv.closest("[data-group]").dataset.group, mv.dataset.move);
-	if (e.target.closest("#link-new")) { e.preventDefault(); return openLink({ project: state.project }); }
-	if (e.target.closest("#link-edit")) { e.preventDefault(); editingLinks = !editingLinks; return renderRail(); }
+// The tools of the report and link lists, wherever they're drawn (`root`: the side column, or the Projects page):
+// true when the click was one of them. They sit inside a <summary>, so they don't fold the section.
+function railTools(e, root = $("#rail")) {
+	if (e.target.closest("#report-edit")) { e.preventDefault(); editingReports = !editingReports; renderRail(); return true; }
+	const mv = e.target.closest("[data-group] [data-move]");
+	if (mv) { moveReportGroup(mv.closest("[data-group]").dataset.group, mv.dataset.move, root); return true; }
+	if (e.target.closest("#link-new")) { e.preventDefault(); openLink({ project: state.project }); return true; }
+	if (e.target.closest("#link-edit")) { e.preventDefault(); editingLinks = !editingLinks; renderRail(); return true; }
 	if (e.target.closest("#link-refresh")) {
 		e.preventDefault();
-		return api("/api/links/icons/refresh", { method: "POST" }).then((links) => { state.links = links; iconRound++; renderRail(); });
+		api("/api/links/icons/refresh", { method: "POST" }).then((links) => { state.links = links; iconRound++; renderRail(); });
+		return true;
 	}
 	const a = e.target.closest("[data-link]");
 	if (a && editingLinks) {
 		e.preventDefault();
 		openLink(state.links.find((l) => l.id === Number(a.dataset.link)));
+		return true;
 	}
+	return false;
+}
+$("#rail").addEventListener("click", (e) => {
+	if (e.target.closest("#rail-toggle")) return setCollapsed(!state.collapsed);
+	if (e.target.closest("#trk-new")) return editTracker({ project: state.project });
+	const tb = e.target.closest("[data-tracker]");
+	if (tb) { hideTrkPop(true); return openTracker(Number(tb.dataset.tracker)); }
+	if (railTools(e)) return;
 	// On a phone the rail covers the page; picking a report closes it.
 	if (e.target.closest('a[href^="#report/"]') && narrow()) setCollapsed(true);
 });

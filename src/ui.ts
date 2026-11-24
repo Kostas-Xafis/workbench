@@ -36,6 +36,8 @@ import navJs from "../ui/nav.js" with { type: "file" };
 import notifyJs from "../ui/notify.js" with { type: "file" };
 import phoneCss from "../ui/phone.css" with { type: "file" };
 import phonesCss from "../ui/phones.css" with { type: "file" };
+import projectCss from "../ui/project.css" with { type: "file" };
+import projectJs from "../ui/project.js" with { type: "file" };
 import projectsJs from "../ui/projects.js" with { type: "file" };
 import pushJs from "../ui/push.js" with { type: "file" };
 import queueCss from "../ui/queue.css" with { type: "file" };
@@ -108,6 +110,8 @@ export const UI: Record<string, string> = {
 	"notify.js": notifyJs,
 	"phone.css": phoneCss,
 	"phones.css": phonesCss,
+	"project.css": projectCss,
+	"project.js": projectJs,
 	"projects.js": projectsJs,
 	"push.js": pushJs,
 	"queue.css": queueCss,
