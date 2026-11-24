@@ -26,7 +26,7 @@
 	--shadow: 0 1px 2px rgb(0 0 0 / .05), 0 10px 30px rgb(0 0 0 / .12);
 	color-scheme: light;
 }
-/* Dark follows the system unless Settings → Appearance picks one (data-theme on <html>). */
+/* Dark follows the system unless Settings → About → Look picks one (data-theme on <html>). */
 @media (prefers-color-scheme: dark) {
 	:root:not([data-theme="light"]) {
 		--bg: #151514; --card: #1f1f1d; --sunk: #191918; --ink: #ecebe8; --muted: #a29e96; --faint: #75716a; --line: #33322f; --hover: #2a2a27;

@@ -103,4 +103,4 @@ onSettingsChange((key) => {
 	const input = $('#settings-view input[data-setting="name"]');
 	if (key === "name" && input) input.value = youName();
 });
-/* ---------- end: You and your day ---------- */
+/* ---------- end: Settings → About → You, and Agents ---------- */

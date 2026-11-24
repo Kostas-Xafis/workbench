@@ -202,7 +202,7 @@ function showKind() {
 	trkForm.command.disabled = k === "command" && !LOCAL;
 	trkForm.every.closest("label").hidden = k === "manual";
 	$("#te-about").textContent = k === "manual"
-		? "Record readings in this dialog, with wb track, or from an agent (record_tracker). Readings look like 12/15, a line per meter (Android 12/15), or a state (In review)."
+		? "Record readings in this dialog, with wb track, or from an agent (the tracker tool, action "record"). Readings look like 12/15, a line per meter (Android 12/15), or a state (In review)."
 		: k === "command"
 			? (LOCAL ? "It prints 12/15, a line per meter (Android 12/15), a state (In review), or JSON: {value, max, unit} or {meters: [...], note, resets_at, url}. Exit code non-zero = failed."
 				: "A command runs on the board's computer, so it can be set only there (localhost) or with wb tracker.")

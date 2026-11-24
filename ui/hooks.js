@@ -32,7 +32,7 @@ const hooks = {
 	// (data, q) → HTML: more groups in the search results (Ctrl K), after Links; `data` is GET /api/search's answer.
 	// Each result is an <a class="res" href="#…"> or a <button class="res"> with your own click handler.
 	searchResults: [],
-	// [keys, what] entries added to the shortcut list in Settings → Appearance (see SHORTCUTS); the listener is yours.
+	// [keys, what] entries added to the shortcut list in Settings → About → Look (see SHORTCUTS); the listener is yours.
 	shortcuts: [],
 };
 // A view of its own (a screen at its own address, like the vault): defineView() in router.js. Add its element from
