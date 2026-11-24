@@ -28,6 +28,7 @@
 <link rel="stylesheet" href="/ui/settings.css">
 <link rel="stylesheet" href="/ui/setup.css">
 <link rel="stylesheet" href="/ui/dialogs.css">
+<link rel="stylesheet" href="/ui/reader.css">
 <link rel="stylesheet" href="/ui/phone.css">
 <!-- features (after the core's styles) -->
 <link rel="stylesheet" href="/ui/stale.css">
@@ -94,47 +95,6 @@
 <div id="toast" role="status" hidden></div>
 <div id="upd-note" role="status" aria-live="polite" hidden></div>
 
-<dialog id="dlg"><form class="dlg" method="dialog" id="form" autocomplete="off">
-	<div class="dlg-head"><button type="button" class="ref" id="dlg-ref" title="Copy" hidden></button><textarea class="title-input" name="title" rows="1" placeholder="What needs doing?" required></textarea></div>
-	<div class="fields">
-		<label>Status<select name="status"></select></label>
-		<label>Who acts<select name="owner"><option value="kostas">Kostas</option><option value="agent">Agent</option></select></label>
-		<label>Kind<select name="kind"></select></label>
-		<label>Priority<select name="priority"><option value="1">P1 · launch blocker</option><option value="2">P2 · before launch</option><option value="3">P3 · later</option></select></label>
-		<label>Project<select name="project"></select></label>
-		<label>Area<input name="area" list="areas"></label>
-		<label>Branch<input name="branch"></label>
-		<label>Session<input name="session"></label>
-	</div>
-	<label class="field-col" id="options-field">Choices, one per line (you answer with a click)<textarea name="options" rows="3" placeholder="CRDT sync&#10;Last write wins"></textarea></label>
-	<div>
-		<div class="row" style="margin-bottom:6px"><b style="font-size:12px;color:var(--muted)">DETAILS</b><span class="spacer"></span><button type="button" class="ghost" id="add-image" title="Add a picture. You can also paste one or drop it anywhere on this box">Add image</button><button type="button" class="ghost" id="edit-body">Edit</button></div>
-		<div class="body-view" id="body-view"></div>
-		<textarea name="body" hidden placeholder="Steps, context, links (markdown)"></textarea>
-	</div>
-	<div class="images" id="images" hidden></div>
-	<input type="file" id="image-file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden>
-	<div class="answer-box" id="answer-box" hidden>
-		<h3>Answer</h3>
-		<div class="opts" id="answer-opts"></div>
-		<div class="note-form"><input id="answer-own" placeholder="Or answer in your own words"><button type="button" class="ghost" id="answer-send">Answer</button></div>
-	</div>
-	<div class="code-box" id="code-box" hidden><h3>Code</h3><ul></ul></div>
-	<div class="sources" id="sources"></div>
-	<div class="error" id="err"></div>
-	<div class="row">
-		<button type="button" class="ghost" id="act-done">Mark done</button>
-		<button type="button" class="ghost" id="act-drop">Drop</button>
-		<a id="session-link" hidden>Open session</a>
-		<span class="spacer"></span>
-		<button type="button" class="ghost" id="cancel">Close</button>
-		<button type="submit" class="primary" id="save">Save</button>
-	</div>
-	<div class="history" id="history" hidden>
-		<h3>History</h3><ol></ol>
-		<div class="note-form"><input id="note" placeholder="Add a note (answer, result, link…)"><button type="button" class="ghost" id="add-note">Add</button></div>
-	</div>
-</form></dialog>
 <datalist id="areas"></datalist>
 <dialog id="link-dlg"><form class="dlg" id="link-form" autocomplete="off">
 	<b id="link-title">New link</b>
@@ -284,7 +244,8 @@
 <script src="/ui/rail.js"></script>
 <script src="/ui/trackers.js"></script>
 <script src="/ui/board.js"></script>
-<script src="/ui/item.js"></script>
+<script src="/ui/answer.js"></script>
+<script src="/ui/reader.js"></script>
 <script src="/ui/search.js"></script>
 <script src="/ui/report.js"></script>
 <script src="/ui/share.js"></script>

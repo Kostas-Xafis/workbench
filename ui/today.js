@@ -158,7 +158,7 @@ document.addEventListener("keydown", (e) => {
 });
 hooks.shortcuts.push([[["T"]], "Today, or back to the board"]);
 hooks.refresh.push(() => { if (todayOn()) todayLoad(); });
-dlg.addEventListener("close", () => { if (todayOn()) todayLoad(); });
+hooks.readerClosed.push(() => { if (todayOn()) todayLoad(); });
 
 views.push({
 	name: "today",

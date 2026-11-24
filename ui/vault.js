@@ -216,6 +216,9 @@ function showSecret(id, value) {
 let toastTimer;
 function toast(text) {
 	const t = $("#toast");
+	// Over an open dialog (the reader), inside it: the page behind a modal dialog can't show anything above it.
+	const top = [...document.querySelectorAll("dialog[open]")].at(-1) ?? document.body;
+	if (t.parentElement !== top) top.append(t);
 	t.textContent = text;
 	t.hidden = false;
 	clearTimeout(toastTimer);

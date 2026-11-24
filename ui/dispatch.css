@@ -1,4 +1,4 @@
-/* Answer & send (ui/dispatch.js): Run and the running chip on cards, the agent's box in the item dialog, Settings → Agents. */
+/* Agents the board starts (ui/dispatch.js): Run and the running chip on cards, the agent's box in the reader, Settings → Agents. */
 :root { --run: #0f766e; --run-bg: #e6f4f1; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --run: #4fd1c5; --run-bg: #12302c; } }
 :root[data-theme="dark"] { --run: #4fd1c5; --run-bg: #12302c; }
@@ -14,20 +14,13 @@
 @media (prefers-reduced-motion: reduce) { .run-chip.running::before { animation: none; } }
 
 /* On a card's meta line: small, so a list of them stays calm. */
-.run-go, .run-arm { display: inline-flex; align-items: center; gap: 3px; font: inherit; font-size: 11.5px; line-height: 18px; padding: 0 7px; border-radius: 6px; cursor: pointer;
+.run-go { display: inline-flex; align-items: center; gap: 3px; font: inherit; font-size: 11.5px; line-height: 18px; padding: 0 7px; border-radius: 6px; cursor: pointer;
 	border: 1px solid color-mix(in srgb, var(--run) 40%, var(--line)); background: transparent; color: var(--run); }
-.run-go:hover, .run-arm:hover { background: var(--run-bg); border-color: var(--run); }
+.run-go:hover { background: var(--run-bg); border-color: var(--run); }
 .run-go .gl { width: 12px; height: 12px; margin-right: 1px; }
 .run-go:disabled { opacity: .5; cursor: default; }
-.run-arm.on { background: var(--run); border-color: var(--run); color: var(--card); }
-/* With Answer & send on, the answers say they start the agent too. */
-.card:has(.run-arm.on) .opts .opt:not(.ask-pick) { border-color: var(--run); }
 
-/* In the item dialog. */
-.run-arm-row { display: flex; align-items: flex-start; gap: 8px; margin-top: 8px; font-size: 12.5px; cursor: pointer; }
-.run-arm-row input { margin: 2px 0 0; accent-color: var(--run); width: 14px; height: 14px; flex: none; }
-.run-arm-row small { color: var(--muted); overflow-wrap: anywhere; }
-.run-arm-row[hidden] { display: none; }
+/* In the reader. */
 .run-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; color: var(--muted); font-size: 12.5px; }
 .run-head .spacer { flex: 1; }
 .run-err { margin: 8px 0 0; color: var(--bug); overflow-wrap: anywhere; }
