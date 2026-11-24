@@ -12,7 +12,7 @@
 .pj-line { font-size: var(--fs-12); color: var(--muted); margin-top: 2px; overflow-wrap: anywhere; }
 .pj-line a { color: var(--st-yours); text-decoration: none; font-weight: 500; }
 .pj-line a:hover { text-decoration: underline; }
-.pj-side { display: flex; flex-direction: column; align-items: flex-end; gap: var(--sp-2); min-width: 0; flex: 0 1 auto; }
+.pj-side { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: var(--sp-2); min-width: 0; flex: 0 1 auto; }
 
 .pj-bar { display: block; height: 4px; border-radius: 2px; background: var(--line); overflow: hidden; }
 .pj-bar > i { display: block; height: 100%; border-radius: 2px; background: var(--muted); max-width: 100%; }
@@ -31,7 +31,7 @@
 .pj-goal-add:hover { color: var(--ink); }
 
 .pj-meters { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: var(--sp-1) var(--sp-2); }
-.pj-meter { width: 176px; display: grid; gap: 3px; border: 0; background: transparent; border-radius: var(--r-md); padding: 4px 6px; text-align: left; color: var(--muted); }
+.pj-meter { min-width: 150px; max-width: 240px; display: grid; gap: 3px; border: 0; background: transparent; border-radius: var(--r-md); padding: 4px 6px; text-align: left; color: var(--muted); }
 .pj-meter:hover { background: var(--hover); }
 .pj-meter-t { display: flex; gap: 6px; align-items: baseline; font-size: var(--fs-11); min-width: 0; }
 .pj-meter-t span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -116,11 +116,11 @@
 @media (max-width: 760px) {
 	.pj { padding: var(--sp-3) var(--sp-4) var(--sp-8); }
 	.pj-head { gap: var(--sp-3); }
-	.pj-side { align-items: stretch; width: 100%; }
+	.pj-side { justify-content: flex-start; width: 100%; }
 	.pj-goal-main { width: 100%; }
 	.pj-goal { width: 100%; }
 	.pj-meters { justify-content: flex-start; }
-	.pj-meter { width: calc(50% - var(--sp-2)); }
+	.pj-meter { flex: 1 1 140px; max-width: none; }
 	/* The tabs stay at the top while the page scrolls. */
 	.pj-tabs { position: sticky; top: calc(-1 * var(--sp-3)); z-index: 2; background: var(--bg); margin: 0 calc(-1 * var(--sp-4)) var(--sp-4); padding: 0 var(--sp-4); gap: var(--sp-4); }
 	.pj-hint { flex-basis: 100%; order: 3; }

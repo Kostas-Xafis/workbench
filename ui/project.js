@@ -198,7 +198,7 @@ function pjLoadWaits(list) {
 }
 
 function pjSection(key, title, n, extra = "") {
-	return { key: `h-${key}`, html: `<div class="pj-h" data-key="h-${key}"><h2>${title}</h2>${n != null ? `<span class="pj-n">${n}</span>` : ""}${extra}</div>` };
+	return { key: `h-${key}`, html: `<div class="pj-h" data-key="h-${key}"><h2>${title}</h2>${n ? `<span class="pj-n">${n}</span>` : ""}${extra}</div>` };
 }
 function pjRow(i, kind) {
 	const sel = pv.sel === i.id;
