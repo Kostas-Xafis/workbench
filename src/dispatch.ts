@@ -145,7 +145,7 @@ export function runLine(r: Run): string {
 		`#${r.id} ${r.status}`,
 		`started ${r.started_at.slice(0, 16)} UTC from ${r.started_from}`,
 		`${r.ended_at ? "" : "for "}${minutes(end - fromSql(r.started_at).getTime())}`,
-		r.cost != null && `$${r.cost.toFixed(2)}`,
+		r.cost != null && apiValue(r.cost),
 		r.error,
 		r.refused && `refused ${r.refused}`,
 		r.session && `claude --resume ${r.session}`,
@@ -153,6 +153,10 @@ export function runLine(r: Run): string {
 		.filter(Boolean)
 		.join(" · ");
 }
+
+/** "$0.42 at API prices": what a run's tokens come to at Claude API list prices, as Claude Code reports it and the
+ * Usage page counts. On a subscription (Pro, Max) nobody pays that: the run uses the plan's limits instead. */
+export const apiValue = (dollars: number) => `$${dollars.toFixed(2)} at API prices`;
 
 /* ---------- Whether a run may start ---------- */
 
@@ -190,7 +194,7 @@ export async function startRefusal(db: Db, from: From, now = new Date()): Promis
 	const l = limits(db);
 	if (l.cap) {
 		const spent = await spentToday(db, now);
-		if (spent >= l.cap) return { why: `Today's agents cost $${spent.toFixed(2)}, the cap is $${l.cap} (Settings → Agents).`, limit: true };
+		if (spent >= l.cap) return { why: `Today's agents used ${apiValue(spent)}, the cap is $${l.cap} (Settings → Agents).`, limit: true };
 	}
 }
 /** startRefusal without the cost, which takes a look at the transcripts: what can be checked at once. */
@@ -408,7 +412,7 @@ export function readLine(l: Live, line: string) {
 		const facts = [
 			typeof d.num_turns === "number" && `${d.num_turns} turn${d.num_turns === 1 ? "" : "s"}`,
 			typeof d.duration_ms === "number" && minutes(d.duration_ms),
-			typeof d.total_cost_usd === "number" && `$${d.total_cost_usd.toFixed(2)}`,
+			typeof d.total_cost_usd === "number" && apiValue(d.total_cost_usd),
 		].filter(Boolean);
 		push(l, `— ${l.isError ? `ended with an error${d.subtype && d.subtype !== "success" ? ` (${d.subtype})` : ""}` : "finished"}${facts.length ? `: ${facts.join(", ")}` : ""}`);
 	}
@@ -545,7 +549,7 @@ export function endRun(db: Db, r: Pick<Run, "id" | "item_id" | "status" | "error
 	addNote(
 		db,
 		r.item_id,
-		`Agent run #${r.id} ${word} after ${took}${done.cost != null ? ` · $${done.cost.toFixed(2)}` : ""}${error ? ` · ${error}` : ""}${
+		`Agent run #${r.id} ${word} after ${took}${done.cost != null ? ` · ${apiValue(done.cost)}` : ""}${error ? ` · ${error}` : ""}${
 			done.refused ? ` · Its permissions refused ${done.refused} (Settings → Agents → The command)` : ""
 		}`,
 		"workbench",

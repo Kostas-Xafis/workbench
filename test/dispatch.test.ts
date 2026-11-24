@@ -115,7 +115,7 @@ describe("dispatch", () => {
 		expect(r.tail).toContain("→ Bash: git status");
 		expect(r.tail).toContain("✗ Permission to use Edit was denied");
 		expect(r.tail).toContain("a plain line on stderr");
-		expect(r.tail).toContain("— finished: 3 turns, under a minute, $0.42");
+		expect(r.tail).toContain("— finished: 3 turns, under a minute, $0.42 at API prices");
 		// The prompt names the item and how to work it.
 		const prompt = readFileSync(join(dir, "prompt.txt"), "utf8");
 		expect(prompt).toContain(`Work on wb-${ref} (Make the thing)`);
@@ -123,7 +123,7 @@ describe("dispatch", () => {
 		expect(prompt).toContain("finish_item");
 		const notes = getItem(db, t)!.notes.map((n) => n.text);
 		expect(notes).toContain(`Agent started (run #${run.id}, from this computer)`);
-		expect(notes.some((n) => n.startsWith(`Agent run #${run.id} finished after under a minute · $0.42`))).toBe(true);
+		expect(notes.some((n) => n.startsWith(`Agent run #${run.id} finished after under a minute · $0.42 at API prices`))).toBe(true);
 		expect(runLine(r)).toContain(`claude --resume ${r.session}`);
 		// Its files are gone once it's over.
 		expect(existsSync(join(process.env.XDG_RUNTIME_DIR!, "workbench-runs", `${r.tag}.log`))).toBe(false);
@@ -198,7 +198,7 @@ describe("dispatch", () => {
 		costs.of = async (sessions) => new Map(sessions.map((s) => [s, s === r.session ? 3.5 : 0]));
 		try {
 			set({ "agents.day-dollars": 3 });
-			expect((await startRefusal(db, here))?.why).toContain("Today's agents cost $3.50, the cap is $3");
+			expect((await startRefusal(db, here))?.why).toContain("Today's agents used $3.50 at API prices, the cap is $3");
 			set({ "agents.day-dollars": 4 });
 			expect(await startRefusal(db, here)).toBeUndefined();
 			// Usage hasn't seen it yet: what the agent reported counts.
@@ -337,7 +337,7 @@ describe("dispatch", () => {
 		readLine(l, '{"type":"stream_event","event":{}}');
 		readLine(l, "not json {");
 		readLine(l, '{"type":"result","subtype":"error_max_turns","is_error":true,"total_cost_usd":1.5,"session_id":"s-1"}');
-		expect(l.lines).toEqual(["Started with m", "→ Read: /a/b.ts", "not json {", "— ended with an error (error_max_turns): $1.50"]);
+		expect(l.lines).toEqual(["Started with m", "→ Read: /a/b.ts", "not json {", "— ended with an error (error_max_turns): $1.50 at API prices"]);
 		expect(l.session).toBe("s-1");
 		expect(l.cost).toBe(1.5);
 		expect(l.isError).toBe(true);
