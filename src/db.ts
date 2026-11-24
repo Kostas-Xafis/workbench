@@ -285,6 +285,8 @@ export function createSchema(db: Db) {
 		html TEXT NOT NULL,
 		PRIMARY KEY (version_id, i)
 	)`);
+	// Day pages keep their last DAY_PAGE_VERSIONS versions only. Settled by a delete that finds nothing once done.
+	pruneDayVersions(db);
 }
 
 export type Db = ReturnType<typeof open>;
@@ -896,6 +898,25 @@ export function publishReport(
 		rest.forEach((html, i) => part.run(version.id, i + 1, html));
 		db.query("UPDATE reports SET updated_at = datetime('now') WHERE id = ?").run(row.id);
 		return { id: row.id, n, changed: true };
+	})();
+}
+
+/** How many versions of a day page (a report in "Days" made by day.ts) are kept: it is rewritten all day. */
+export const DAY_PAGE_VERSIONS = 3;
+
+/**
+ * Removes all but the newest DAY_PAGE_VERSIONS versions of day pages (`day-YYYY-MM-DD` in "Days"), of one report or
+ * of all. Other reports keep their history. Safe to run again: it finds nothing once it has run. Returns how many
+ * versions it removed. (The file gives the room back only after Settings → Data → Compact.)
+ */
+export function pruneDayVersions(db: Db, reportId?: number): number {
+	const old = `SELECT id FROM (SELECT v.id, ROW_NUMBER() OVER (PARTITION BY v.report_id ORDER BY v.n DESC) AS k
+		FROM report_versions v JOIN reports r ON r.id = v.report_id
+		WHERE r.grp = 'Days' AND r.name GLOB 'day-[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'${reportId === undefined ? "" : " AND r.id = $id"}) WHERE k > $keep`;
+	const p = reportId === undefined ? { keep: DAY_PAGE_VERSIONS } : { keep: DAY_PAGE_VERSIONS, id: reportId };
+	return db.transaction(() => {
+		db.query(`DELETE FROM report_parts WHERE version_id IN (${old})`).run(p);
+		return db.query(`DELETE FROM report_versions WHERE id IN (${old})`).run(p).changes;
 	})();
 }
 

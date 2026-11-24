@@ -1,4 +1,4 @@
-import { projects, publishReport, reportHtml, type Db, type Item, type Project } from "./db";
+import { projects, pruneDayVersions, publishReport, reportHtml, type Db, type Item, type Project } from "./db";
 import { goalTitle } from "./goals";
 import { githubWeb } from "./git";
 import { dayStartHour, yourName } from "./settings";
@@ -201,6 +201,7 @@ export async function publishDay(db: Db, day: string, project: string, author = 
 	const sig = daySig(data);
 	if (sig === before) return null;
 	const r = publishReport(db, { project, name: `day-${day}`, html: dayPage(data, sig), title: dayTitle(day), grp: "Days" }, author);
+	if (r.changed) pruneDayVersions(db, r.id);
 	return { ...r, items: data.projects[0].items.length, commits: data.projects[0].commits.length };
 }
 
