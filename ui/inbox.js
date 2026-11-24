@@ -105,14 +105,20 @@ async function inboxLoad() {
 	try {
 		const q = await api("/api/queue");
 		const since = typeof todaySince === "function" && ibOn() ? todaySince() : ib.since || Date.now() - 86400e3;
-		const agents = ibOn() ? await api(`/api/agents?since=${encodeURIComponent(new Date(since).toISOString())}`).catch(() => null) : ib.agents;
-		const changed = q !== ib.q || agents !== ib.agents || since !== ib.since;
-		Object.assign(ib, { q, agents, since, loaded: true });
+		const changed = q !== ib.q || since !== ib.since;
+		Object.assign(ib, { q, since, loaded: true });
 		inboxCount();
 		if (changed && ibOn() && !ib.accepting) inboxRender();
 	} catch (e) {
 		if (ibOn() && !ib.loaded) paint($(".ib-head", inboxEl), `<p class="ib-err">Couldn't load the Inbox: ${esc(e.message)}</p>`);
+		return;
 	}
+	// Finished and stuck, from the Agents place (it reads git, so it can take a moment the first time).
+	if (!ibOn()) return;
+	const agents = await api(`/api/agents?since=${encodeURIComponent(new Date(ib.since).toISOString())}`).catch(() => ib.agents);
+	if (agents === ib.agents) return;
+	ib.agents = agents;
+	if (ibOn() && !ib.accepting) paint($(".ib-head", inboxEl), ibHeadHtml());
 }
 // The nav's count: what needs you to do something (Answer and Errands); Look goes ahead by itself.
 function inboxCount() {
@@ -150,9 +156,14 @@ const ibAcceptable = () => (ib.tab === "answer" ? ibTabItems("answer").filter((i
 function ibToolsHtml() {
 	const acc = ibAcceptable();
 	const accept = acc.length > 1 && !ib.focus ? `<button type="button" class="ib-accept" data-ib-accept title="Answer each of them with what the agent recommends">Accept ${acc.length} recommendations</button>` : "";
-	const hint = localGet("inbox.hint") === "off" || ibPhone() ? "" : `<div class="ib-hint"><span>${ibKey("J")}${ibKey("K")} move · ${ibKey("1")}–${ibKey("9")} pick · ${ibKey("Enter")} the recommendation · ${ibKey("D")} later · ${ibKey("G")} give back · ${ibKey("X")} drop · ${ibKey("E")} edit · ${ibKey("F")} one at a time · ${ibKey("/")} search</span>
-		<button type="button" class="icon-btn" data-ib-hint-off title="Hide the keys (Settings → Appearance lists them)" aria-label="Hide the keys"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor"><g stroke-width="1.6"><path d="m4.5 4.5 7 7M11.5 4.5l-7 7"/></g></svg></button></div>`;
+	const hint = localGet("inbox.hint") === "off" || ibPhone() ? "" : `<div class="ib-hint"><span><b>J</b> <b>K</b> move · <b>1–9</b> pick · <b>Enter</b> takes the recommendation · <b>D</b> later · <b>G</b> give back · <b>X</b> drop · <b>F</b> one at a time</span>
+		<button type="button" class="icon-btn" data-ib-hint-off title="Hide the keys (Settings → Appearance lists them all)" aria-label="Hide the keys"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor"><g stroke-width="1.6"><path d="m4.5 4.5 7 7M11.5 4.5l-7 7"/></g></svg></button></div>`;
 	return accept || hint ? `${accept}${hint}` : "";
+}
+// A day ahead, short: "today", "tomorrow", "on Thu" (this week), "on 3 Dec".
+function ibDay(t) {
+	const n = dayDiff(toDate(t));
+	return n <= 0 ? "today" : n === 1 ? "tomorrow" : n < 7 ? `on ${toDate(t).toLocaleDateString([], { weekday: "short" })}` : `on ${day(t)}`;
 }
 // The meta line: project · recommends X (or how many choices) · goes ahead on Thu · unblocks N.
 function ibMeta(i) {
@@ -162,9 +173,10 @@ function ibMeta(i) {
 	return [
 		i.priority === 1 ? `<b class="ib-p1">P1</b>` : "",
 		ib.project ? (i.area ? esc(i.area) : "") : esc(projectName(i.project)),
-		rec ? `recommends <b>${esc(rec)}</b>` : n ? `${n} choices` : "",
+		rec ? `recommends <b>${esc(rec.length > 36 ? `${rec.slice(0, 34).trimEnd()}…` : rec)}</b>` : n ? `${n} choices` : "",
 		i.kind === "check" && i.steps?.length ? `${i.steps.length} step${i.steps.length === 1 ? "" : "s"}` : "",
-		due ? `<span class="${due.soon ? "ib-soon" : ""}" title="${esc(due.text)}">${esc(due.what ? `goes ahead ${when(due.at)}` : `closes ${when(due.at)}`)}</span>` : "",
+		due ? `<span class="${due.soon ? "ib-soon" : ""}" title="${esc(due.text)}">${esc(`${due.what ? "goes ahead" : "closes"} ${ibDay(due.at)}`)}</span>`
+			: ibTabOf(i) === "look" ? `<span title="It has no default and no date: it waits until you look">waits for you</span>` : "",
 		i.unblocks > 0 ? `unblocks ${i.unblocks}` : "",
 	].filter(Boolean).join(" · ");
 }
