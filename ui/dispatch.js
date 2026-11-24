@@ -180,6 +180,7 @@ function continueWhy(item) {
 	if (!info.on) return "The board doesn't start agents: turn it on in Settings → Agents.";
 	if (!info.allowed) return info.why || "Agents start only from this computer.";
 	if (!info.folders.includes(item.project)) return "No computer that's online has its project's folder.";
+	if (info.continueCommand === "") return "The board can't make a continue command from yours: set one in Settings → Agents.";
 	if (info.limited) return info.why;
 	return "";
 }

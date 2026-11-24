@@ -25,6 +25,7 @@ import {
 	desktop,
 	endRun,
 	getRun,
+	helperContinues,
 	launcher,
 	places,
 	runsInfo,
@@ -49,7 +50,7 @@ const ONLINE_MS = 90e3;
 const POLL_MS = 25e3;
 
 /** What a helper sends. */
-type Hello = { t: "hello"; name?: unknown; version?: unknown; folders?: unknown };
+type Hello = { t: "hello"; name?: unknown; version?: unknown; folders?: unknown; caps?: unknown };
 type Wire = ReadLog;
 type FromHelper =
 	| Hello
@@ -68,7 +69,8 @@ type ToHelper =
 	| { t: "next"; ms: number };
 
 type RunRef = { id: number; tag: string; pid: number; unit: string; status: string; started_at: string };
-export type Computer = { device: string; name: string; version: string; folders: string[]; via: "ws" | "poll"; ws?: WebSocket };
+/** `caps`: what its helper says it can do beyond what its version says ("continue"); none from one before 0.5.0. */
+export type Computer = { device: string; name: string; version: string; folders: string[]; caps?: string[]; via: "ws" | "poll"; ws?: WebSocket };
 type Attachment = { device: string; at: number; hello?: Omit<Computer, "device" | "via" | "ws"> };
 
 export class NoComputer extends Error {}
@@ -93,6 +95,8 @@ export class Helpers {
 			id INTEGER PRIMARY KEY, kind TEXT NOT NULL, payload TEXT NOT NULL, device TEXT NOT NULL,
 			cache TEXT NOT NULL DEFAULT '', created INTEGER NOT NULL, expires INTEGER NOT NULL, taken_at INTEGER)`);
 		db.run("CREATE TABLE IF NOT EXISTS helper_seen (device TEXT PRIMARY KEY, name TEXT NOT NULL, version TEXT NOT NULL, folders TEXT NOT NULL, seen INTEGER NOT NULL)");
+		if (!(db.query("PRAGMA table_info(helper_seen)").all() as { name: string }[]).some((c) => c.name === "caps"))
+			db.run("ALTER TABLE helper_seen ADD COLUMN caps TEXT NOT NULL DEFAULT '[]'");
 		db.run("CREATE TABLE IF NOT EXISTS helper_runs (run_id INTEGER PRIMARY KEY, device TEXT NOT NULL)");
 		// Which computer each run ran on, kept after it ends (helper_runs is only the live ones): a continuation goes
 		// to the computer that has the session.
@@ -104,6 +108,14 @@ export class Helpers {
 		// The board's own code, with what needs a computer handed to one.
 		launcher.launch = (spec) => this.launch(spec);
 		places.has = (path) => this.online().some((h) => h.folders.includes(path));
+		places.continueWhy = (session, folder) => {
+			try {
+				const h = this.continuer(session, folder);
+				return helperContinues(h.version, h.caps) ? "" : `Update the Workbench app on ${h.name} to continue sessions from the board.`;
+			} catch (e) {
+				return (e as Error).message;
+			}
+		};
 		costs.of = (sessions, since = 0) => this.costs(sessions, since);
 		desktop.here = false;
 		reader.read = (t, folder) =>
@@ -122,13 +134,14 @@ export class Helpers {
 			if (now - Math.max(a.at, pinged) > ONLINE_MS) continue;
 			if (!out.has(a.device)) out.set(a.device, { device: a.device, ...a.hello, via: "ws", ws });
 		}
-		const seen = this.db.query("SELECT device, name, version, folders FROM helper_seen WHERE seen > ?").all(now - ONLINE_MS) as {
+		const seen = this.db.query("SELECT device, name, version, folders, caps FROM helper_seen WHERE seen > ?").all(now - ONLINE_MS) as {
 			device: string;
 			name: string;
 			version: string;
 			folders: string;
+			caps: string;
 		}[];
-		for (const s of seen) if (!out.has(s.device)) out.set(s.device, { ...s, folders: JSON.parse(s.folders), via: "poll" });
+		for (const s of seen) if (!out.has(s.device)) out.set(s.device, { ...s, folders: JSON.parse(s.folders), caps: JSON.parse(s.caps || "[]"), via: "poll" });
 		// A removed device is no helper, even before its socket closes.
 		return [...out.values()].filter((h) => this.deviceOk(h.device));
 	}
@@ -221,13 +234,17 @@ export class Helpers {
 	/* ---------- The board's hooks ---------- */
 
 	/** dispatch.ts's launcher: the run's process starts on a computer that has its folder. */
+	/** The computer a continuation of `session` goes to: the one it ran on, when it's online with the folder; else one with the folder. */
+	private continuer(session: string, folder: string): Computer {
+		const before = (this.db.query("SELECT h.device FROM helper_ran h JOIN runs r ON r.id = h.run_id WHERE r.session = ? ORDER BY h.run_id DESC LIMIT 1").get(session) as { device: string } | null)?.device;
+		return before && this.online().some((x) => x.device === before && x.folders.includes(folder)) ? this.pick({ device: before }) : this.pick({ need: folder });
+	}
+
 	private async launch(spec: Launch): Promise<Launched> {
-		// A continuation: on the computer the session ran on, when it's online; else one with the project's folder.
-		const before = spec.resume
-			? (this.db.query("SELECT h.device FROM helper_ran h JOIN runs r ON r.id = h.run_id WHERE r.session = ? ORDER BY h.run_id DESC LIMIT 1").get(spec.resume) as { device: string } | null)?.device
-			: undefined;
 		const folder = spec.folder || spec.cwd;
-		const h = before && this.online().some((x) => x.device === before && x.folders.includes(folder)) ? this.pick({ device: before }) : this.pick({ need: folder });
+		const h = spec.resume ? this.continuer(spec.resume, folder) : this.pick({ need: folder });
+		// An older helper would run a continuation as a fresh run (it knows no resume, folder or base).
+		if (spec.resume && !helperContinues(h.version, h.caps)) throw new Error(`Update the Workbench app on ${h.name} to continue sessions from the board.`);
 		this.db.query("INSERT OR REPLACE INTO helper_runs (run_id, device) VALUES (?, ?)").run(spec.id, h.device);
 		this.db.query("INSERT OR REPLACE INTO helper_ran (run_id, device) VALUES (?, ?)").run(spec.id, h.device);
 		const out = await this.ask<Launched>("run", spec, { device: h.device, timeout: 30e3 });
@@ -456,14 +473,16 @@ export class Helpers {
 			name: String(named || m.name || "a computer").slice(0, 80),
 			version: String(m.version ?? "").slice(0, 40),
 			folders: (Array.isArray(m.folders) ? m.folders : []).filter((f): f is string => typeof f === "string").slice(0, 1000),
+			caps: (Array.isArray(m.caps) ? m.caps : []).filter((c): c is string => typeof c === "string").slice(0, 20).map((c) => c.slice(0, 40)),
 		};
 		if (ws) ws.serializeAttachment({ device, at: Date.now(), hello } satisfies Attachment);
 		else
-			db.query("INSERT OR REPLACE INTO helper_seen (device, name, version, folders, seen) VALUES (?, ?, ?, ?, ?)").run(
+			db.query("INSERT OR REPLACE INTO helper_seen (device, name, version, folders, caps, seen) VALUES (?, ?, ?, ?, ?, ?)").run(
 				device,
 				hello.name,
 				hello.version,
 				JSON.stringify(hello.folders),
+				JSON.stringify(hello.caps),
 				Date.now(),
 			);
 		// Trackers that couldn't read while no computer was online read again now.

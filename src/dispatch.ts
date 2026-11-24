@@ -191,24 +191,95 @@ export const limits = (db: Db): Limits => {
  * - `-w` / `--worktree` (and `--tmux`, which needs it) go: the session has its worktree, and it runs in it again.
  * Everything else stays: the permissions, the output format, the name, a budget. Deterministic, so the computer
  * helper can tell a continue command made from a start command it allowed (worker/src/helper.ts, `base`).
+ * It works on whole shell words and never inside quotes: `-w` / `--worktree` take an optional name (the next word,
+ * when it doesn't start with "-"; Claude Code's `-w, --worktree [name]`), `--session-id` its value. '' when the
+ * command can't be split safely (a pipe, `;`, `&&`, a redirection, a subshell, an open quote): then
+ * agents.continue-command has to be set.
  */
 export function resumeCommand(command: string): string {
-	let c = ` ${command} `;
-	c = c.replace(/\s(?:-w|--worktree)(?:=(?:"[^"]*"|'[^']*'|\S+))?(?=\s)/g, " ");
-	c = c.replace(/\s--tmux(?:=\S+)?(?=\s)/g, " ");
-	c = c.replace(/\s--session-id(?:=|\s+)(?:"[^"]*"|'[^']*'|\S+)(?=\s)/g, " ");
-	if (!/\s(?:-r|--resume)(?=[\s=])/.test(c)) {
-		const print = /\s(?:-p|--print)(?=\s)/.exec(c);
-		if (print) c = `${c.slice(0, print.index)} --resume "$WB_RESUME"${c.slice(print.index)}`;
-		else {
-			// After the program (and any VAR=value before it).
-			const prog = /^\s*(?:\w+=(?:"[^"]*"|'[^']*'|\S+)\s+)*(?:"[^"]*"|'[^']*'|\S+)/.exec(c);
-			c = prog ? `${prog[0]} --resume "$WB_RESUME"${c.slice(prog[0].length)}` : `${c} --resume "$WB_RESUME"`;
+	const words = shellWords(command);
+	if (!words?.length) return "";
+	const out: Word[] = [];
+	for (let n = 0; n < words.length; n++) {
+		const w = words[n];
+		const next = words[n + 1];
+		const valueNext = !!next && !next.text.startsWith("-");
+		if (w.plain && (w.text === "-w" || w.text === "--worktree")) {
+			if (valueNext) n++;
+			continue;
 		}
+		// --worktree=NAME: the flag itself as written, unquoted (its value may be quoted).
+		if (/^(-w|--worktree|--tmux|--session-id)=/.test(w.raw)) continue;
+		if (w.plain && w.text === "--tmux") continue;
+		if (w.plain && w.text === "--session-id") {
+			if (next) n++;
+			continue;
+		}
+		out.push(w);
 	}
-	return c.replace(/ {2,}/g, " ").trim();
+	if (!out.some((w) => w.plain && /^(-r|--resume)(=|$)/.test(w.text))) {
+		const resume: Word[] = [{ raw: "--resume", text: "--resume", plain: true }, { raw: '"$WB_RESUME"', text: "$WB_RESUME", plain: false }];
+		const print = out.findIndex((w) => w.plain && (w.text === "-p" || w.text === "--print"));
+		// Before -p, else after the program (and any VAR=value before it).
+		const at = print >= 0 ? print : out.findIndex((w) => !(w.plain && /^\w+=/.test(w.raw))) + 1;
+		if (at <= 0) return "";
+		out.splice(at, 0, ...resume);
+	}
+	return out.map((w) => w.raw).join(" ");
 }
-/** The command a continuation runs with (limits().continueCommand). */
+/** A shell word: as written (`raw`, quotes and all), what it stands for without its quotes (`text`, variables left as
+ * they are), and whether it had no quotes or escapes (`plain`: only such a word can be a flag we drop). */
+type Word = { raw: string; text: string; plain: boolean };
+/** A command split into words as bash would, for commands made of one simple command: undefined when it has
+ * anything else (operators, redirections, subshells, backquotes, $(…), a newline, an open quote). */
+export function shellWords(command: string): Word[] | undefined {
+	const out: Word[] = [];
+	let n = 0;
+	const s = command;
+	while (n < s.length) {
+		while (n < s.length && (s[n] === " " || s[n] === "\t")) n++;
+		if (n >= s.length) break;
+		let raw = "", text = "", plain = true;
+		while (n < s.length && s[n] !== " " && s[n] !== "\t") {
+			const c = s[n];
+			if (c === "'") {
+				const end = s.indexOf("'", n + 1);
+				if (end < 0) return undefined;
+				raw += s.slice(n, end + 1);
+				text += s.slice(n + 1, end);
+				plain = false;
+				n = end + 1;
+			} else if (c === '"') {
+				let m = n + 1, inner = "";
+				while (m < s.length && s[m] !== '"') {
+					if (s[m] === "\\" && m + 1 < s.length) { inner += s[m + 1]; m += 2; continue; }
+					if (s[m] === "`" || (s[m] === "$" && s[m + 1] === "(")) return undefined;
+					inner += s[m++];
+				}
+				if (m >= s.length) return undefined;
+				raw += s.slice(n, m + 1);
+				text += inner;
+				plain = false;
+				n = m + 1;
+			} else if (c === "\\") {
+				if (n + 1 >= s.length) return undefined;
+				raw += s.slice(n, n + 2);
+				text += s[n + 1];
+				plain = false;
+				n += 2;
+			} else if (/[;&|<>()`\n\r]/.test(c) || (c === "$" && s[n + 1] === "(") || (c === "#" && !raw)) return undefined;
+			else {
+				raw += c;
+				text += c;
+				n++;
+			}
+		}
+		out.push({ raw, text, plain });
+	}
+	return out;
+}
+/** The command a continuation runs with (limits().continueCommand): Settings' own, or one made from the start
+ * command; '' when none can be made (resumeCommand). */
 export const continueCommand = (db: Db) => getSetting<string>(db, "agents.continue-command") || resumeCommand(getSetting<string>(db, "agents.command"));
 
 /** "#12 done · started 2026-11-12 09:14 UTC from this computer · 14 min · $0.42 · claude --resume <id>", for agents and wb. */
@@ -247,7 +318,12 @@ export function runsText(list: Pick<Run, keyof Run>[]): string {
 
 const ASK_KINDS = ["decision", "review", "notice"];
 /** Whether a project's folder is there to run an agent in. The cloud board asks its computers instead (worker/src/helper.ts). */
-export const places = { has: (path: string) => existsSync(path) };
+export const places = {
+	has: (path: string) => existsSync(path),
+	/** Why the computer that would run a continuation of `session` (in `folder`) can't, or ''. On this computer it's
+	 * this code, so ''; the cloud board asks which helper would run it, and refuses one too old (worker/src/helper.ts). */
+	continueWhy: (_session: string, _folder: string): string => "",
+};
 const folderOf = (db: Db, slug: string) => {
 	const p = getProject(db, slug);
 	return p?.path && places.has(p.path) ? p.path : "";
@@ -349,6 +425,8 @@ function canScope() {
 // What a run's process mustn't inherit from a board started inside a Claude Code session: the agent would think
 // it's nested in that one.
 const NESTED = ["CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_SSE_PORT"];
+/** The variables a run's command gets from its Launch spec; any other name in it is dropped (launchRun). */
+export const RUN_VARS = ["WB_PROMPT", "WB_ITEM", "WB_TITLE", "WB_PROJECT", "WB_SESSION", "WB_RESUME", "WB_RUN"];
 
 /**
  * Starts an agent on an item, after every check (startRefusal, itemRefusal); throws the reason otherwise. With
@@ -456,6 +534,7 @@ export async function continueRun(db: Db, runId: number, message: string, from: 
 	const folder = folderOf(db, i.project);
 	const l = limits(db);
 	const command = l.continueCommand;
+	if (!command) throw new Error("set the continue command in Settings → Agents");
 	const derived = !getSetting<string>(db, "agents.continue-command");
 	const id = await launchNew(db, i, from, {
 		session: r.session,
@@ -488,6 +567,22 @@ export function continueRefusal(db: Db, r: Run): string | undefined {
 	if (!folderOf(db, i.project)) return `the project ${i.project} has no folder on this computer (Settings → Projects)`;
 	const busy = db.query("SELECT id FROM runs WHERE item_id = ? AND ended_at IS NULL").get(i.id) as { id: number } | null;
 	if (busy) return `an agent is on wb-${i.ref} already (run #${busy.id})`;
+	if (!continueCommand(db))
+		return "The board can't make a continue command from the command in Settings → Agents (it has more than one plain command in it): set the continue command there (agents.continue-command).";
+	return places.continueWhy(r.session, folderOf(db, i.project)) || undefined;
+}
+
+/** The first version of the app whose computer helper can continue a session (resume, folder, base, the run's cwd). */
+export const CONTINUE_VERSION = "0.5.0";
+/** Whether a computer helper that says it's `version` (and has `caps`) can continue a session: one that says it can
+ * ("continue" in caps, sent from 0.5.0 on, nightlies too), or a version of 0.5.0 or later. */
+export function helperContinues(version: string, caps: string[] = []): boolean {
+	if (caps.includes("continue")) return true;
+	const v = (s: string) => (s.match(/^(\d+)\.(\d+)\.(\d+)/)?.slice(1).map(Number) ?? null);
+	const have = v(version), need = v(CONTINUE_VERSION)!;
+	if (!have) return false;
+	for (let n = 0; n < 3; n++) if (have[n] !== need[n]) return have[n] > need[n];
+	return !/-/.test(version.replace(/\+.*$/, "")); // 0.5.0-rc.1 is before 0.5.0
 }
 
 /** What starting a run's process takes: everything but the database, so a computer helper can do it for the cloud board.
@@ -561,7 +656,11 @@ export async function launchRun(l: Launch, onError: (message: string) => void = 
 	const full = scoped ? ["systemd-run", "--user", "--scope", "--quiet", `--unit=${l.tag}`, ...argv] : argv;
 	const env: Record<string, string> = {};
 	for (const [k, v] of Object.entries(process.env)) if (v !== undefined && !NESTED.includes(k)) env[k] = v;
-	Object.assign(env, { PATH: await shellPath(), NO_COLOR: "1", ...l.vars, WB_RUN_EXIT: exitPath(run) });
+	Object.assign(env, { PATH: await shellPath(), NO_COLOR: "1" });
+	// The run's own variables, set last so nothing inherited shadows them, and only those: a spec comes from the cloud
+	// board too, and PATH, BASH_ENV or LD_PRELOAD from it would change what the command the helper allowed runs.
+	for (const [k, v] of Object.entries(l.vars)) if (RUN_VARS.includes(k) && typeof v === "string") env[k] = v;
+	env.WB_RUN_EXIT = exitPath(run);
 	const child = spawn(full[0], full.slice(1), { cwd, env, detached: true, windowsHide: true, stdio: ["ignore", fd, fd] });
 	closeSync(fd);
 	child.on("error", (e) => onError(e.message));
@@ -798,9 +897,17 @@ function saveEvents(db: Db, id: number, events: RunEvent[] | undefined, fill = f
 
 /** A run's events after number `after` (0: from the start; a continuation's message is 0, so -1 gets it too), in order. */
 export function runEvents(db: Db, id: number, after = -1, limit = EVENTS_KEPT): RunEvent[] {
-	const rows = db
-		.query("SELECT n, at, kind, tool, text, data FROM run_events WHERE run_id = ? AND n > ? ORDER BY n LIMIT ?")
-		.all(id, after, Math.max(1, Math.min(EVENTS_KEPT, limit))) as { n: number; at: string; kind: RunEvent["kind"]; tool: string; text: string; data: string }[];
+	type Row = { n: number; at: string; kind: RunEvent["kind"]; tool: string; text: string; data: string };
+	const cap = Math.max(1, Math.min(EVENTS_KEPT, limit));
+	const COLS = "SELECT n, at, kind, tool, text, data FROM run_events WHERE run_id = ?";
+	// From the start: the newest `cap` (what it's doing now), with a continuation's message (n 0) before them.
+	const rows: Row[] =
+		after < 0
+			? [
+					...(db.query(`${COLS} AND n = 0`).all(id) as Row[]),
+					...(db.query(`${COLS} AND n > 0 ORDER BY n DESC LIMIT ?`).all(id, cap) as Row[]).reverse(),
+				]
+			: (db.query(`${COLS} AND n > ? ORDER BY n LIMIT ?`).all(id, after, cap) as Row[]);
 	return rows.map(({ tool, data, ...e }) => {
 		let more: Record<string, unknown> = {};
 		try {
