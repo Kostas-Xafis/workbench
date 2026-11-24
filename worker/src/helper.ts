@@ -38,6 +38,8 @@ import {
 	type ReadLog,
 } from "../../src/dispatch";
 import { reader, RUN_TIMEOUT_MS, runDue, type Reading } from "../../src/trackers";
+import { agentGit, agentsView, landItem, type GitRead } from "../../src/agents";
+import type { CodeLinks, RepoState } from "../../src/git";
 import { getSetting } from "../../src/settings";
 
 export const NO_COMPUTER =
@@ -117,6 +119,7 @@ export class Helpers {
 			}
 		};
 		costs.of = (sessions, since = 0) => this.costs(sessions, since);
+		agentGit.read = (_list, only) => this.gitForAgents(only);
 		desktop.here = false;
 		reader.read = (t, folder) =>
 			this.ask<Reading>("tracker", { tracker: { id: t.id, kind: t.kind, command: t.command, options: t.options, name: t.name, project: t.project }, folder }, { prefer: folder, timeout: RUN_TIMEOUT_MS + 15e3 });
@@ -285,6 +288,35 @@ export class Helpers {
 		return Promise.race([p, new Promise<T>((r) => setTimeout(() => r(fallback), wait))]).catch(() => fallback);
 	}
 
+	/**
+	 * The Agents place's git (agents.ts): what the page's own git and code polls keep (the same cache keys), with what
+	 * isn't known said in words.
+	 */
+	private async gitForAgents(only: string | null): Promise<GitRead> {
+		const key = only ?? "";
+		const list = projects(this.db)
+			.filter((p) => (only ? p.slug === only : !p.archived_at))
+			.map((p) => ({ slug: p.slug, path: p.path }));
+		const [repos, code] = await Promise.all([
+			this.cached<RepoState[]>(`git:${key}`, 30e3, "git", { projects: list }, []),
+			this.cached<CodeLinks>(`code:${key}`, 90e3, "code", { projects: list }, {}),
+		]);
+		const limits: string[] = [];
+		const row = this.db.query("SELECT at FROM helper_cache WHERE key = ?").get(`git:${key}`) as { at: number } | null;
+		const online = this.online();
+		if (!online.length)
+			limits.push(
+				row
+					? `No computer is online: git state is as a computer last sent it, ${Math.max(1, Math.round((Date.now() - row.at) / 60e3))} min ago.`
+					: "No computer is online, and none has sent git state yet: the board can't tell which branches are merged.",
+			);
+		else if (!row) limits.push(`${online[0].name} is reading git state for the first time: ready to land fills in on the next look.`);
+		if ((repos ?? []).some((r) => r.ok && r.base === undefined))
+			limits.push("The computer that sends git state has an older Workbench app: no commit counts per branch, and the main branch is taken to be main or master. Update the app there.");
+		if (!(repos ?? []).length && list.length && row) limits.push("No computer has these projects' folders, so their git state isn't known.");
+		return { repos: repos ?? [], code: code ?? {}, limits };
+	}
+
 	/* ---------- Routes the board hands over ---------- */
 
 	/**
@@ -327,6 +359,33 @@ export class Helpers {
 					const name = c.device?.name || "the cloud board";
 					const who: From = from === "cli" ? { where: "cli", label: `wb continue on ${name}` } : { where: "local", label: name };
 					const run = await continueRun(db, Number(url.pathname.split("/")[3]), String(message ?? ""), who);
+					return json({ run, item: getItem(db, run.item_id) }, 201);
+				} catch (e) {
+					return json({ error: (e as Error).message }, 400);
+				}
+			}
+			case "/api/agents": {
+				const name = c.device?.name || "the cloud board";
+				try {
+					const view = await agentsView(db, { project: url.searchParams.get("project") || "*", since: url.searchParams.get("since") || undefined }, c.boardOnly ? { where: "local", label: name } : null);
+					if (!this.online().length) view.start = { allowed: false, why: view.start.why || NO_COMPUTER_AGENTS };
+					return json(view);
+				} catch (e) {
+					return json({ error: (e as Error).message }, 400);
+				}
+			}
+			case "/api/items/:id/land": {
+				if (!post) return null;
+				if (!c.boardOnly) return refuse("agents start only from the board's own page or a tool with this board's token");
+				if (!this.online().length) return refuse(NO_COMPUTER_AGENTS, 503);
+				try {
+					const ref = decodeURIComponent(url.pathname.split("/")[3] ?? "");
+					const id = resolveItem(db, ref);
+					if (id === undefined) throw new Error(`no item ${ref}`);
+					const { from } = (await req.json().catch(() => ({}))) as { from?: unknown };
+					const name = c.device?.name || "the cloud board";
+					const who: From = from === "cli" ? { where: "cli", label: `wb land on ${name}` } : { where: "local", label: name };
+					const run = await landItem(db, id, who);
 					return json({ run, item: getItem(db, run.item_id) }, 201);
 				} catch (e) {
 					return json({ error: (e as Error).message }, 400);

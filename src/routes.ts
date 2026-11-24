@@ -103,6 +103,7 @@ import { etagRoutes, IMMUTABLE, versionedPage } from "./fresh";
 import { addStepPhoto, finishRun, removeStepPhoto, runState, saveStep, startOver } from "./checkruns";
 import { addImage, imageData, prepareImage, removeImage, setImageCaption } from "./images";
 import { mcpHttp } from "./mcp";
+import { agentsView, landItem } from "./agents";
 import { continueRun, getRun, listRuns, openInDesktop, runEvents, runPrompt, runsInfo, startRun, stopRun, testCommand, type From } from "./dispatch";
 import { refreshUsage, usageData } from "./usage";
 import { agentFiles, integratePrompt, integrateSummary } from "./integrate";
@@ -1115,6 +1116,28 @@ export function boardRoutes(h: BoardHost) {
 					const { item, answer, object } = await req.json();
 					const how = answer !== undefined ? { answer: Array.isArray(answer) ? answer.map(String) : String(answer) } : object !== undefined ? { object: String(object) } : {};
 					const run = await startRun(db, itemId(String(item)), from, how);
+					return json({ run, item: getItem(db, run.item_id) }, 201);
+				} catch (e) {
+					return fail(e);
+				}
+			}),
+		},
+		// The Agents place (agents.ts): running, ready to land, stuck and finished, in one answer; and Merge it, a run
+		// that lands a done item's branch.
+		"/api/agents": async (req, srv) => {
+			const u = new URL(req.url).searchParams;
+			try {
+				return json(await agentsView(db, { project: u.get("project") || "*", since: u.get("since") || undefined }, runFrom(req, srv)));
+			} catch (e) {
+				return fail(e);
+			}
+		},
+		"/api/items/:id/land": {
+			POST: jsonOnly(async (req, srv) => {
+				const from = runFrom(req, srv);
+				if (!from) return json({ error: "agents start only from the board on this computer, or a phone paired with it" }, 403);
+				try {
+					const run = await landItem(db, itemId(req.params.id), from);
 					return json({ run, item: getItem(db, run.item_id) }, 201);
 				} catch (e) {
 					return fail(e);

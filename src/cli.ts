@@ -63,6 +63,7 @@ import {
 	type Ruling,
 } from "./rulings";
 import { latestRun, runLine } from "./dispatch";
+import { noteAlive } from "./alive";
 import { deadlineText, defaultText, itemRecommended, resolveAsk } from "./asks";
 import { staleLabel } from "./stale";
 import { removeLinks, waitOn } from "./links";
@@ -107,7 +108,7 @@ Items are named wb-xxxx (e.g. wb-k3f9); commands take that, the bare k3f9, or an
   wb ls [--mine | --agents] [--all] [--project P] [--kind K] [-q text]
                                    open items (--all includes done); --mine = what waits on ${name}
                                    (notices, which don't wait, are counted after it: --kind notice lists them)
-                                   ⚠ marks stale agent work (doing 2+ days quiet, waiting 7+)
+                                   ⚠ marks stale agent work (doing a day with no sign of life, waiting 7+ days)
   wb order <ref> [--before <ref> | --after <ref> | --top | --bottom]
                                    move an agent's to-do in its project's order: agents pick work in it, and
                                    wb ls lists it that way (with no option, prints the order)
@@ -193,6 +194,8 @@ Items are named wb-xxxx (e.g. wb-k3f9); commands take that, the bare k3f9, or an
                                    phones paired in Settings → Privacy and security (plain http: a trusted network only)
   wb run <ref>                     start a Claude Code agent on an agent's to-do, in its project's folder, as the
                                    board's Run does (Settings → Agents: off until turned on there, with its limits)
+  wb land <ref>                    start an agent that merges a done agent item's branch into the main branch, by the
+                                   project's own rules (Merge it on the board), with Run's limits
   wb runs [--all]                  agents the board started: running ones and the latest (--all: the last 100),
                                    with where each ran, how to carry on, and its Claude Desktop link
   wb continue <run> "message"      send that run's agent a message: a new run resumes its session (same folder,
@@ -1083,6 +1086,15 @@ export async function runCli(ctx: CliCtx): Promise<number> {
 	} catch (e) {
 		err(`wb: ${(e as Error).message}`);
 		return 1;
+	} finally {
+		// An agent's command about an item, or from the session an item records, is a sign of life (alive.ts).
+		if (author === "agent") {
+			const named = cmd === "image" && args[1] !== "add" ? undefined : ITEM_ARG[cmd];
+			noteAlive(db, { ids: named === undefined ? [] : [resolveItem(db, args[named])], session: ctx.session });
+		}
 	}
 	return 0;
 }
+
+/** Which argument names the item, for the commands about one (`wb image add <ref> …`: the second). */
+const ITEM_ARG: Record<string, number> = { show: 1, start: 1, wait: 1, done: 1, drop: 1, note: 1, edit: 1, answer: 1, seen: 1, object: 1, image: 2 };

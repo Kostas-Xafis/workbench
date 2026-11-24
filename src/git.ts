@@ -6,10 +6,14 @@ export type RepoState = {
 	ok: boolean;
 	error?: string;
 	branch: string;
+	/** The main branch (origin's HEAD, else main or master), which `unmerged` is measured against. Missing from an
+	 * older computer helper. */
+	base?: string;
 	dirty: string[];
 	ahead: number;
 	behind: number;
-	unmerged: { name: string; date: string }[];
+	/** Local branches not merged into `base`; `ahead`: how many commits they have that it hasn't (not from an older helper). */
+	unmerged: { name: string; date: string; ahead?: number }[];
 	worktrees: { path: string; branch: string }[];
 	lastCommit: string;
 };
@@ -54,6 +58,18 @@ export async function repoState(p: Project): Promise<RepoState> {
 			git(cwd, "worktree", "list", "--porcelain"),
 			git(cwd, "log", "-1", "--format=%h %cr · %s"),
 		]);
+		// How far each unmerged branch is ahead of the main branch (the first 60: one git each).
+		const branches = lines(unmerged).map((l) => {
+			const [name, date] = l.split("\t");
+			return { name, date } as { name: string; date: string; ahead?: number };
+		});
+		await Promise.all(
+			branches.slice(0, 60).map(async (b) => {
+				try {
+					b.ahead = Number(await git(cwd, "rev-list", "--count", `${base}..${b.name}`)) || 0;
+				} catch {}
+			}),
+		);
 		let ahead = 0;
 		let behind = 0;
 		try {
@@ -71,13 +87,11 @@ export async function repoState(p: Project): Promise<RepoState> {
 			project: p.slug,
 			ok: true,
 			branch,
+			base,
 			dirty: lines(status),
 			ahead,
 			behind,
-			unmerged: lines(unmerged).map((l) => {
-				const [name, date] = l.split("\t");
-				return { name, date };
-			}),
+			unmerged: branches,
 			worktrees: trees,
 			lastCommit,
 		};

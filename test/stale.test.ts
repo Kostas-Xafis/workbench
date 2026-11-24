@@ -13,8 +13,10 @@ const item = (status: string, quiet: number, more: { owner?: string; created?: n
 });
 
 describe("the stale rule", () => {
-	test("doing is stalled after 2 quiet days", () => {
-		expect(staleOf(item("doing", 1.5), null, NOW)).toBeNull();
+	test("doing is stalled after a day with no sign of life", () => {
+		expect(staleOf(item("doing", 0.9), null, NOW)).toBeNull();
+		expect(staleOf(item("doing", 1.5), null, NOW)?.why).toBe("stalled");
+		expect(staleOf({ ...item("doing", 3), alive_at: daysAgo(0.5) }, null, NOW)).toBeNull();
 		expect(staleOf(item("doing", 3), null, NOW)).toEqual({ why: "stalled", since: daysAgo(3) });
 	});
 	test("a newer note counts as news", () => {
