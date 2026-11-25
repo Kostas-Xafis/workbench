@@ -1,5 +1,5 @@
 /* ---------- Settings → About: the look (theme, zoom, shortcuts) ---------- */
-// All this browser's (look.theme). The theme is also set by the inline script in <head>, before the first paint.
+// All this browser's (look.theme, look.keys). Both are also set by the inline script in <head>, before the first paint.
 const MAC = /Mac|iPhone|iPad/.test(navigator.userAgentData?.platform || navigator.platform || navigator.userAgent);
 const MOD = MAC ? "⌘" : "Ctrl";
 const osDark = matchMedia("(prefers-color-scheme: dark)");
@@ -15,6 +15,7 @@ function withFrameTheme(src) {
 function applyLook() {
 	const t = lookTheme(), root = document.documentElement;
 	if (t === "system") delete root.dataset.theme; else root.dataset.theme = t;
+	root.classList.toggle("no-keys", pref("look.keys", false) !== true);
 	if (frame.dataset.src) {
 		frame.dataset.src = withFrameTheme(frame.dataset.src);
 		frame.contentWindow?.postMessage({ wb: 1, event: "theme", theme: t === "system" ? "" : t }, "*");
@@ -55,8 +56,15 @@ function setLookRender() {
 			<output class="zoom-pct" aria-live="polite">${pct}</output>
 			<button type="button" class="icon-btn" data-zoom="1" title="Bigger" aria-label="Zoom in"${zoomLevel !== null && zoomLevel >= 2 ? " disabled" : ""}>${svg16('<path d="M4 8h8M8 4v8"/>')}</button></div>`,
 	}) : "";
+	// The keys beside buttons and in hint lines (base.css hides them under html.no-keys). A phone never shows them.
+	const hints = narrow() ? "" : optRow({
+		label: "Show key hints",
+		hint: "The keys on buttons and in hint lines, like Done M in an item. Off, the shortcuts still work; the list below has them all.",
+		bind: { pref: "look.keys", def: false },
+		control: ctlToggle({ pref: "look.keys", def: false }, { label: "Show key hints" }),
+	});
 	const keys = `<div class="so-wide"><dl class="lk-keys">${SHORTCUTS().map(([k, what]) => `<dt>${kbdKeys(k)}</dt><dd>${esc(what)}</dd>`).join("")}</dl></div>`;
-	return optGroup("Look", [theme, zoom].filter(Boolean)) + (narrow() ? "" : optFold("Keyboard shortcuts", [keys], { key: "set-about-keys" }));
+	return optGroup("Look", [theme, hints, zoom].filter(Boolean)) + (narrow() ? "" : optFold("Keyboard shortcuts", [keys], { key: "set-about-keys" }));
 }
 async function setLookLoad() {
 	if (app?.core) zoomLevel = await app.core.invoke("zoom_level").catch(() => zoomLevel);

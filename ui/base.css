@@ -90,3 +90,11 @@ summary::-webkit-details-marker { display: none; }
 .icon-btn svg { width: 16px; height: 16px; }
 .hint { font-size: var(--fs-12); color: var(--muted); }
 .spacer { flex: 1; }
+/* Key hints: the keys on buttons and in hint lines (Done M, the Inbox's J K line, Ctrl K in the search box). Hidden
+   unless Settings → About → Look shows them (html.no-keys, set in index.html's <head> before the first paint), and
+   always on a phone. The shortcuts work either way, and Look's list of them always shows. A choice keeps its number. */
+html.no-keys :is(.search-wrap kbd, kbd.ib-k, .ib-hint, kbd.pj-k, .key-hint, kbd.rd-k:not(.rd-choice > kbd), .rd-keyhint, .rd-muted:has(> kbd.rd-k)) { display: none; }
+html.no-keys #search { padding-right: 10px; }
+@media (max-width: 760px) {
+	html :is(.search-wrap kbd, kbd.ib-k, .ib-hint, kbd.pj-k, .key-hint, kbd.rd-k:not(.rd-choice > kbd), .rd-keyhint, .rd-muted:has(> kbd.rd-k)) { display: none; }
+}
