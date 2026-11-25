@@ -296,6 +296,17 @@ export async function runCli(ctx: CliCtx): Promise<number> {
 	const { currentProject, refIds, idArg } = cliHelpers(ctx);
 	const die: (msg: string) => never = cliHelpers(ctx).die;
 	const cmd = args[0];
+	// The item an agent's command acts on, a sign of life on it (alive.ts): looked up first, as `wb image rm` takes the
+	// image away. Reads (wb show, wb ls, wb search) don't count.
+	const actedOn = (() => {
+		if (author !== "agent") return undefined;
+		try {
+			if (cmd === "image") return args[1] === "add" ? resolveItem(db, args[2] ?? "") : args[1] === "rm" ? imageInfo(db, Number(args[2]))?.item_id : undefined;
+			return ITEM_ARG[cmd] === undefined ? undefined : resolveItem(db, args[ITEM_ARG[cmd]] ?? "");
+		} catch {
+			return undefined;
+		}
+	})();
 	if (!cmd || o.help || cmd === "help") {
 		out(help(db, ctx.port));
 		return 0;
@@ -1087,14 +1098,11 @@ export async function runCli(ctx: CliCtx): Promise<number> {
 		err(`wb: ${(e as Error).message}`);
 		return 1;
 	} finally {
-		// An agent's command about an item, or from the session an item records, is a sign of life (alive.ts).
-		if (author === "agent") {
-			const named = cmd === "image" && args[1] !== "add" ? undefined : ITEM_ARG[cmd];
-			noteAlive(db, { ids: named === undefined ? [] : [resolveItem(db, args[named])], session: ctx.session });
-		}
+		// An agent's command that acts on an item, or from the session an item was started in, is a sign of life (alive.ts).
+		if (author === "agent") noteAlive(db, { ids: [actedOn], session: ctx.session });
 	}
 	return 0;
 }
 
-/** Which argument names the item, for the commands about one (`wb image add <ref> …`: the second). */
-const ITEM_ARG: Record<string, number> = { show: 1, start: 1, wait: 1, done: 1, drop: 1, note: 1, edit: 1, answer: 1, seen: 1, object: 1, image: 2 };
+/** Which argument names the item, for the commands that act on one (`wb image` is looked up apart). */
+const ITEM_ARG: Record<string, number> = { start: 1, wait: 1, done: 1, drop: 1, note: 1, edit: 1, answer: 1 };

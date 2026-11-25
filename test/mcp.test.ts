@@ -100,6 +100,13 @@ describe("tools/list", () => {
 		const names = body.result.tools.map((t: any) => t.name);
 		for (const old of ["list_goals", "list_reports", "record_tracker", "list_trackers", "define_tracker", "retire_ruling", "get_image"]) expect(names).not.toContain(old);
 		expect((await call("list_trackers")).error).toBe(false);
+		// An alias's own action can't be redirected by the caller's arguments.
+		const presets = await call("tracker", { action: "presets" });
+		const listed = await call("list_trackers");
+		const redirected = await call("list_trackers", { action: "presets" });
+		expect(redirected.text).toBe(listed.text);
+		expect(redirected.text).not.toBe(presets.text);
+		expect((await call("list_goals", { action: "add", title: "Sneaked in" })).text).not.toContain("Sneaked in");
 		expect((await call("tracker", { action: "list" })).error).toBe(false);
 		expect((await call("tracker", { action: "get" })).text).toContain("tracker is required for action get");
 		expect((await call("tracker", { action: "nope" })).error).toBe(true);

@@ -17,6 +17,13 @@ export type RepoState = {
 	/** When the checkout is on another branch than `base` (an integration branch such as overnight): the local branches
 	 * not merged into that one either. A branch merged there counts as landed (agents.ts). Not from an older helper. */
 	unmergedHead?: string[];
+	/** Every local branch, so a branch that isn't among the unmerged ones is known to be merged rather than missing.
+	 * Not from an older helper: without it, a branch not listed as unmerged is "not known" (agents.ts). */
+	branches?: string[];
+	/** origin's branches (without `origin/`), from the remote-tracking refs this computer has fetched. */
+	remoteBranches?: string[];
+	/** origin's branches not merged into `base`, for a branch pushed but never checked out here. */
+	remoteUnmerged?: { name: string; ahead?: number }[];
 	worktrees: { path: string; branch: string }[];
 	lastCommit: string;
 };
@@ -54,13 +61,29 @@ export async function repoState(p: Project): Promise<RepoState> {
 	try {
 		const cwd = p.path;
 		const base = await defaultBranch(cwd);
-		const [branch, status, unmerged, worktrees, lastCommit] = await Promise.all([
+		const [branch, status, unmerged, worktrees, lastCommit, local, remote, remoteOpen] = await Promise.all([
 			git(cwd, "branch", "--show-current"),
 			git(cwd, "status", "--porcelain"),
 			git(cwd, "branch", "--no-merged", base, "--format=%(refname:short)\t%(committerdate:short)"),
 			git(cwd, "worktree", "list", "--porcelain"),
 			git(cwd, "log", "-1", "--format=%h %cr · %s"),
+			git(cwd, "branch", "--format=%(refname:short)"),
+			git(cwd, "branch", "-r", "--format=%(refname:short)").catch(() => ""),
+			git(cwd, "branch", "-r", "--no-merged", base, "--format=%(refname:short)").catch(() => ""),
 		]);
+		// origin/<name> only; origin/HEAD (shown as "origin") isn't a branch.
+		const fromOrigin = (s: string) =>
+			lines(s)
+				.filter((r) => r.startsWith("origin/") && r !== "origin/HEAD")
+				.map((r) => r.slice("origin/".length));
+		const remoteUnmerged = fromOrigin(remoteOpen).map((name) => ({ name }) as { name: string; ahead?: number });
+		await Promise.all(
+			remoteUnmerged.slice(0, 60).map(async (b) => {
+				try {
+					b.ahead = Number(await git(cwd, "rev-list", "--count", `${base}..origin/${b.name}`)) || 0;
+				} catch {}
+			}),
+		);
 		// On an integration branch: what isn't merged there either.
 		const unmergedHead = branch && branch !== base ? lines(await git(cwd, "branch", "--no-merged", "HEAD", "--format=%(refname:short)").catch(() => "")) : undefined;
 		// How far each unmerged branch is ahead of the main branch (the first 60: one git each).
@@ -98,6 +121,9 @@ export async function repoState(p: Project): Promise<RepoState> {
 			behind,
 			unmerged: branches,
 			...(unmergedHead ? { unmergedHead } : {}),
+			branches: lines(local),
+			remoteBranches: fromOrigin(remote),
+			remoteUnmerged,
 			worktrees: trees,
 			lastCommit,
 		};
