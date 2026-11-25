@@ -14,6 +14,11 @@
 .ag-limits p { margin: 0; }
 
 .ag-lanes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--sp-4); align-items: start; }
+.ag-lane { display: flex; flex-direction: column; min-width: 0; }
+/* Nothing in any lane: the empty boxes share one height, whichever has a line under its title. */
+.ag-lanes:not(:has(.ag-card)) { align-items: stretch; }
+.ag-lanes:not(:has(.ag-card)) .ag-list { flex: 1; }
+.ag-lanes:not(:has(.ag-card)) .k-empty { flex: 1; display: flex; flex-direction: column; justify-content: center; }
 .ag-lane h2, .ag-log h2 { margin: 0 0 var(--sp-2); font-size: var(--fs-13); font-weight: 600; display: flex; align-items: center; gap: var(--sp-2); }
 .ag-lane h2 i, .ag-log h2 i { font-style: normal; font-weight: 500; color: var(--muted); font-variant-numeric: tabular-nums; }
 .ag-list { display: flex; flex-direction: column; gap: var(--sp-2); }
@@ -28,8 +33,11 @@
 .ag-card:focus-visible { box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 45%, transparent); }
 .ag-card.is-running { border-color: color-mix(in srgb, var(--st-running) 40%, var(--line)); }
 .ag-title { font-size: var(--fs-13); line-height: 1.4; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; }
-.ag-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 2px var(--sp-1); margin-top: var(--sp-1); font-size: var(--fs-12); color: var(--muted); min-width: 0; }
-.ag-sep { color: var(--faint); }
+/* The meta line: each bit has its dot before it, and the dot of a bit that starts a line sits in the clipped margin. */
+.ag-meta { margin-top: var(--sp-1); font-size: var(--fs-12); color: var(--muted); min-width: 0; overflow: hidden; }
+.ag-bits { display: flex; flex-wrap: wrap; align-items: center; row-gap: 2px; margin-left: calc(-1 * var(--sp-4)); }
+.ag-bit { display: inline-flex; align-items: center; min-width: 0; max-width: 100%; }
+.ag-bit::before { content: "·"; flex: none; width: var(--sp-4); text-align: center; color: var(--faint); }
 .ag-ref, .ag-branch { font-family: var(--mono); font-size: var(--fs-11); }
 .ag-branch { max-width: 22ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ag-pr { text-decoration: none; }
@@ -47,6 +55,7 @@
 .ag-live { display: inline-flex; align-items: center; gap: var(--sp-1); color: var(--st-running); font-variant-numeric: tabular-nums; }
 .ag-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--st-running); flex: none; animation: ag-pulse 2s ease-in-out infinite; }
 @keyframes ag-pulse { 50% { opacity: .35; } }
+.ag-dot.idle { background: var(--faint); animation: none; }
 @media (prefers-reduced-motion: reduce) { .ag-dot { animation: none; } }
 
 /* Finished: a compact log. */

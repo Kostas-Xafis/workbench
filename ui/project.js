@@ -87,7 +87,8 @@ function pjRepoLine() {
 		r.unmerged.length && `${r.unmerged.length} unmerged branch${r.unmerged.length > 1 ? "es" : ""}`,
 		r.worktrees.length && `${r.worktrees.length} worktree${r.worktrees.length > 1 ? "s" : ""}`,
 	].filter(Boolean);
-	return `<span class="pj-git" title="${esc(detail)}">⎇ ${esc(r.branch || "detached")}${warns.length ? warns.map((w) => ` · ${esc(w)}`).join("") : " · clean"}</span>`;
+	// A non-breaking space before each dot: a line that wraps ends with the dot rather than starting with it.
+	return `<span class="pj-git" title="${esc(detail)}">⎇ ${esc(r.branch || "detached")}${warns.length ? warns.map((w) => `&nbsp;· ${esc(w)}`).join("") : "&nbsp;· clean"}</span>`;
 }
 
 function pjGoalHtml() {
@@ -128,7 +129,7 @@ function pjHeader() {
 	const inbox = navMine(pv.slug), look = typeof inboxAsks === "function" ? inboxAsks(pv.slug).look : 0;
 	// Reviews and notices go ahead by themselves: said quietly, not counted.
 	const quiet = look ? `<span title="They go ahead by themselves; look when you like">${look} to look at</span>` : "";
-	const line = [pjRepoLine(), inbox ? `<a href="#inbox/${encodeURIComponent(pv.slug)}">${inbox} in your inbox</a>` : "", quiet].filter(Boolean).join(" · ");
+	const line = [pjRepoLine(), inbox ? `<a href="#inbox/${encodeURIComponent(pv.slug)}">${inbox} in your inbox</a>` : "", quiet].filter(Boolean).join("&nbsp;· ");
 	return `<div class="pj-id">${logo(p)}<div class="pj-name"><h1>${esc(p.name)}</h1>${line ? `<div class="pj-line">${line}</div>` : ""}</div></div>
 		<div class="pj-side">${pjGoalHtml()}${pjMeters()}</div>`;
 }
@@ -156,16 +157,17 @@ function pjRunWhy(kind = pv.kind) {
 	if (typeof sendWhy !== "function") return "This board doesn't start agents.";
 	return sendWhy({ id: -1, project: pv.slug, owner: "agent", status: "todo", kind });
 }
+// Nothing but what the keys do, so the whole line is a key hint (class key-hint: it hides with the others).
 function pjComposeHint() {
 	const why = pjRunWhy();
-	return `<kbd>Enter</kbd> files it · ${why ? `<kbd>Ctrl Enter</kbd> files it, no agent: ${esc(why)}` : `<kbd>Ctrl Enter</kbd> files it and starts an agent`}`;
+	return `<kbd class="pj-k">Enter</kbd> files it · ${why ? `<kbd class="pj-k">Ctrl Enter</kbd> files it, no agent: ${esc(why)}` : `<kbd class="pj-k">Ctrl Enter</kbd> files it and starts an agent`}`;
 }
 function pjComposer() {
 	return `<form class="pj-compose" id="pj-compose" autocomplete="off">
 		<textarea id="pj-new" rows="1" maxlength="4000" placeholder="Write what needs doing…" aria-label="Write what needs doing"></textarea>
 		<div class="pj-compose-bar">
 			<div class="pj-kinds" role="radiogroup" aria-label="Kind">${PJ_KINDS.map(([k, l]) => `<button type="button" role="radio" data-kind="${k}" aria-checked="${pv.kind === k}">${kindGlyph(k)}${l}</button>`).join("")}</div>
-			<span class="pj-hint" id="pj-hint">${pjComposeHint()}</span>
+			<span class="pj-hint key-hint" id="pj-hint">${pjComposeHint()}</span>
 			<button type="button" class="ghost sm" id="pj-full" title="The full form: details, pictures, who acts, priority">More…</button>
 			<button type="submit" class="primary sm pj-send">File it</button>
 		</div></form>`;
@@ -263,7 +265,7 @@ function pjWork() {
 	}
 	if (ideas.length) {
 		const key = `pj-ideas-${pv.slug}`;
-		out.push({ key: "l-ideas", html: `<details class="pj-fold" data-key="${esc(key)}"${isOpen(key, false)}><summary><h2>Ideas</h2><span class="pj-n">${ideas.length}</span></summary><div class="pj-list" role="listbox" aria-label="Ideas" data-list="idea"></div></details>`, items: ideas, kind: "idea" });
+		out.push({ key: "l-ideas", html: `<details class="pj-fold fold" data-key="${esc(key)}"${isOpen(key, false)}><summary><h2>Ideas</h2><span class="pj-n">${ideas.length}</span></summary><div class="pj-list" role="listbox" aria-label="Ideas" data-list="idea"></div></details>`, items: ideas, kind: "idea" });
 	}
 	return out;
 }

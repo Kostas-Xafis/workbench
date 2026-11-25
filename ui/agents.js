@@ -97,7 +97,8 @@ const agShown = (lane, list) => (ag.all.has(lane) ? list : list.slice(0, matchMe
 const agOrder = () => { const v = agView(); return [...agShown("running", v.running), ...agShown("ready", v.ready), ...agShown("stuck", v.stuck), ...v.finished].map((x) => x.item.id); };
 
 const agRef = (i) => `<span class="ag-ref">wb-${esc(i.ref)}</span>`;
-const agMeta = (...bits) => `<div class="ag-meta">${bits.filter(Boolean).join('<span class="ag-sep" aria-hidden="true">·</span>')}</div>`;
+// Each bit carries the dot before it, so a line that wraps starts with a bit, not a dot (agents.css clips it).
+const agMeta = (...bits) => `<div class="ag-meta"><div class="ag-bits">${bits.filter(Boolean).map((b) => `<span class="ag-bit">${b}</span>`).join("")}</div></div>`;
 const agBranch = (b) => (b ? `<span class="ag-branch" title="${esc(b)}">${esc(b)}</span>` : "");
 const agBtn = (act, id, label, { primary = false, why = "", title = "" } = {}) =>
 	`<button type="button" class="${primary ? "primary" : "ghost"} sm" data-act="${act}" data-id="${id}"${why ? ` disabled title="${esc(why)}"` : title ? ` title="${esc(title)}"` : ""}>${esc(label)}</button>`;
@@ -175,6 +176,8 @@ function agRender() {
 	const lim = agEl.querySelector(".ag-limits");
 	lim.hidden = !d.limits.length;
 	paint(lim, d.limits.map((l) => `<p>${esc(l)}</p>`).join(""));
+	// The running dot pulses only while something runs.
+	agEl.querySelector('[data-lane="running"] h2 .ag-dot').classList.toggle("idle", !v.running.length);
 	for (const [lane, list] of Object.entries({ running: v.running, ready: v.ready, stuck: v.stuck })) {
 		const h = agEl.querySelector(`[data-lane="${lane}"] h2 i`);
 		h.textContent = list.length || "";
