@@ -105,7 +105,10 @@ import { addImage, imageData, prepareImage, removeImage, setImageCaption } from 
 import { exportStream } from "./export";
 import { mcpHttp } from "./mcp";
 import { agentsView, landItem } from "./agents";
-import { continueRun, getRun, listRuns, openInDesktop, runEvents, runPrompt, runsInfo, startRun, stopRun, testCommand, type From } from "./dispatch";
+import { checkChoices, continueRun, getRun, listRuns, moveRun, openInDesktop, runEvents, runPrompt, runsInfo, setItemChoice, startRun, stopRun, testCommand, type From } from "./dispatch";
+
+/** Bypass permissions lets an agent do anything: chosen only where the board's own settings are changed. */
+const BYPASS_LOCAL = "Bypass permissions is chosen only on the board on this computer.";
 import { refreshUsage, usageData } from "./usage";
 import { agentFiles, integratePrompt, integrateSummary } from "./integrate";
 import { setupStatus } from "./setup";
@@ -1111,9 +1114,11 @@ export function boardRoutes(h: BoardHost) {
 				const from = runFrom(req, srv);
 				if (!from) return json({ error: "agents start only from the board on this computer, or a phone paired with it" }, 403);
 				try {
-					const { item, answer, object } = await req.json();
+					const { item, answer, object, choices } = await req.json();
 					const how = answer !== undefined ? { answer: Array.isArray(answer) ? answer.map(String) : String(answer) } : object !== undefined ? { object: String(object) } : {};
-					const run = await startRun(db, itemId(String(item)), from, how);
+					const once = checkChoices(choices);
+					if (once.mode === "bypassPermissions" && from.where !== "local") return json({ error: BYPASS_LOCAL }, 403);
+					const run = await startRun(db, itemId(String(item)), from, { ...how, choices: once });
 					return json({ run, item: getItem(db, run.item_id) }, 201);
 				} catch (e) {
 					return fail(e);
@@ -1190,6 +1195,32 @@ export function boardRoutes(h: BoardHost) {
 				if (!runFrom(req, srv)) return json({ error: "runs stop only from the board on this computer, or a phone paired with it" }, 403);
 				try {
 					return json(await stopRun(db, Number(req.params.id)));
+				} catch (e) {
+					return fail(e);
+				}
+			}),
+		},
+		// Move to Claude Desktop: a run that's going stops here (as Stop), marked moved; the page opens its link.
+		"/api/runs/:id/move": {
+			POST: jsonOnly(async (req, srv) => {
+				if (!runFrom(req, srv)) return json({ error: "runs stop only from the board on this computer, or a phone paired with it" }, 403);
+				try {
+					return json(await moveRun(db, Number(req.params.id)));
+				} catch (e) {
+					return fail(e);
+				}
+			}),
+		},
+		// An item's own model, effort and mode for its runs ({ model, effort, mode }: a value, '' or null for the
+		// board's default). Whoever may start runs may set it; Bypass permissions only the board on this computer.
+		"/api/items/:id/agent": {
+			PUT: jsonOnly(async (req, srv) => {
+				const from = runFrom(req, srv);
+				if (!from) return json({ error: "an item's agent choice changes only from the board on this computer, or a phone paired with it" }, 403);
+				try {
+					const patch = await req.json();
+					if (patch?.mode === "bypassPermissions" && from.where !== "local") return json({ error: BYPASS_LOCAL }, 403);
+					return json(setItemChoice(db, itemId(req.params.id), patch));
 				} catch (e) {
 					return fail(e);
 				}

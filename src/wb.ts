@@ -6,7 +6,7 @@ import { applyDue } from "./asks";
 import { currentDay, dayData, dayPage, publishDay } from "./day";
 import { PORT } from "./server";
 import { cloudCommand, cloudFirst } from "./cloudcli";
-import { parseWb, needsComputer } from "./cliargs";
+import { parseWb, needsComputer, runChoicesOf } from "./cliargs";
 import { cliHelpers, runCli, type CliCtx } from "./cli";
 import { resolveHeaderSpecs } from "./sourceheaders";
 import { continueRun, startRun, listRuns, pollRuns, runsText, stopRun } from "./dispatch";
@@ -157,7 +157,7 @@ else
 				// Agents don't start agents: a run's own process, or an agent's shell, gets told so.
 				if (process.env.WB_RUN || process.env.CLAUDECODE)
 					die("agents don't start agents: leave it for the board (Run, or Answer & send)");
-				const r = await startRun(db, idArg(), { where: "cli", label: "wb run" });
+				const r = await startRun(db, idArg(), { where: "cli", label: "wb run" }, { choices: runChoicesOf(o) });
 				console.log(
 					`run #${r.id} started on wb-${r.ref} in ${projects(db).find((p) => p.slug === r.project)?.path}. wb runs shows how it goes; wb stop ${r.id} stops it`,
 				);

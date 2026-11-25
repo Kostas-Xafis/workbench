@@ -56,6 +56,20 @@
 .run-tail { margin: var(--sp-3) 0 0; max-height: 320px; overflow: auto; overscroll-behavior: contain; padding: var(--sp-2) 10px; border-radius: var(--r-md); background: var(--sunk); border: 1px solid var(--line);
 	font: var(--fs-11)/1.5 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; color: var(--ink); }
 
+/* What its runs start with: one quiet line, which opens three small selects. */
+.run-choice { display: flex; flex-wrap: wrap; align-items: center; gap: 6px var(--sp-2); margin-top: var(--sp-3); font-size: var(--fs-12); }
+.run-choice-btn { display: inline-flex; align-items: center; gap: 2px; border: 0; background: none; font: inherit; color: var(--muted); padding: 2px 6px; margin-left: -6px; border-radius: var(--r-sm); cursor: pointer; }
+.run-choice-btn:hover { background: var(--hover); color: var(--ink); }
+.run-choice-btn svg { width: 12px; height: 12px; transition: transform .15s; }
+.run-choice-btn[aria-expanded="true"] { color: var(--ink); }
+.run-choice-btn[aria-expanded="true"] svg { transform: rotate(180deg); }
+.run-choice-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.run-choice-sels { display: inline-flex; flex-wrap: wrap; gap: 6px; }
+.run-choice select { font: inherit; font-size: var(--fs-12); color: var(--ink); background: var(--card); border: 1px solid var(--line); border-radius: var(--r-sm); padding: 2px 6px; max-width: 100%; }
+.run-choice small { flex-basis: 100%; font-size: var(--fs-11); }
+.run-choice + .run-acts { margin-top: var(--sp-2); }
+@media (prefers-reduced-motion: reduce) { .run-choice-btn svg { transition: none; } }
+
 /* Its controls: quiet, but for the one that matters. */
 .run-acts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: var(--sp-3); }
 .run-acts .gl { width: 13px; height: 13px; margin-right: 3px; }

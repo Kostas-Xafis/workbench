@@ -201,6 +201,12 @@ export const AGENT_COMMAND =
 const FORMER_AGENT_COMMANDS = [
 	'claude -p "$WB_PROMPT" --output-format stream-json --verbose --permission-mode dontAsk --allowedTools mcp__wb --session-id "$WB_SESSION" --name "$WB_TITLE"',
 ];
+/** What a run may start with (Settings → Agents → Agents start with, and an item's own choice): Claude Code's --model
+ * aliases, its --effort levels, and the --permission-mode values a headless run can use. No "manual": a run nobody
+ * watches can't be asked, so it would refuse every tool. dispatch.ts withChoices puts them in the command. */
+export const AGENT_MODELS = ["fable", "opus", "sonnet", "haiku"] as const;
+export const AGENT_EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
+export const AGENT_MODES = ["auto", "acceptEdits", "plan", "dontAsk", "bypassPermissions"] as const;
 const AGENTS: Defs = {
 	"agents.on": { about: "The board may start agents", default: false, check: bool },
 	"agents.command": { about: "The command that starts an agent", default: AGENT_COMMAND, check: text(2000, { empty: false }) },
@@ -212,6 +218,11 @@ const AGENTS: Defs = {
 	"agents.day-dollars": { about: "No new agent once today's runs come to this many dollars at API prices", default: 0, check: int(0, 10000) },
 	"agents.phone": { about: "A paired phone may start agents", default: false, check: bool },
 	"agents.unblocked": { about: "When an agent's work is unblocked", default: "tell", check: oneOf("tell", "send") },
+	// What runs start with, unless the item has its own choice (dispatch.ts runChoices). '' = as the command says (no
+	// flag added or changed), so an untouched board runs its command as it is.
+	"agents.model": { about: "Agents start with this model ('' = as the command says)", default: "", check: oneOf("", ...AGENT_MODELS) },
+	"agents.effort": { about: "Agents start with this effort ('' = as the command says)", default: "", check: oneOf("", ...AGENT_EFFORTS) },
+	"agents.mode": { about: "Agents start in this permission mode ('' = as the command says)", default: "", check: oneOf("", ...AGENT_MODES) },
 };
 /* ---------- end: Agents ---------- */
 

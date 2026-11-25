@@ -65,6 +65,11 @@ export type Item = {
 	stale?: Stale | null;
 	/** When an agent last called the board about it (alive.ts), UTC 'YYYY-MM-DD HH:MM:SS'; NULL = never. */
 	alive_at: string | null;
+	/** What the board's agent runs on it start with (dispatch.ts runChoices): a --model alias ('' = none, as Claude
+	 * Code's default), an --effort, a --permission-mode. NULL = the board's default (Settings → Agents). */
+	agent_model?: string | null;
+	agent_effort?: string | null;
+	agent_mode?: string | null;
 	/** An agent is on it now: a live run, or a call about it in the last few minutes (alive.ts; listItems and getItem). */
 	alive?: boolean;
 	/** The link that opens its agent session in Claude Desktop (dispatch.ts desktopLink), when `session` is one (listItems and getItem). */
@@ -172,6 +177,10 @@ export function createSchema(db: Db) {
 	if (!itemCols.includes("rank")) db.run("ALTER TABLE items ADD COLUMN rank REAL");
 	// When an agent last called the board about it (alive.ts).
 	if (!itemCols.includes("alive_at")) db.run("ALTER TABLE items ADD COLUMN alive_at TEXT");
+	// What the board's agent runs on it start with (dispatch.ts runChoices): NULL = the board's default.
+	if (!itemCols.includes("agent_model")) db.run("ALTER TABLE items ADD COLUMN agent_model TEXT");
+	if (!itemCols.includes("agent_effort")) db.run("ALTER TABLE items ADD COLUMN agent_effort TEXT");
+	if (!itemCols.includes("agent_mode")) db.run("ALTER TABLE items ADD COLUMN agent_mode TEXT");
 	const linkCols = (db.query("PRAGMA table_info(links)").all() as { name: string }[]).map((c) => c.name);
 	if (!linkCols.includes("icon_url")) {
 		db.run("ALTER TABLE links ADD COLUMN icon_url TEXT NOT NULL DEFAULT ''");

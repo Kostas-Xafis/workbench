@@ -73,9 +73,12 @@ While a run goes, its card says "agent running · 4 min", and the item's agent s
 - the header: running, finished, failed or stopped, how long, what it cost at API prices, and where it ran (its worktree). With several runs on the item, #7 · #6 · #5 look at an earlier one ("continues #6").
 - the item's history gets a line when it starts and when it ends.
 
+Above its buttons, one quiet line says what the item's runs start with ("Opus · high · Auto", or "Board defaults: Auto"): see [Model, effort and mode](#model-effort-and-mode).
+
 Its buttons:
 
 - **Stop:** the agent and everything it started.
+- **Move to Claude Desktop** (while it runs, once its session is known): the agent stops here and carries on in Claude Desktop. See below.
 - **Open in Claude Desktop:** see below.
 - **Copy resume command:** `cd <folder> && claude --resume <session>`.
 - **Continue:** carry on in the same session with your message. See below.
@@ -91,6 +94,18 @@ Its buttons:
 
 **Open in Claude Desktop:** a run is a headless Claude Code session, which Claude Desktop doesn't list by itself. Once a run has ended, its `claude://resume?session=<id>` link, opened on any computer with Claude Desktop (the cloud board's too), imports the session under the item's title and opens it, to read or carry on. An item whose `session` is a Claude Code session (a UUID) or a Desktop one (`local_<uuid>`, which `start_item` records) has the link too.
 
+**Move to Claude Desktop:** on a run that's going. It stops the run the way Stop does (Claude Code ends the turn, and its transcript has everything so far), then the page opens the link above on the device it's on. The run shows "moved to Desktop": not failed, nothing to restart, and the item stays as the agent left it, since the work goes on in Desktop. The history says "Agent run #n moved to Claude Desktop after …". Desktop opens a moved session in its own default mode, which you set in Claude Desktop's settings: the board can't choose it there.
+
+### Model, effort and mode
+
+What a run starts with: Claude Code's `--model` (Fable, Opus, Sonnet, Haiku), `--effort` (low, medium, high, extra high, max) and `--permission-mode` (Auto, Accept edits, Plan only, Don't ask, Bypass permissions; no Manual, since nobody is there to answer).
+
+- **Where it comes from**, first that says: `wb run <ref> --model opus --effort high --mode plan` (that run only), the item's own choice, Settings → Agents → **Agents start with**, else the command as it is. An untouched board runs its command unchanged.
+- **The item's choice:** the line in its agent box opens three small selects; a change is saved at once and holds for every run on it from then on (Run, Answer & send, a restart, Continue, Merge it, and work sent when it's unblocked). "Board default" puts one back; "Claude Code's default" leaves the model or effort out. Bypass permissions is chosen only on the board on this computer.
+- **How it gets in the command:** word by word as the shell splits it, never inside quotes: the flag's value is replaced where the command has it, or the flag goes in right after the program. A command with more than one plain command in it (a pipe, `&&`, `;`, …) can't take them: the run is refused, saying to set them in the command itself.
+- **What a run used** shows on its line ("#12 · 5 min ago from this computer · Opus · high · Auto"), in Settings → Agents → Recent runs, `wb runs`, and the history's "Agent started" line when it differs from the command.
+- **On the cloud board** the computer runs a command with a model, an effort or a mode other than Bypass permissions put in the command it allowed, without a new OK. Bypass permissions is a command of its own there, which waits for a yes on the computer.
+
 **Tools it was refused:** a run counts the tool calls its permissions refused ("Edit ×4, Bash ×6"). The item, Settings → Agents → Recent runs and the run's end line in the history say so, and its card shows "agent refused tools" for two days.
 
 **Nothing left parked:** an item a run leaves doing, or waiting on nothing, goes back to to-do with a line saying so. One waiting on an item (a check, a decision for you) stays waiting and comes back when that's dealt with.
@@ -99,7 +114,7 @@ Its buttons:
 
 A setting: `claude -p "$WB_PROMPT" --output-format stream-json --verbose --permission-mode auto --allowedTools mcp__wb -w --session-id "$WB_SESSION" --name "$WB_TITLE"`, run with bash and your shell's PATH.
 
-- `auto` lets the agent edit files and run commands, with Claude Code's own checks refusing what looks risky (nothing is asked: nobody watches). The board's tools are always allowed.
+- `auto` lets the agent edit files and run commands, with Claude Code's own checks refusing what looks risky (nothing is asked: nobody watches). The board's tools are always allowed. A model, effort or other mode from Settings or the item goes into it as above.
 - `-w` puts it in a git worktree of its own on a new branch (`.claude/worktrees/` in the project), so your checkout isn't touched. The prompt tells it to commit there, name the branch when it finishes, and merge only if the project's rules say so.
 - For less, `--permission-mode dontAsk` allows only what your Claude Code settings already allow (`permissions.allow` in `~/.claude/settings.json` and the project's `.claude/settings.json`). `--max-budget-usd 5` caps one run.
 - The cloud board's computer helper asks for an OK on the computer before it runs a new command ([cloud.md](cloud.md)).
@@ -107,7 +122,7 @@ A setting: `claude -p "$WB_PROMPT" --output-format stream-json --verbose --permi
 
 **It outlives the board:** a run is its own process, writing to a log the board reads every 2 s. A restarted board picks the run up again. A run whose process is gone (the computer restarted, it was killed) is closed as failed.
 
-**From a terminal:** `wb run <ref>`, `wb land <ref>` (Merge it), `wb runs` (also closes runs that ended while the board was off), `wb continue <run> "message"`, `wb stop <run>`. `wb show` and `get_item` show the item's latest run.
+**From a terminal:** `wb run <ref>` (`--model`, `--effort`, `--mode` for that run; `default` for Claude Code's own model or effort), `wb land <ref>` (Merge it), `wb runs` (also closes runs that ended while the board was off), `wb continue <run> "message"`, `wb stop <run>`. `wb show` and `get_item` show the item's latest run.
 
 ## Merge it
 

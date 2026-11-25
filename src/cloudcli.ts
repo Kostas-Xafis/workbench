@@ -12,7 +12,7 @@
  * - The few that need this computer (backups, `wb day`, `wb integrate`, …) say so and what to use instead.
  */
 import { existsSync } from "node:fs";
-import { CLI_BODY_MAX, filesNamed, needsComputer, type CliReply, type CliRequest, type Opts } from "./cliargs";
+import { CLI_BODY_MAX, filesNamed, needsComputer, runChoicesOf, type CliReply, type CliRequest, type Opts } from "./cliargs";
 import { imageBytes } from "./images";
 import { cloudFetch, cloudLogin, cloudPairing, readSync, resealUp, syncOff, syncOn, type SyncConfig, type TableInfo } from "./sync";
 import { exportFileLines, exportKind, importExport, importSummary, toStdout, type ImportTarget } from "./export";
@@ -227,7 +227,7 @@ export async function cloudCommand(cmd: string, args: string[], o: Options): Pro
 			// Agents don't start agents, here as on a computer's board.
 			if (process.env.WB_RUN || process.env.CLAUDECODE) throw new Error("agents don't start agents: leave it for the board (Run, or Answer & send)");
 			if (!args[1]) throw new Error("usage: wb run <ref>");
-			const res = await cloudFetch(cfg, "/api/runs", { method: "POST", body: JSON.stringify({ item: args[1].replace(/^wb-/i, ""), from: "cli" }) });
+			const res = await cloudFetch(cfg, "/api/runs", { method: "POST", body: JSON.stringify({ item: args[1].replace(/^wb-/i, ""), from: "cli", choices: runChoicesOf(o) }) });
 			const { run } = (await res.json()) as { run: { id: number; ref: string } };
 			out(`run #${run.id} started on wb-${run.ref}, on a computer that syncs with ${cfg.url}. wb runs shows how it goes; wb stop ${run.id} stops it`);
 			return 0;

@@ -206,6 +206,40 @@ describe("import", () => {
 		expect(into.query("SELECT COUNT(*) FROM items").values()).toEqual([[3]]);
 	});
 
+	test("an item's agent choice and what runs started with go round trip; an export from before them still goes in", async () => {
+		const db = fullBoard();
+		const id = (db.query("SELECT id FROM items WHERE title = 'First'").get() as { id: number }).id;
+		db.query("UPDATE items SET agent_model = 'opus', agent_effort = '', agent_mode = 'plan' WHERE id = ?").run(id);
+		db.query("INSERT INTO runs (item_id, project, status, ended_at, choices, moved) VALUES (?, 'demo', 'stopped', datetime('now'), ?, 1)").run(id, '{"model":"opus","mode":"plan"}');
+		const into = emptyBoard();
+		const r = await importExport(lines(exported(db)), localTarget(into), { schema: into });
+		expect(r.left).toEqual([]);
+		expect(r.rows.runs).toBe(1);
+		expect(contents(into)).toEqual(contents(db));
+		expect(into.query("SELECT agent_model, agent_effort, agent_mode FROM items WHERE id = ?").get(id)).toEqual({ agent_model: "opus", agent_effort: "", agent_mode: "plan" });
+		// An export made before those columns: the same file without them goes in, its items on the board's defaults.
+		const older = lines(exported(db)).map((line) => {
+			const o = JSON.parse(line);
+			const drop = (t: string, names: string[]) => {
+				const cols = o.tables?.find((x: { name: string }) => x.name === t)?.columns as string[] | undefined;
+				if (cols) for (const n of names) cols.splice(cols.indexOf(n), 1);
+			};
+			drop("items", ["agent_model", "agent_effort", "agent_mode"]);
+			drop("runs", ["choices", "moved"]);
+			return o;
+		});
+		const header = older[0];
+		const at = (t: string, names: string[]) => names.map((n) => (JSON.parse(lines(exported(db))[0]).tables.find((x: { name: string }) => x.name === t).columns as string[]).indexOf(n));
+		const gone = { items: at("items", ["agent_model", "agent_effort", "agent_mode"]), runs: at("runs", ["choices", "moved"]) };
+		const text = [header, ...older.slice(1).map((o) => (o.t in gone ? { ...o, r: o.r.filter((_: unknown, n: number) => !gone[o.t as keyof typeof gone].includes(n)) } : o))].map((o) => JSON.stringify(o));
+		const old = emptyBoard();
+		const back = await importExport(text, localTarget(old), { schema: old });
+		expect(back.left).toEqual([]);
+		expect(back.rows.items).toBe(3);
+		expect(old.query("SELECT agent_model, agent_effort, agent_mode FROM items WHERE id = ?").get(id)).toEqual({ agent_model: null, agent_effort: null, agent_mode: null });
+		expect(old.query("SELECT choices, moved FROM runs").get()).toEqual({ choices: "", moved: 0 });
+	});
+
 	test("lines are read across chunks, a long one joined once", async () => {
 		const enc = new TextEncoder();
 		const chunks = ["ab", "c\nd", "", "e\n\nf", "x".repeat(10), "\n", "last"].map((s) => enc.encode(s));

@@ -23,12 +23,12 @@ const RUN_ASKS = ["decision", "review", "notice"];
 async function runsLoad() {
 	try {
 		const info = await api("/api/runs");
-		const before = JSON.stringify(runs.info?.active ?? []) + JSON.stringify(runs.info?.runs?.[0] ?? null);
+		const before = JSON.stringify(runs.info?.active ?? []) + JSON.stringify(runs.info?.runs?.[0] ?? null) + JSON.stringify(runs.info?.starts ?? null);
 		runs.info = info;
 		// The newest run per item: the ones still going first.
 		runs.byItem = new Map();
 		for (const r of [...info.active, ...info.runs]) if (!runs.byItem.has(r.item_id)) runs.byItem.set(r.item_id, r);
-		if (before !== JSON.stringify(info.active) + JSON.stringify(info.runs[0] ?? null)) {
+		if (before !== JSON.stringify(info.active) + JSON.stringify(info.runs[0] ?? null) + JSON.stringify(info.starts ?? null)) {
 			redraw();
 			if (settings.tab === "agents" && !$("#settings-view").hidden) renderSettings();
 		}
@@ -83,15 +83,46 @@ async function stopAgent(runId) {
 	return r;
 }
 
+/** Move to Claude Desktop: stops the run here (as Stop), marked moved, then opens its session in Claude Desktop on this
+ * device (the claude:// link imports it). Returns the run. */
+async function moveAgent(runId) {
+	const r = await api(`/api/runs/${runId}/move`, { method: "POST", body: "{}" });
+	if (r.desktop) {
+		const a = document.createElement("a");
+		a.href = r.desktop;
+		a.click();
+	}
+	await runsLoad();
+	return r;
+}
+
 /* Words and bits shared by the reader and Settings. */
 const RUN_WORD = { running: "running", done: "done", failed: "failed", stopped: "stopped" };
+const runWord = (r) => (r.moved ? "moved to Desktop" : RUN_WORD[r.status]);
+
+/* What runs start with: a model, an effort, a permission mode (dispatch.ts Choices). Settings → Agents has the board's;
+   an item can have its own (the reader's choice line), and wb run --model … one run's. */
+const CH_MODEL = [["fable", "Fable"], ["opus", "Opus"], ["sonnet", "Sonnet"], ["haiku", "Haiku"]];
+const CH_EFFORT = [["low", "low"], ["medium", "medium"], ["high", "high"], ["xhigh", "extra high"], ["max", "max"]];
+const CH_MODE = [["auto", "Auto"], ["acceptEdits", "Accept edits"], ["plan", "Plan only"], ["dontAsk", "Don't ask"], ["bypassPermissions", "Bypass permissions"]];
+const CH_LISTS = { model: CH_MODEL, effort: CH_EFFORT, mode: CH_MODE };
+const chWord = (k, v) => (v ? CH_LISTS[k].find(([x]) => x === v)?.[1] ?? v : "");
+/** What a run starts with when the item says nothing: Settings' choice, else what the command says ('' for neither). */
+const boardChoice = (k) => { const s = runs.info?.starts; return s ? s.board[k] || s.command[k] || "" : ""; };
+/** The item's own choice for `k` (a value, '' for Claude Code's default), or null: the board's. */
+const ownChoice = (i, k) => (i?.[`agent_${k}`] ?? null);
+const itemChoice = (i, k) => ownChoice(i, k) ?? boardChoice(k);
+const hasOwnChoice = (i) => ["model", "effort", "mode"].some((k) => ownChoice(i, k) !== null);
+/** "Opus · high · Auto". */
+const choiceText = (get) => ["model", "effort", "mode"].map((k) => chWord(k, get(k))).filter(Boolean).join(" · ");
 // What its tokens come to at Claude API list prices: real money on API credits, plan usage on a subscription.
 const runCost = (r) => (r.cost != null ? `$${r.cost.toFixed(2)} at API prices` : "");
 const runFolder = (i) => state.allProjects.find((p) => p.slug === i.project)?.path ?? "its folder";
 
 /* ---------- In the reader: the agent's side of the item (the contract is at the top of this file) ---------- */
 // The run box: a header (state, how long, what it cost, where it ran, a switcher between the item's runs), what the
-// agent said and did (GET /api/runs/:id/events, followed every 2 s while it runs), and the controls: Stop, Open in
+// agent said and did (GET /api/runs/:id/events, followed every 2 s while it runs), the item's choice line (what its
+// runs start with), and the controls: Stop, Move to Claude Desktop (while it runs), Open in
 // Claude Desktop (a claude:// link the page opens itself, so the cloud board's too), Copy the resume command, Tell
 // the agent… (which turns on "send to the agent" in the reader's reply box: the conversation is that one box) and
 // Run again.
@@ -107,9 +138,9 @@ Object.assign(GLYPH, {
 const RUN_SHOWN = 12;
 const RUN_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 // What the panel knows about the item it shows: its runs (newest first), the one picked, each one's events.
-const runView = { item: 0, list: null, sel: 0, ev: new Map(), all: new Set(), busy: false };
+const runView = { item: 0, list: null, sel: 0, ev: new Map(), all: new Set(), busy: false, choice: false };
 function rvFor(id) {
-	if (runView.item !== id) Object.assign(runView, { item: id, list: null, sel: 0, ev: new Map(), all: new Set() });
+	if (runView.item !== id) Object.assign(runView, { item: id, list: null, sel: 0, ev: new Map(), all: new Set(), choice: false });
 	return runView;
 }
 /** The item's runs, newest first: what the panel loaded, else the newest the board knows of. */
@@ -174,7 +205,8 @@ function restartKind(i) {
 	if (!i?.id || i.owner !== "agent" || i.kind === "idea" || !OPEN.includes(i.status) || runLive(i)) return "";
 	if (i.status === "todo") return "run";
 	const last = runsOf(i)[0];
-	const broke = !!last?.ended_at && ["failed", "stopped"].includes(last.status);
+	// A run moved to Claude Desktop goes on there: nothing to restart.
+	const broke = !!last?.ended_at && !last.moved && ["failed", "stopped"].includes(last.status);
 	if (i.status === "doing" && (broke || i.stale?.why === "stalled")) return "restart";
 	if (i.status === "waiting" && broke && !(i.waits_on?.length ?? i.waiting_on)) return "restart";
 	return "";
@@ -227,23 +259,49 @@ function feedHtml(r) {
 function headHtml(item, r, list) {
 	const live = !r.ended_at;
 	const state = live ? `<span class="run-chip running">running · ${esc(took(r.started_at))}</span>`
-		: `<span class="run-chip ${r.status}">${r.status === "done" ? "finished" : RUN_WORD[r.status]}</span>`;
+		: `<span class="run-chip ${r.moved ? "moved" : r.status}">${r.status === "done" ? "finished" : runWord(r)}</span>`;
 	const facts = [!live && took(r.started_at, r.ended_at), runCost(r)].filter(Boolean).join(" · ");
 	const where = runWhere(r);
 	const pick = list.length > 1 ? `<span class="run-pick" role="group" aria-label="The item's runs">${list.slice(0, 6).map((x) => `<button type="button" class="${x.id === r.id ? "on" : ""}${x.ended_at ? "" : " live"}" data-run-pick="${x.id}" title="${esc(`${RUN_WORD[x.status]} · ${ago(x.started_at)}`)}"${x.id === r.id ? ' aria-current="true"' : ""}>#${x.id}</button>`).join("")}</span>` : "";
 	return `<div class="run-top"><h3>Agent</h3>${state}${facts ? `<span class="run-muted">${esc(facts)}</span>` : ""}${where ? `<code class="run-where" title="${esc(r.cwd)}">${esc(where)}</code>` : ""}<span class="spacer"></span>${pick}</div>
-		<div class="run-sub">${esc([`#${r.id}`, r.continues && `continues #${r.continues}`, `${ago(r.started_at)} from ${r.started_from}`].filter(Boolean).join(" · "))}</div>`;
+		<div class="run-sub">${esc([`#${r.id}`, r.continues && `continues #${r.continues}`, `${ago(r.started_at)} from ${r.started_from}`, r.uses].filter(Boolean).join(" · "))}</div>`;
+}
+/* The item's choice line: what its runs start with, in one quiet line that opens three small selects. Changing one
+   saves it on the item at once (PUT /api/items/:id/agent): it holds for every run on it from then on. */
+function choiceHtml(item) {
+	if (!runs.info?.starts || !item?.id) return "";
+	const own = hasOwnChoice(item);
+	const now = choiceText((k) => itemChoice(item, k));
+	const text = own ? now || "Claude Code's defaults" : `Board defaults${now ? `: ${now}` : ""}`;
+	const open = runView.item === item.id && runView.choice;
+	const line = `<button type="button" class="run-choice-btn" data-run-choice aria-expanded="${open}" title="What this item's agent runs start with: the model, the effort and the permission mode">${esc(text)}<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" aria-hidden="true"><g stroke-width="1.6"><path d="m5 6.5 3 3 3-3"/></g></svg></button>`;
+	if (!open) return `<div class="run-choice">${line}</div>`;
+	const sel = (k, label, extra) => {
+		const v = ownChoice(item, k);
+		// "" in the select: the board's default (null); "-": Claude Code's own (no flag).
+		const cur = v === null ? "" : v === "" ? "-" : v;
+		const board = chWord(k, boardChoice(k));
+		const opts = [["", `${label} · board default${board ? ` (${board})` : ""}`], ...extra, ...CH_LISTS[k].filter(([x]) => x !== "bypassPermissions" || OWNER || cur === x)];
+		return `<select data-run-ch="${k}" aria-label="${label}">${opts.map(([x, t]) => `<option value="${esc(x)}"${x === cur ? " selected" : ""}>${esc(t)}</option>`).join("")}</select>`;
+	};
+	const hint = (itemChoice(item, "mode") === "bypassPermissions" ? "Bypass permissions: the agent may do anything, with no checks. " : "") + "For every run on this item, from the next one on.";
+	return `<div class="run-choice open">${line}<span class="run-choice-sels">${sel("model", "Model", [["-", "Claude Code's default"]])}${sel("effort", "Effort", [["-", "Claude Code's default"]])}${sel("mode", "Mode", [])}</span><small class="run-muted">${esc(hint)}</small></div>`;
 }
 function actsHtml(item, r) {
 	const b = [];
 	const live = r && !r.ended_at;
 	if (live) b.push(`<button type="button" class="ghost sm danger" data-run-stop="${r.id}">Stop</button>`);
+	// While it runs, with its session known: stop it here and carry on in Claude Desktop.
+	if (live && RUN_UUID.test(r.session || "")) b.push(`<button type="button" class="ghost sm" data-run-move="${r.id}" title="Stops the agent here and carries on with it in Claude Desktop on this device: the session opens there with everything it did so far">Move to Claude Desktop</button>`);
 	const newest = r && runsOf(item)[0]?.id === r.id;
+	// Moved to Claude Desktop: it goes on there, so opening it there comes first.
+	const desk = r?.desktop ? `<a class="${r.moved && newest ? "primary" : "ghost"} sm btn" href="${esc(r.desktop)}" title="Opens the session in Claude Desktop on this computer (it shows in its sidebar from then on)">Open in Claude Desktop</a>` : "";
+	if (desk && r.moved) b.push(desk);
 	if (r && newest && !live && RUN_UUID.test(r.session || "")) {
 		const why = continueWhy(item);
-		b.push(`<button type="button" class="${why ? "ghost" : "primary"} sm" data-run-tell${why ? ` disabled title="${esc(why)}"` : ' title="Write to the agent in the box below: it carries on in the same session"'}>Tell the agent…</button>`);
+		b.push(`<button type="button" class="${why || r.moved ? "ghost" : "primary"} sm" data-run-tell${why ? ` disabled title="${esc(why)}"` : ' title="Write to the agent in the box below: it carries on in the same session"'}>Tell the agent…</button>`);
 	}
-	if (r?.desktop) b.push(`<a class="ghost sm btn" href="${esc(r.desktop)}" title="Opens the session in Claude Desktop on this computer (it shows in its sidebar from then on)">Open in Claude Desktop</a>`);
+	if (desk && !r.moved) b.push(desk);
 	if (r?.session) b.push(`<button type="button" class="ghost sm" data-run-copy="${esc(`${r.cwd ? `cd ${shq(r.cwd)} && ` : ""}claude --resume ${r.session}`)}" title="To carry on in a terminal">Copy resume command</button>`);
 	const again = restartKind(item);
 	if (again) {
@@ -261,13 +319,13 @@ function runPanel(item) {
 	if (!r) {
 		if (!runs.info?.on || !restartKind(item)) return "";
 		const why = restartWhy(item);
-		return `<div class="run-box"><div class="run-top"><h3>Agent</h3></div>${actsHtml(item, null)}<p class="run-muted run-hint">${esc(why || `Starts Claude Code on it in ${runFolder(item)}, headless: it reads the item, works it, and finishes it or files what it needs from you and waits.`)}</p></div>`;
+		return `<div class="run-box"><div class="run-top"><h3>Agent</h3></div>${choiceHtml(item)}${actsHtml(item, null)}<p class="run-muted run-hint">${esc(why || `Starts Claude Code on it in ${runFolder(item)}, headless: it reads the item, works it, and finishes it or files what it needs from you and waits.`)}</p></div>`;
 	}
 	const list = runsOf(item);
 	return `<div class="run-box">${headHtml(item, r, list)}
 		${r.error ? `<p class="run-err">${esc(r.error)}</p>` : ""}
 		${r.refused ? `<p class="run-err">Its permissions refused ${esc(r.refused)}. What a run may do is in Settings → Agents → The command.</p>` : ""}
-		${feedHtml(r)}${actsHtml(item, r)}</div>`;
+		${feedHtml(r)}${choiceHtml(item)}${actsHtml(item, r)}</div>`;
 }
 
 /* Drawing it again in place, following what it does while it runs. */
@@ -278,6 +336,8 @@ function runPanelDraw() {
 	const atEnd = !old || old.scrollHeight - old.scrollTop - old.clientHeight < 30;
 	const top = old?.scrollTop ?? 0;
 	const html = runPanel(p.item);
+	// Not while one of the choice line's selects is in use: it would close under the pointer. The next look draws it.
+	if (p.el.contains(document.activeElement) && document.activeElement.matches("select")) return;
 	if (p.el._html !== html) { p.el.innerHTML = html; p.el._html = html; }
 	const feed = p.el.querySelector(".run-feed, .run-tail");
 	// It follows the bottom, unless you scrolled up in it.
@@ -326,6 +386,7 @@ function wireRunPanel(el, item) {
 	clearTimeout(runs.timer);
 	const v = rvFor(item.id);
 	el.addEventListener("click", (e) => runPanelClick(e, p));
+	el.addEventListener("change", (e) => runChoiceChange(e, p));
 	runPanelDraw();
 	// The item's runs (with their output), once per item; then what they did.
 	// (A copy: api() hands back the very object it cached.)
@@ -348,6 +409,20 @@ async function runPanelClick(e, p) {
 		return;
 	}
 	if (q("[data-run-tell]")) { if (typeof readerTellAgent === "function") readerTellAgent(p.item.id); return; }
+	if (q("[data-run-choice]")) { rvFor(p.item.id).choice = !runView.choice; return runPanelDraw(); }
+	const move = q("[data-run-move]");
+	if (move) {
+		move.disabled = true;
+		move.textContent = "Moving…";
+		try {
+			const r = await moveAgent(move.dataset.runMove);
+			rvTake(r);
+			toast(r.desktop ? "Moved: it opens in Claude Desktop. If it doesn't, Open in Claude Desktop is here." : "Stopped, but it has no session to open in Claude Desktop.");
+			if (typeof readerRefresh === "function") readerRefresh(p.item.id);
+		} catch (err) { toast(err.message); }
+		runPanelDraw();
+		return;
+	}
 	const stop = q("[data-run-stop]");
 	const start = q("[data-run-start]");
 	if (!stop && !start) return;
@@ -368,6 +443,21 @@ async function runPanelClick(e, p) {
 		runPanelPoll(p);
 	} catch (err) { toast(err.message); runPanelDraw(); }
 }
+/** A select of the choice line changed: saved on the item at once. */
+async function runChoiceChange(e, p) {
+	const sel = e.target.closest("[data-run-ch]");
+	if (!sel) return;
+	const k = sel.dataset.runCh;
+	const value = sel.value === "" ? null : sel.value === "-" ? "" : sel.value;
+	sel.blur();
+	try {
+		const i = await api(`/api/items/${p.item.id}/agent`, { method: "PUT", body: JSON.stringify({ [k]: value }) });
+		for (const key of ["agent_model", "agent_effort", "agent_mode"]) p.item[key] = i[key] ?? null;
+		toast(`This item's agent runs start with ${choiceText((x) => itemChoice(i, x)) || "Claude Code's defaults"}`);
+		loadItems();
+	} catch (err) { toast(err.message); }
+	runPanelDraw();
+}
 hooks.readerClosed.push(() => { clearTimeout(runs.timer); runs.panel = null; });
 
 /* ---------- Settings → Agents ---------- */
@@ -378,9 +468,33 @@ function runRow(r) {
 	const howLong = r.ended_at ? `after ${took(r.started_at, r.ended_at)}` : `for ${took(r.started_at)}`;
 	return `<div class="so-wide run-row"><div class="run-row-main">
 		<button type="button" class="run-link" data-run-item="${r.item_id}"><code>wb-${esc(r.ref)}</code> ${esc(r.title)}</button>
-		<small>${esc([`#${r.id}`, ago(r.started_at), `from ${r.started_from}`, howLong, runCost(r), r.error, r.refused && `refused ${r.refused}`].filter(Boolean).join(" · "))}</small></div>
-		<span class="run-chip ${r.status}">${RUN_WORD[r.status]}</span>
+		<small>${esc([`#${r.id}`, ago(r.started_at), `from ${r.started_from}`, howLong, r.uses, runCost(r), r.error, r.refused && `refused ${r.refused}`].filter(Boolean).join(" · "))}</small></div>
+		<span class="run-chip ${r.moved ? "moved" : r.status}">${runWord(r)}</span>
 		${r.ended_at ? "" : `<button type="button" class="ghost sm danger" data-run-stop-set="${r.id}">Stop</button>`}</div>`;
+}
+/** Settings → Agents → Agents start with: the board's model, effort and mode. '' (the setting's default) is "as the
+ * command says": its option is named after what the command says, so an untouched board shows what it runs with. */
+function startsWithGroup(off) {
+	const cmd = runs.info?.starts?.command ?? {};
+	const opts = (k, none) => {
+		const said = cmd[k];
+		const known = CH_LISTS[k].some(([x]) => x === said);
+		// The command's own value stands for '' (as the command says), so it isn't offered twice.
+		return [[ "", said ? `${chWord(k, said)} (as the command says)` : none ], ...CH_LISTS[k].filter(([x]) => !(known && x === said))];
+	};
+	const splits = runs.info?.starts?.splits !== false;
+	const cant = splits ? "" : " <b>Your command has more than one plain command in it, so the board can't put these in it: set them in the command itself.</b>";
+	return optGroup("Agents start with", [
+		optRow({ label: "Model", hint: "Fable, Opus, Sonnet or Haiku, as Claude Code names them. An item can have its own, in its agent box.", bind: { setting: "agents.model" }, control: ctlSelect({ setting: "agents.model" }, opts("model", "Claude Code's default"), { label: "Model agents start with" }), off }),
+		optRow({ label: "Effort", hint: "How hard it thinks: more is slower and uses more of your plan.", bind: { setting: "agents.effort" }, control: ctlSelect({ setting: "agents.effort" }, opts("effort", "Claude Code's default"), { label: "Effort agents start with" }), off }),
+		optRow({
+			label: "Mode",
+			hint: `What it may do while nobody watches. <b>Auto</b>: edits files and runs commands; Claude Code's own checks refuse what looks risky. <b>Accept edits</b>: edits files; runs only the commands your Claude Code settings allow. <b>Plan only</b>: reads and plans, changes nothing. <b>Don't ask</b>: only what your Claude Code settings allow. <b>Bypass permissions</b>: anything at all, with no checks${CLOUD ? "; the computer that runs it asks you first" : ""}. There's no Manual: nobody is there to answer.${cant}`,
+			bind: { setting: "agents.mode" },
+			control: ctlSelect({ setting: "agents.mode" }, opts("mode", "As the command says"), { label: "Mode agents start in" }),
+			off,
+		}),
+	], "Every run starts with these, unless its item has its own choice. Claude Desktop opens a moved session in its own default mode, which you set in Claude Desktop's settings.");
 }
 function runsSettings() {
 	const info = runs.info;
@@ -396,6 +510,7 @@ function runsSettings() {
 			optRow({ label: "From a paired phone too", hint: "Off: a phone can answer, but only this computer starts agents.", bind: { setting: "agents.phone" }, control: ctlToggle({ setting: "agents.phone" }, { label: "A paired phone may start agents" }), off }),
 			optRow({ label: "When an agent's work is unblocked", hint: "Work that waited on your answer, or on another item, can carry on. <b>Tell me</b>: a notification (Notifications → An agent can carry on), and Run on its row in the project's page. <b>Send it</b>: the board starts the agent on it by itself, within the limits below.", bind: { setting: "agents.unblocked" }, control: ctlRadios({ setting: "agents.unblocked" }, [["tell", "Tell me"], ["send", "Send it"]], { label: "When an agent's work is unblocked" }), off }),
 		])}
+		${startsWithGroup(off)}
 		${optGroup("Limits", [
 			optRow({ label: "At once, at most", hint: `${info.running} running now.`, bind: { setting: "agents.at-once" }, control: ctlNumber({ setting: "agents.at-once" }, { min: 1, max: 10, unit: "agents", label: "Agents running at once, at most" }), off }),
 			optRow({ label: "Per day, at most", hint: `${info.today} started today. A day starts at ${String(setting("day.start")).padStart(2, "0")}:00 (Settings → About → You).`, bind: { setting: "agents.per-day" }, control: ctlNumber({ setting: "agents.per-day" }, { min: 1, max: 200, unit: "agents", label: "Agents started per day, at most" }), off }),
