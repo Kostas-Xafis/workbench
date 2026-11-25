@@ -80,9 +80,11 @@ summary::-webkit-details-marker { display: none; }
 .fold > summary::before { content: ""; flex: none; width: 0; height: 0; border-left: 4.5px solid currentColor; border-top: 4px solid transparent; border-bottom: 4px solid transparent;
 	opacity: .55; transition: transform .12s; }
 .fold[open] > summary::before { transform: rotate(90deg); }
-.primary { background: var(--accent); color: var(--accent-ink); border: 0; border-radius: var(--r-md); padding: 6px var(--sp-4); font-weight: 600; }
+/* A primary button has a clear border so it's as tall as a ghost one beside it, small or not. */
+.primary { background: var(--accent); color: var(--accent-ink); border: 1px solid transparent; border-radius: var(--r-md); padding: 5px 15px; font-weight: 600; }
 .ghost { background: transparent; border: 1px solid var(--line); border-radius: var(--r-md); padding: 5px var(--sp-3); }
 .sm { font-size: var(--fs-12); padding: 3px 10px; text-decoration: none; color: var(--ink); white-space: nowrap; }
+.primary.sm { color: var(--accent-ink); }
 .ghost:hover { background: var(--hover); }
 .icon-btn { border: 0; background: transparent; border-radius: var(--r-md); width: 28px; height: 28px; display: grid; place-items: center; color: var(--muted); padding: 0; flex: none; }
 .icon-btn:hover, .icon-btn[aria-pressed="true"] { background: var(--hover); color: var(--ink); }
@@ -90,3 +92,11 @@ summary::-webkit-details-marker { display: none; }
 .icon-btn svg { width: 16px; height: 16px; }
 .hint { font-size: var(--fs-12); color: var(--muted); }
 .spacer { flex: 1; }
+/* Key hints: the keys on buttons and in hint lines (Done M, the Inbox's J K line, Ctrl K in the search box). Hidden
+   unless Settings → About → Look shows them (html.no-keys, set in index.html's <head> before the first paint), and
+   always on a phone. The shortcuts work either way, and Look's list of them always shows. A choice keeps its number. */
+html.no-keys :is(.search-wrap kbd, kbd.ib-k, .ib-hint, kbd.pj-k, .key-hint, kbd.rd-k:not(.rd-choice > kbd), .rd-keyhint, .rd-muted:has(> kbd.rd-k)) { display: none; }
+html.no-keys #search { padding-right: 10px; }
+@media (max-width: 760px) {
+	html :is(.search-wrap kbd, kbd.ib-k, .ib-hint, kbd.pj-k, .key-hint, kbd.rd-k:not(.rd-choice > kbd), .rd-keyhint, .rd-muted:has(> kbd.rd-k)) { display: none; }
+}

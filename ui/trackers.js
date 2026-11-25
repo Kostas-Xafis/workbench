@@ -5,7 +5,7 @@
 const LOCAL = !CLOUD && ["localhost", "127.0.0.1", "[::1]"].includes(location.hostname);
 const TRK_ADD = `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-linecap="round"><g stroke-width="1.4"><path d="M2 12.5a6 6 0 0 1 9.4-4.95"/><path d="M8 12.5l2.2-3.3"/><path d="M12.5 10v5M10 12.5h5"/></g></svg>`;
 const EVERY = [[300, "5 min"], [900, "15 min"], [1800, "30 min"], [3600, "1 hour"], [10800, "3 hours"], [21600, "6 hours"], [43200, "12 hours"], [86400, "1 day"], [0, "Only when asked"]];
-const SERIES = ["var(--accent)", "var(--review)", "var(--decision)", "var(--check)", "var(--setup)"];
+const SERIES = ["var(--accent)", "var(--review)", "var(--decision)", "var(--check)", "var(--bug)"];
 const fmtNum = (n) => Number(n).toLocaleString("en-US", { maximumFractionDigits: 2 });
 const CURRENCY = ["$", "€", "£"];
 const unitOf = (u) => !u || CURRENCY.includes(u) ? "" : u === "%" ? "%" : ` ${u}`;
@@ -118,10 +118,12 @@ function showTrackerView() {
 	$("#tv-record").hidden = !manual;
 	if (manual) $("#tv-reading").value = ms.map((m) => m.value == null ? `${m.label ? `${m.label}: ` : ""}${m.text ?? ""}` : `${m.label ? `${m.label} ` : ""}${m.value}${m.max != null && m.max !== t.max ? `/${m.max}` : ""}`).join("\n");
 	const last = t.history?.at(-1);
-	const how = manual ? "Manual" : t.kind === "command" ? `Runs <code>${esc(t.command)}</code>` : esc(trkPresets?.[t.kind]?.title ?? t.kind) + (Object.keys(t.options).length ? ` (${esc(Object.entries(t.options).map(([k, v]) => `${k} ${v}`).join(", "))})` : "");
+	// A command goes under the line, a few lines high at most: it can be a whole script (Edit shows it all).
+	const cmd = t.kind === "command";
+	const how = manual ? "Manual" : cmd ? "Runs a command" : esc(trkPresets?.[t.kind]?.title ?? t.kind) + (Object.keys(t.options).length ? ` (${esc(Object.entries(t.options).map(([k, v]) => `${k} ${v}`).join(", "))})` : "");
 	const read = manual ? (t.read_at ? `recorded ${ago(t.read_at)}${last?.author ? ` by ${esc(last.author)}` : ""}` : "")
 		: [everyText(t.every), t.read_at ? `read ${ago(t.read_at)}` : "", t.due_at && t.every ? `next ${parseTime(t.due_at) > Date.now() ? when(t.due_at) : "soon"}` : ""].filter(Boolean).join(" · ");
-	$("#tv-source").innerHTML = [how, read].filter(Boolean).join(" · ");
+	$("#tv-source").innerHTML = [how, read].filter(Boolean).join(" · ") + (cmd ? `<code class="tv-cmd">${esc(t.command)}</code>` : "");
 	$("#tv-refresh").hidden = manual;
 	$("#tv-err").textContent = "";
 }

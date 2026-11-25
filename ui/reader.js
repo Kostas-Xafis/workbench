@@ -23,7 +23,7 @@ const rdKey = (k) => `<kbd class="rd-k">${esc(k)}</kbd>`;
 /** A property: its label above its value. */
 const readerProp = (label, value, cls = "") => `<div class="rd-prop${cls ? ` ${cls}` : ""}"><span class="rd-label">${label}</span>${value}</div>`;
 const rdSelect = (field, options, value, label) => `<select class="rd-val" data-field="${field}" aria-label="${esc(label)}">${options.map(([v, l]) => `<option value="${esc(v)}"${String(v) === String(value ?? "") ? " selected" : ""}>${esc(l)}</option>`).join("")}</select>`;
-const rdInput = (field, value, label, more = "") => `<input class="rd-val" data-field="${field}" value="${esc(value ?? "")}" aria-label="${esc(label)}" placeholder="—" spellcheck="false"${more}>`;
+const rdInput = (field, value, label, more = "", ph = "—") => `<input class="rd-val" data-field="${field}" value="${esc(value ?? "")}" aria-label="${esc(label)}" placeholder="${esc(ph)}" spellcheck="false"${more}>`;
 const rdAuthor = (a) => a === "kostas" || a === "web" ? rdName() : a === "agent" ? "Agent" : a === "import" ? "Imported" : RD_SYSTEM.has(a) ? "Board" : a || "Someone";
 const rdMine = (a) => a === "kostas" || a === "web";
 const asDataUrl = (file) => new Promise((ok, no) => {
@@ -77,8 +77,12 @@ const RD_PROPS = [
 	{ order: 80, html: (i, r) => {
 		if (r.compose) return "";
 		// The server's link (a Claude Code or a Desktop session, dispatch.ts desktopLink), opened by the page itself.
-		const href = i.desktop || sessionHref(i.session || "");
-		return readerProp("Session", rdInput("session", i.session, "Session") + (href ? `<a class="rd-small" href="${esc(href)}" title="Opens the session in Claude Desktop on this computer">Open in Claude Desktop</a>` : ""));
+		// The field is the session an agent recorded on the item (start_item); the board's own runs keep theirs on the
+		// run, so with none recorded it shows the newest run's, greyed (dispatch.js runsOf), and that run's link.
+		const run = !i.session && typeof runsOf === "function" ? runsOf(i).find((x) => x.session) : null;
+		const href = i.desktop || sessionHref(i.session || "") || run?.desktop || "";
+		const more = run ? ` title="${esc(`From its run of ${ago(run.started_at)}`)}"` : "";
+		return readerProp("Session", rdInput("session", i.session, "Session", more, run?.session) + (href ? `<a class="rd-small" href="${esc(href)}" title="Opens the session in Claude Desktop on this computer">Open in Claude Desktop</a>` : ""));
 	} },
 	// A decision's choices, one per line.
 	{ order: 85, html: (i) => i.kind !== "decision" ? "" : readerProp("Choices", `<textarea class="rd-val" data-field="options" rows="${Math.max(2, optionsOf(i).length)}" placeholder="One per line" aria-label="Choices, one per line">${esc(optionsOf(i).join("\n"))}</textarea>`) },
@@ -121,6 +125,13 @@ function createReader(host, opts = {}) {
 		<input type="file" class="rd-file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden>`;
 	const scroller = $(".rd-scroll", host);
 	const fileInput = $(".rd-file", host);
+	// On a phone an ask's choices dock at the bottom (inbox.css). A list of them taller than half the screen would
+	// cover the brief, so it stays where it is (rd-act-tall). Measured by its sections, which the docking doesn't size.
+	const actionBox = $('[data-slot="action"]', host);
+	new ResizeObserver(() => {
+		const h = [...actionBox.children].reduce((n, c) => n + c.offsetHeight, 0);
+		host.classList.toggle("rd-act-tall", h > scroller.clientHeight / 2);
+	}).observe(actionBox);
 
 	/* Drawing. Each part is redrawn only when its markup changed, and never while you type in it, so a refresh
 	   from the server doesn't take your cursor or your words. */
@@ -192,7 +203,7 @@ function createReader(host, opts = {}) {
 		if (r.compose || r.briefEdit) {
 			const hint = r.compose ? "Markdown. Paste or drop pictures anywhere here." : `${rdKey("Ctrl")} ${rdKey("Enter")} or click away to save · ${rdKey("Esc")} to put it back`;
 			return `<textarea class="rd-brief-edit" data-rd-brief data-keep="brief-${i.id ?? "new"}" placeholder="Steps, context, links (markdown)" aria-label="Details">${esc(i.body ?? "")}</textarea>
-				<div class="rd-tools"><span class="rd-muted">${hint}</span><span class="spacer"></span><button type="button" class="rd-link" data-rd-add-image>Add image</button></div>`;
+				<div class="rd-tools"><span class="rd-muted${r.compose ? "" : " rd-keyhint"}">${hint}</span><span class="spacer"></span><button type="button" class="rd-link" data-rd-add-image>Add image</button></div>`;
 		}
 		if (i.body === undefined) return `<div class="rd-brief rd-muted">Loading the details…</div>`;
 		const body = i.body.trim() ? `<div class="rd-brief rd-md">${md(i.body)}</div>` : `<div class="rd-brief rd-muted">No details.</div>`;
@@ -206,7 +217,7 @@ function createReader(host, opts = {}) {
 		return saved.length || pending.length ? `<div class="rd-images">${[...saved, ...pending].join("")}</div>` : "";
 	}
 	function quietHtml(i) {
-		if (r.compose) return `<div class="rd-quiet rd-create"><button type="button" class="primary" data-rd-create>Create</button><button type="button" class="rd-link" data-rd-cancel>Cancel</button><span class="rd-muted">${rdKey("Ctrl")} ${rdKey("Enter")} creates it</span></div>`;
+		if (r.compose) return `<div class="rd-quiet rd-create"><button type="button" class="primary" data-rd-create>Create</button><button type="button" class="rd-link" data-rd-cancel>Cancel</button><span class="rd-muted rd-keyhint">${rdKey("Ctrl")} ${rdKey("Enter")} creates it</span></div>`;
 		if (!i.id || !OPEN.includes(i.status)) return "";
 		const b = (what, label, key, title) => `<button type="button" class="rd-q" data-rd-act="${what}" title="${esc(title)}">${label} ${rdKey(key)}</button>`;
 		if (r.later) return `<div class="rd-quiet rd-later"><span class="rd-muted">Out of the queue until</span>
@@ -245,8 +256,9 @@ function createReader(host, opts = {}) {
 		if (t) { t.placeholder = m.ph; t.setAttribute("aria-label", m.send); }
 		const swap = mode === "giveback" ? `<button type="button" class="rd-link" data-rd-mode="">Cancel</button>`
 			: def !== "note" ? `<button type="button" class="rd-link" data-rd-mode="${mode === "note" ? "" : "note"}">${mode === "note" ? (def === "answer" ? "Answer instead" : "Object instead") : "Add a note instead"}</button>` : "";
-		return `<div class="rd-reply-foot"><span class="rd-muted">${rdKey("Enter")} ${esc(m.send.toLowerCase())} · ${rdKey("Shift")} ${rdKey("Enter")} new line</span>${swap}<span class="spacer"></span>
-			${mode === "answer" || mode === "object" ? resumeHtml(i) : mode === "note" ? agentTickHtml(i) : ""}<button type="button" class="${toAgent ? "primary" : "ghost"} sm" data-rd-reply-send>${esc(m.send)}</button></div>`;
+		// The tick and the button go together, on the right, even when the line wraps.
+		return `<div class="rd-reply-foot"><span class="rd-muted rd-keyhint">${rdKey("Enter")} ${esc(m.send.toLowerCase())} · ${rdKey("Shift")} ${rdKey("Enter")} new line</span>${swap}
+			<span class="rd-reply-go">${mode === "answer" || mode === "object" ? resumeHtml(i) : mode === "note" ? agentTickHtml(i) : ""}<button type="button" class="${toAgent ? "primary" : "ghost"} sm" data-rd-reply-send>${esc(m.send)}</button></span></div>`;
 	}
 	// "Send to the agent": on an item whose agent's last run ended with a session it can carry on in, a note goes to
 	// that agent (a new run resumes the session with it) instead of only into the history.

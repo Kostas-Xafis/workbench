@@ -1,68 +1,72 @@
-/* Agents the board starts (ui/dispatch.js): Run and the running chip on cards, the agent's box in the reader, Settings → Agents. */
-:root { --run: #0f766e; --run-bg: #e6f4f1; }
-@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --run: #4fd1c5; --run-bg: #12302c; } }
-:root[data-theme="dark"] { --run: #4fd1c5; --run-bg: #12302c; }
+/* Agents the board starts (ui/dispatch.js): Run and the running chip on cards, the agent's box in the reader, Settings → Agents.
+   A run's colours are the state tokens (base.css); --run stays as a name for reader.css. */
+:root { --run: var(--st-running); --run-bg: var(--st-running-bg); }
 
 /* A run's state, wherever it shows. */
-.run-chip { display: inline-flex; align-items: center; gap: 5px; border-radius: 6px; padding: 0 6px; font-size: 11.5px; font-weight: 500; line-height: 18px; white-space: nowrap; background: var(--hover); color: var(--muted); }
-.run-chip.running { background: var(--run-bg); color: var(--run); }
+.run-chip { display: inline-flex; align-items: center; gap: var(--sp-1); border-radius: var(--r-sm); padding: 0 6px; font-size: var(--fs-11); font-weight: 600; line-height: 18px; white-space: nowrap; background: var(--hover); color: var(--muted); }
+.run-chip.running { background: var(--st-running-bg); color: var(--st-running); }
 .run-chip.running::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; animation: run-pulse 1.4s ease-in-out infinite; }
-.run-chip.done { background: color-mix(in srgb, var(--check) 14%, var(--card)); color: var(--check); }
-.run-chip.failed { background: color-mix(in srgb, var(--bug) 12%, var(--card)); color: var(--bug); }
-.run-chip.stopped { background: var(--warn-bg); color: var(--warn-ink); }
+.run-chip.done { background: var(--st-done-bg); color: var(--st-done); }
+.run-chip.failed { background: var(--st-failed-bg); color: var(--st-failed); }
+.run-chip.stopped { background: var(--st-stuck-bg); color: var(--st-stuck); }
 @keyframes run-pulse { 50% { opacity: .3; } }
 @media (prefers-reduced-motion: reduce) { .run-chip.running::before { animation: none; } }
 
 /* On a card's meta line: small, so a list of them stays calm. */
-.run-go { display: inline-flex; align-items: center; gap: 3px; font: inherit; font-size: 11.5px; line-height: 18px; padding: 0 7px; border-radius: 6px; cursor: pointer;
-	border: 1px solid color-mix(in srgb, var(--run) 40%, var(--line)); background: transparent; color: var(--run); }
-.run-go:hover { background: var(--run-bg); border-color: var(--run); }
+.run-go { display: inline-flex; align-items: center; gap: 3px; font: inherit; font-size: var(--fs-11); line-height: 18px; padding: 0 7px; border-radius: var(--r-sm); cursor: pointer;
+	border: 1px solid color-mix(in srgb, var(--st-running) 40%, var(--line)); background: transparent; color: var(--st-running); }
+.run-go:hover { background: var(--st-running-bg); border-color: var(--st-running); }
 .run-go .gl { width: 12px; height: 12px; margin-right: 1px; }
 .run-go:disabled { opacity: .5; cursor: default; }
 
 /* In the reader: the agent's side of the item. */
 .run-muted { color: var(--muted); }
-.run-top { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; font-size: 12.5px; min-width: 0; }
+.run-top { display: flex; flex-wrap: wrap; align-items: center; gap: 6px var(--sp-2); font-size: var(--fs-12); min-width: 0; }
 .rd .run-box .run-top h3 { margin: 0; }
 .run-top .spacer { flex: 1; }
-.run-where { font-size: 11.5px; color: var(--muted); background: var(--hover); border-radius: 5px; padding: 0 5px; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.run-sub { margin-top: 3px; font-size: 11.5px; color: var(--muted); }
+.run-where { font-size: var(--fs-11); color: var(--muted); background: var(--hover); border-radius: var(--r-sm); padding: 0 5px; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.run-sub { margin-top: 2px; font-size: var(--fs-11); color: var(--muted); }
 .run-pick { display: inline-flex; gap: 2px; }
-.run-pick button { border: 0; background: none; color: var(--muted); font: inherit; font-size: 11.5px; padding: 1px 5px; border-radius: 5px; cursor: pointer; }
+.run-pick button { border: 0; background: none; color: var(--muted); font: inherit; font-size: var(--fs-11); padding: 1px 5px; border-radius: var(--r-sm); cursor: pointer; font-variant-numeric: tabular-nums; }
 .run-pick button:hover { background: var(--hover); color: var(--ink); }
 .run-pick button.on { background: var(--hover); color: var(--ink); font-weight: 600; }
-.run-pick button.live { color: var(--run); }
-.run-err { margin: 8px 0 0; color: var(--bug); overflow-wrap: anywhere; font-size: 12.5px; }
-.run-hint { margin: 6px 0 0; font-size: 12.5px; }
+.run-pick button.live { color: var(--st-running); }
+.run-err { margin: var(--sp-2) 0 0; color: var(--st-failed); overflow-wrap: anywhere; font-size: var(--fs-12); }
+.run-hint { margin: 6px 0 0; font-size: var(--fs-12); }
 
 /* What it said and did. */
-.run-feed { margin-top: 10px; max-height: 420px; overflow: auto; display: flex; flex-direction: column; gap: 6px; overscroll-behavior: contain; overflow-wrap: anywhere; }
-.run-all { align-self: flex-start; font-size: 12px; }
+.run-feed { margin-top: var(--sp-3); max-height: 420px; overflow: auto; display: flex; flex-direction: column; gap: 6px; overscroll-behavior: contain; overflow-wrap: anywhere; }
+.run-all { align-self: flex-start; font-size: var(--fs-12); }
 .ev { min-width: 0; }
-.ev-text { font-size: var(--fs-13, 13px); line-height: 1.5; }
+.ev-text { font-size: var(--fs-13); line-height: 1.5; }
 .ev-text > :first-child, .ev-msg > :nth-child(2), .ev-result > :nth-child(2) { margin-top: 0; }
 .ev-text > :last-child, .ev-msg > :last-child, .ev-result > :last-child { margin-bottom: 0; }
-.ev-tool, .ev-start, .ev-out { display: flex; align-items: center; gap: 6px; font: 11.5px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: var(--muted); }
+.ev-tool, .ev-start, .ev-out { display: flex; align-items: center; gap: 6px; font: var(--fs-11)/1.45 var(--mono); color: var(--muted); }
 .ev-tool span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .ev-tool .gl { width: 12px; height: 12px; opacity: .8; }
-.ev-start { font-family: inherit; font-size: 11.5px; }
+.ev-start { font-family: inherit; }
 .ev-out { white-space: pre-wrap; }
-.ev-err { font: 11.5px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: var(--bug); padding-left: 18px; }
+.ev-err { font: var(--fs-11)/1.45 var(--mono); color: var(--st-failed); padding-left: 18px; }
 .ev-err b { font-weight: 600; }
-.ev-msg { background: var(--rd-mine, var(--hover)); border-radius: 8px; padding: 6px 10px; font-size: var(--fs-13, 13px); }
-.ev-who { display: block; font-size: 11.5px; color: var(--muted); font-weight: 600; }
-.ev-result { margin-top: 2px; padding: 8px 10px; border-radius: 8px; border: 1px solid color-mix(in srgb, var(--check) 35%, var(--line)); background: color-mix(in srgb, var(--check) 6%, var(--card)); font-size: var(--fs-13, 13px); }
-.ev-result.bad { border-color: color-mix(in srgb, var(--bug) 35%, var(--line)); background: color-mix(in srgb, var(--bug) 6%, var(--card)); }
-.ev-facts { font-size: 11.5px; color: var(--muted); margin-bottom: 4px; }
-.run-tail { margin: 10px 0 0; max-height: 320px; overflow: auto; padding: 8px 10px; border-radius: 8px; background: var(--bg); border: 1px solid var(--line);
-	font: 11.5px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--ink); }
+.ev-msg { background: var(--rd-mine, var(--hover)); border-radius: var(--r-md); padding: 6px 10px; font-size: var(--fs-13); }
+.ev-who { display: block; font-size: var(--fs-11); color: var(--muted); font-weight: 600; }
+.ev-result { margin-top: 2px; padding: var(--sp-2) 10px; border-radius: var(--r-md); border: 1px solid color-mix(in srgb, var(--st-done) 35%, var(--line)); background: color-mix(in srgb, var(--st-done) 6%, var(--card)); font-size: var(--fs-13); }
+.ev-result.bad { border-color: color-mix(in srgb, var(--st-failed) 35%, var(--line)); background: color-mix(in srgb, var(--st-failed) 6%, var(--card)); }
+.ev-facts { font-size: var(--fs-11); color: var(--muted); margin-bottom: var(--sp-1); }
+.run-tail { margin: var(--sp-3) 0 0; max-height: 320px; overflow: auto; overscroll-behavior: contain; padding: var(--sp-2) 10px; border-radius: var(--r-md); background: var(--sunk); border: 1px solid var(--line);
+	font: var(--fs-11)/1.5 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; color: var(--ink); }
 
 /* Its controls: quiet, but for the one that matters. */
-.run-acts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+.run-acts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: var(--sp-3); }
 .run-acts .gl { width: 13px; height: 13px; margin-right: 3px; }
 .run-acts a.btn { display: inline-flex; align-items: center; text-decoration: none; }
 .run-acts button:disabled { opacity: .5; cursor: default; }
 .run-acts .primary, .rd-reply-foot .primary { color: var(--accent-ink); }
+/* A phone: the run switcher's small numbers get a 40 px hit area (as phone.css gives the other small marks). */
+@media (max-width: 760px) {
+	.run-pick button { position: relative; }
+	.run-pick button::after { content: ""; position: absolute; top: calc(50% - 20px); bottom: calc(50% - 20px); left: -1px; right: -1px; }
+}
 
 /* Settings → Agents. */
 .agents-tab .run-cmd { display: flex; flex-direction: column; gap: 8px; }
@@ -72,7 +76,7 @@
 .agents-tab .run-cmd .hint { margin: 0; }
 .agents-tab .run-ok { color: var(--check); }
 .agents-tab .run-bad { color: var(--bug); }
-.agents-tab .run-prompt summary { cursor: pointer; color: var(--muted); font-size: 12.5px; }
+.agents-tab .run-prompt summary { display: flex; align-items: center; gap: var(--sp-2); cursor: pointer; color: var(--muted); font-size: var(--fs-12); }
 .agents-tab .run-prompt pre { margin: 6px 0 0; padding: 8px 10px; border-radius: 8px; background: var(--bg); border: 1px solid var(--line); white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
 .run-row { display: flex; align-items: center; gap: 10px; }
 .run-row-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
