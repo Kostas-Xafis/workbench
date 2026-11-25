@@ -1,6 +1,7 @@
 # Workbench
 
-One board for every project: tasks agents are doing or will do, and the checks, reviews, decisions and setup steps that wait on Kostas. The board is a Bun server with SQLite and no runtime dependencies; the desktop app is optional.
+One board for every project: the work agents are doing or will do, and the decisions, checks and reviews that wait on Kostas. Three places: the **Inbox** (what waits on you), **Agents** (what they're doing, and what's ready to merge) and **Projects** (where you plan the work).
+It's a Bun server with SQLite and no runtime dependencies. The desktop app is optional.
 
 ```bash
 wb open        # start the board if needed and open http://localhost:4321
@@ -23,9 +24,6 @@ Put `wb` on your PATH with a small launcher, then give Claude Code the board's M
 
 ```bash
 mkdir -p ~/.local/bin && printf '#!/bin/sh\nexec bun %s/src/wb.ts "$@"\n' "$PWD" > ~/.local/bin/wb && chmod +x ~/.local/bin/wb
-```
-
-```bash
 claude mcp add -s user wb -- wb mcp
 ```
 
@@ -35,13 +33,13 @@ A new board opens the setup guide by itself: your name, your first projects, the
 
 | Page | What's in it |
 | --- | --- |
-| [Using the board](docs/board.md) | Items, layout, asks that don't block, goals, rulings, checks on the phone, Today, one at a time, phones, your data, start on login |
-| [Settings](docs/settings.md) | Every Settings tab and where each setting is kept |
-| [Agents](docs/agents.md) | Setting a project up for agents, the MCP server, agents the board starts |
-| [Reports](docs/reports.md) | Report pages, the `wb` object they get, sharing a link, data sources |
-| [Status trackers](docs/trackers.md) | Live readings in the sidebar: by hand, from a command, built in |
+| [Using the board](docs/board.md) | Inbox, Agents, Projects, items and the reader, asks that don't block, rulings, goals, the phone, your data |
+| [Settings](docs/settings.md) | The five tabs and where each setting is kept |
+| [Agents](docs/agents.md) | Setting a project up, the MCP server, agents the board starts |
+| [Reports](docs/reports.md) | Report pages, the `wb` object they get, sharing, data sources |
+| [Status trackers](docs/trackers.md) | Live readings: by hand, from a command, built in |
 | [Secrets vault](docs/vault.md) | The vault, and how agents ask for secrets |
-| [Desktop app](docs/desktop-app.md) | The app's window, tray, updates and where it keeps things |
+| [Desktop app](docs/desktop-app.md) | The window, tray, updates and where it keeps things |
 | [The cloud board](docs/cloud.md) | The board on Cloudflare instead of this computer (`wb sync on`), optional |
 | [Development](docs/development.md) | The folders, the board's page, tests, nightly builds, releases |
 
