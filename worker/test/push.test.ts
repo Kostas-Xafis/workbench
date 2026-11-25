@@ -260,6 +260,6 @@ describe("installing the board", () => {
 			// The PNG's own width and height (IHDR) are what the manifest says.
 			expect(`${b.getUint32(16)}x${b.getUint32(20)}`).toBe(icon.sizes);
 		}
-		expect(m.shortcuts.map((s) => s.url)).toEqual(["/#today", "/#queue"]);
+		expect(m.shortcuts.map((s) => s.url)).toEqual(["/#inbox", "/#agents"]);
 	});
 });
