@@ -32,6 +32,7 @@
 .ib-accept:hover { background: var(--hover); }
 .ib-hint { display: flex; align-items: flex-start; gap: var(--sp-1); font-size: var(--fs-11); color: var(--faint); line-height: 1.5; }
 .ib-hint b { color: var(--muted); font-weight: 600; }
+.ib-keys > span { white-space: nowrap; }
 .ib-hint .icon-btn { width: 22px; height: 22px; margin-left: auto; align-self: flex-start; }
 .ib-hint .icon-btn svg { width: 12px; height: 12px; }
 .ib-k { display: inline-block; min-width: 15px; padding: 0 3px; margin: 0 1px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: var(--r-sm);
@@ -50,6 +51,8 @@
 .ib-soon { color: var(--st-stuck); }
 .ib-deferred { padding: var(--sp-3) var(--sp-4); font-size: var(--fs-12); color: var(--faint); border-top: 1px solid var(--line); }
 .ib-empty .k-empty { padding-top: var(--sp-6); }
+/* With the reader beside the list, its pane says it (inbox.js ibRenderPane): once is enough. */
+@media (min-width: 1101px) { #inbox-view:not(.ib-focus) .ib-list .ib-empty { display: none; } }
 
 /* Swiping a row: what letting go would do shows under it. */
 .ib-swipe { position: absolute; left: 0; right: 0; z-index: 0; display: flex; align-items: center; justify-content: space-between; padding: 0 var(--sp-4);
@@ -81,6 +84,9 @@
 dialog.k-confirm.ib-confirm { width: min(560px, calc(100vw - 16px)); }
 .ib-confirm p { white-space: pre-line; max-height: 55vh; overflow-y: auto; font-size: var(--fs-13); }
 
+/* Just wide enough for both: a little of the list's width goes to the reader. */
+@media (max-width: 1300px) { #inbox-view { grid-template-columns: 340px minmax(0, 1fr); } }
+
 /* Narrower: the list alone; a row opens the reader sheet. */
 @media (max-width: 1100px) {
 	#inbox-view { grid-template-columns: minmax(0, 1fr); }
@@ -98,7 +104,7 @@ dialog.k-confirm.ib-confirm { width: min(560px, calc(100vw - 16px)); }
 	.ib-list .k-row { padding: var(--sp-3); }
 	.ib-fh { padding: var(--sp-2) var(--sp-3); }
 	/* The reader full screen (from any list, the Inbox's too): an ask's choices stay docked at the bottom, under the
-	   thumb, until the end of the brief scrolls past them. */
-	dialog.rd-sheet .rd-doc > [data-slot="action"]:has(.rd-act) { position: sticky; bottom: 0; z-index: 1; background: var(--card); margin-inline: -16px; padding: var(--sp-2) var(--sp-4) var(--sp-3);
+	   thumb, until the end of the brief scrolls past them; unless they'd take half the screen (reader.js, rd-act-tall). */
+	dialog.rd-sheet:not(.rd-act-tall) .rd-doc > [data-slot="action"]:has(.rd-act) { position: sticky; bottom: 0; z-index: 1; background: var(--card); margin-inline: -16px; padding: var(--sp-2) var(--sp-4) var(--sp-3);
 		border-top: 1px solid var(--line); box-shadow: 0 -8px 16px -12px rgb(0 0 0 / .25); }
 }

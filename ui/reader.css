@@ -47,6 +47,7 @@
 .rd-brief-edit { display: block; width: 100%; margin-top: 18px; min-height: 220px; field-sizing: content; max-height: 70vh; resize: vertical; padding: 10px 12px; border: 1px solid var(--line);
 	border-radius: 8px; background: var(--bg); color: var(--ink); font: var(--fs-14)/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; }
 .rd-tools { display: flex; align-items: center; gap: 14px; margin-top: 8px; font-size: var(--fs-12); }
+.rd-tools .rd-link { white-space: nowrap; }
 .rd-link { border: 0; background: none; padding: 0; color: var(--muted); font-size: var(--fs-12); cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
 .rd-link:hover { color: var(--ink); text-decoration: underline; text-underline-offset: 2px; }
 .rd-muted { color: var(--muted); }
@@ -95,14 +96,15 @@
 .rd-q { display: inline-flex; align-items: center; gap: 6px; border: 0; background: none; border-radius: 7px; padding: 4px 8px; font-size: var(--fs-13); color: var(--muted); cursor: pointer; }
 .rd-q:hover { background: var(--hover); color: var(--ink); }
 .rd-q input[type=date] { border: 1px solid var(--line); border-radius: 6px; background: var(--card); color: var(--ink); font-size: var(--fs-12); padding: 1px 4px; }
-.rd-later .rd-muted { font-size: var(--fs-13); margin-right: 4px; }
+/* The words before the days sit as far in as the buttons' labels, so a wrapped line starts on the same edge. */
+.rd-later .rd-muted { font-size: var(--fs-13); padding: 4px 8px; }
 .rd-create { gap: 14px; border-top: 0; }
 .rd-create .rd-muted { font-size: var(--fs-12); }
 
 /* The agent's run (ui/dispatch.js's box, in its slot). */
 [data-part="runtop"], [data-part="runend"] { margin-top: 22px; }
 [data-part="runtop"] { margin-top: 0; margin-bottom: 16px; }
-.rd .run-box { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; font-size: var(--fs-13); }
+.rd .run-box { border: 1px solid var(--line); border-radius: var(--r-lg); padding: var(--sp-3) var(--sp-4); font-size: var(--fs-13); }
 .rd .run-box h3 { font-size: var(--fs-11); text-transform: uppercase; letter-spacing: .4px; color: var(--muted); margin: 0 0 6px; }
 
 /* The history, as a thread. */
@@ -127,6 +129,7 @@
 .rd-reply textarea { display: block; width: 100%; border: 0; background: transparent; color: var(--ink); resize: none; field-sizing: content; min-height: 44px; max-height: 40vh;
 	font-family: inherit; font-size: var(--fs-14); line-height: 1.5; padding: 2px; outline: none; }
 .rd-reply-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; font-size: var(--fs-12); margin-top: 4px; }
+.rd-reply-go { display: flex; align-items: center; gap: 14px; margin-left: auto; }
 .rd-reply-foot .rd-k { font-size: 10px; }
 .rd-err { color: var(--bug); font-size: var(--fs-13); margin: 12px auto 0; }
 
@@ -167,6 +170,15 @@ dialog.rd-sheet::backdrop { background: rgb(0 0 0 / .28); }
 @keyframes rd-in { from { transform: translateX(28px); } }
 @media (prefers-reduced-motion: reduce) { dialog.rd-sheet[open] { animation: none; } }
 
+/* Beside a list in a window of medium width (the Inbox from 1101 px): less room around the text, a narrower column of
+   properties, so the brief keeps a readable measure. */
+.rd { container-type: inline-size; }
+@container (max-width: 680px) {
+	.rd-cols { grid-template-columns: minmax(0, 1fr) 184px; }
+	.rd-doc { padding: 40px 28px 56px; }
+	.rd-side { padding-inline: 14px; }
+}
+
 /* A phone: full screen, the properties under the thread, folded. */
 @media (max-width: 760px) {
 	dialog.rd-sheet { width: 100vw; border-radius: 0; border: 0; }
@@ -179,8 +191,12 @@ dialog.rd-sheet::backdrop { background: rgb(0 0 0 / .28); }
 	.rd-props-toggle::before { content: ""; width: 0; height: 0; border-left: 4.5px solid currentColor; border-top: 4px solid transparent; border-bottom: 4px solid transparent; opacity: .6; transition: transform .12s; }
 	.rd-props-open .rd-props-toggle::before { transform: rotate(90deg); }
 	.rd-bar { top: 0; right: 0; left: 0; justify-content: flex-end; padding: 8px 10px; background: var(--card); border-bottom: 1px solid var(--line); }
+	/* Clear of the bar above it (the bar is 40 px buttons and their padding, taller than the page's top padding). */
+	.rd-doc > [data-part="ctx"] { margin-top: 16px; }
 	.rd-title { font-size: var(--fs-18); }
+	/* Every property a thumb tall, the boxes as well as the menus (phone.css sizes the menus). */
+	.rd-val { min-height: 40px; }
 	.rd-note.mine { margin-left: 16px; }
-	.rd-k, .rd-reply-foot > .rd-muted, .rd-create .rd-muted { display: none; }
+	.rd-k, .rd-keyhint { display: none; }
 	.rd-choice .rd-k { display: inline-block; }
 }

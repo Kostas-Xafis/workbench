@@ -195,7 +195,10 @@ const ibAcceptable = () => (ib.tab === "answer" ? ibTabItems("answer").filter((i
 function ibToolsHtml() {
 	const acc = ibAcceptable();
 	const accept = acc.length > 1 && !ib.focus ? `<button type="button" class="ib-accept" data-ib-accept title="Answer each of them with what the agent recommends">Accept ${acc.length} recommendations</button>` : "";
-	const hint = localGet("inbox.hint") === "off" || ibPhone() ? "" : `<div class="ib-hint"><span><b>J</b> <b>K</b> move · <b>1–9</b> pick · <b>Enter</b> takes the recommendation · <b>D</b> later · <b>G</b> give back · <b>X</b> drop · <b>F</b> one at a time</span>
+	// Each key with its words (and the dot after them), so a line breaks only between them.
+	const keys = [["J</b> <b>K", "move"], ["1–9", "pick"], ["Enter", "takes the recommendation"], ["D", "later"], ["G", "give back"], ["X", "drop"], ["F", "one at a time"]]
+		.map(([k, what], n, all) => `<span><b>${k}</b> ${what}${n < all.length - 1 ? " ·" : ""}</span>`).join(" ");
+	const hint = localGet("inbox.hint") === "off" || ibPhone() ? "" : `<div class="ib-hint"><span class="ib-keys">${keys}</span>
 		<button type="button" class="icon-btn" data-ib-hint-off title="Hide the keys (Settings → About → Look lists them all)" aria-label="Hide the keys"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor"><g stroke-width="1.6"><path d="m4.5 4.5 7 7M11.5 4.5l-7 7"/></g></svg></button></div>`;
 	return accept || hint ? `${accept}${hint}` : "";
 }
