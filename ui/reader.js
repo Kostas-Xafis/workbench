@@ -635,6 +635,18 @@ function createReader(host, opts = {}) {
 		addImages(e.dataTransfer.files);
 	});
 	r.focus = () => scroller.focus({ preventScroll: true });
+	/**
+	 * What the reader is collecting just now, for a list beside it that must not answer over it: "later" (the Later
+	 * choices are showing), "reply" (Give back is open, or the reply box holds words), or "".
+	 */
+	r.collecting = () => {
+		if (r.compose || !r.item?.id) return "";
+		if (r.later) return "later";
+		const t = $("[data-rd-reply]", host);
+		return r.mode === "giveback" || t?.value.trim() ? "reply" : "";
+	};
+	/** Puts the cursor in the reply box (from a key pressed in the list). */
+	r.focusReply = () => { const t = $("[data-rd-reply]", host); if (t) t.focus(); else scroller.focus({ preventScroll: true }); };
 	/** The run box's "Tell the agent…": the reply box, with "send to the agent" ticked. */
 	r.tellAgentBox = () => { const i = r.item; if (!i?.id || !canContinueIt(i)) return; r.toAgent.add(i.id); replyIn("note"); };
 	return r;

@@ -104,21 +104,27 @@ function ibPrimary(i) {
 /* ---------- Loading ---------- */
 
 // Counts this as a visit and says from when "since you were away" runs: a new visit starts after an hour away, and
-// the first one counts the last day. At most a week back.
+// the first one counts the last day. At most a week back. The stamp is kept (inbox.since) and moves only with a new
+// visit, so what's asked with it is the same from poll to poll; the week's limit is rounded down to the hour for the
+// same reason.
 const IB_GAP = 3600e3, IB_MAX = 7 * 86400e3;
+const hourBefore = (ms) => Math.floor((Date.now() - ms) / 3600e3) * 3600e3;
 function inboxSince() {
 	const now = Date.now(), last = Number(localGet("inbox.last")) || 0;
 	let since = Number(localGet("inbox.since")) || 0;
 	if (!since || now - last > IB_GAP) since = last || now - 86400e3;
 	localSet("inbox.since", String(since));
 	localSet("inbox.last", String(now));
-	return Math.max(since, now - IB_MAX);
+	return Math.max(since, hourBefore(IB_MAX));
 }
 
+// The queue (GET /api/queue) is asked for while the Inbox shows, and when something outside it may have changed what
+// waits on you: at the start, after anything is answered (hooks.settled), and when the projects' own counts moved.
 async function inboxLoad() {
 	try {
 		const q = await api("/api/queue");
-		const since = ibOn() ? inboxSince() : ib.since || Date.now() - 86400e3;
+		// A visit counts only while the Inbox shows; elsewhere the stamp stays as it was.
+		const since = ibOn() ? inboxSince() : ib.since || Number(localGet("inbox.since")) || hourBefore(86400e3);
 		const changed = q !== ib.q || since !== ib.since;
 		Object.assign(ib, { q, since, loaded: true });
 		inboxCount();
@@ -127,17 +133,36 @@ async function inboxLoad() {
 		if (ibOn() && !ib.loaded) paint($(".ib-head", inboxEl), `<p class="ib-err">Couldn't load the Inbox: ${esc(e.message)}</p>`);
 		return;
 	}
-	// Finished and stuck, from the Agents place (it reads git, so it can take a moment the first time).
-	if (!ibOn()) return;
+	if (ibOn()) ibAgentsLoad();
+}
+// Finished and stuck, from the Agents place (it reads git, so it can take a moment the first time), for the line
+// "Since you were away": once a minute at most, and again when the stamp moved.
+const IB_AGENTS_GAP = 60e3;
+async function ibAgentsLoad() {
+	if (ib.agentsFor === ib.since && Date.now() - ib.agentsAt < IB_AGENTS_GAP) return;
+	Object.assign(ib, { agentsFor: ib.since, agentsAt: Date.now() });
 	const agents = await api(`/api/agents?since=${encodeURIComponent(new Date(ib.since).toISOString())}`).catch(() => ib.agents);
 	if (agents === ib.agents) return;
 	ib.agents = agents;
 	if (ibOn() && !ib.accepting) paint($(".ib-head", inboxEl), ibHeadHtml());
 }
-// The nav's count: what needs you to do something (Answer and Errands); Look goes ahead by itself.
+// What waits on you in a project: asks to answer or do (Answer and Errands) and, quietly, the reviews and notices that
+// go ahead by themselves (Look). The one count behind the Inbox, the nav's rows, the phone's Projects sheet and the
+// project's page.
+const ibByProject = new Map();
+const inboxAsks = (slug) => ibByProject.get(slug) ?? { mine: 0, look: 0 };
 function inboxCount() {
-	const n = (ib.q?.items ?? []).filter((i) => ibTabOf(i) !== "look").length;
-	navCount("inbox", n, "yours");
+	ibByProject.clear();
+	let n = 0;
+	for (const i of ib.q?.items ?? []) {
+		const c = ibByProject.get(i.project) ?? { mine: 0, look: 0 };
+		if (ibTabOf(i) === "look") c.look++; else { c.mine++; n++; }
+		ibByProject.set(i.project, c);
+	}
+	navCountMany([["inbox", n, "yours"], ...state.projects.map((p) => [`project:${p.slug}`, inboxAsks(p.slug).mine, "yours"])]);
+	// A project's page shows its own count.
+	const sig = [...ibByProject].map(([k, v]) => `${k}:${v.mine}:${v.look}`).sort().join();
+	if (sig !== ib.countSig) { ib.countSig = sig; redraw(); }
 }
 
 /* ---------- Drawing ---------- */
@@ -427,6 +452,11 @@ document.addEventListener("keydown", (e) => {
 		if (k === "Enter" && !ibPane.later && !e.target.closest("button, a, label, input, select, textarea")) return key(ibTakePrimary);
 		return;
 	}
+	// The reader beside the list is asking something of its own (Later's days, Give back's words): the keys go to it, so
+	// Enter means what the reader says and never answers the decision.
+	const busy = ibPaneShows() && ib.sel != null && ibPane.item?.id === ib.sel ? ibPane.collecting() : "";
+	if (busy === "later" && (k === "Enter" || k === "Escape" || low === "w" || low === "d" || k === "3")) return key(() => ibForward(k === "Enter" || k === "Escape" ? k : low));
+	if (busy === "reply" && k === "Enter" && !e.target.closest?.("button, a, input, select, textarea")) return key(() => ibPane.focusReply());
 	if (low === "j" || k === "ArrowDown") return key(() => ibMove(1));
 	if (low === "k" || k === "ArrowUp") return key(() => ibMove(-1));
 	if (e.target.closest?.("button, a, input, select, textarea") && k === "Enter") return;
@@ -492,8 +522,16 @@ ibListEl.addEventListener("pointercancel", ibTouchEnd);
 /* ---------- The view ---------- */
 
 hooks.refresh.push(() => {
-	inboxLoad();
-	if (ibOn() && ibPaneShows() && ibPane.item && !ibPane.compose) ibPane.reload();
+	if (ibOn()) {
+		inboxLoad();
+		if (ibPaneShows() && ibPane.item && !ibPane.compose) ibPane.reload();
+		return;
+	}
+	// Elsewhere the queue is asked for only when the projects' own counts moved (a new ask, or one an agent settled).
+	const sig = state.projects.map((p) => `${p.slug}:${p.mine}:${p.notices}`).join();
+	if (ib.loaded && ib.projectsSig !== undefined && sig !== ib.projectsSig) inboxLoad();
+	else if (ib.loaded) inboxCount();
+	ib.projectsSig = sig;
 });
 hooks.start.push(() => { if (!ib.loaded) inboxLoad(); });
 hooks.readerClosed.push(() => { if (ibOn()) { inboxLoad(); ibListFocus(); } });

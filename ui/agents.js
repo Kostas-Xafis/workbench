@@ -38,13 +38,19 @@ function agSince() {
 	ag.fromVisit = !!last;
 	localSet("agents.since", String(since));
 	localSet("agents.last", String(now));
-	return Math.max(since, now - AG_MAX);
+	return Math.max(since, Math.floor((now - AG_MAX) / 3600e3) * 3600e3);
+}
+// The stamp asked with, the same from poll to poll: this visit's, else the kept one (no visit counted), else the last
+// day rounded down to the hour, fixed for this page.
+function agStamp() {
+	return ag.since || (ag.base ??= Number(localGet("agents.since")) || Math.floor((Date.now() - 86400e3) / 3600e3) * 3600e3);
 }
 
 /* ---------- Loading ---------- */
 async function agLoad() {
 	if (ag.loading) return ag.loading;
-	const since = ag.since || Date.now() - 86400e3;
+	const since = agStamp();
+	ag.at = Date.now();
 	ag.loading = (async () => {
 		try {
 			const data = await api(`/api/agents?project=*&since=${encodeURIComponent(new Date(since).toISOString())}`);
@@ -72,7 +78,9 @@ function agWatch() {
 	}, AG_POLL);
 }
 hooks.start.push(() => { if (!agOn()) agLoad(); });
-hooks.refresh.push(() => { if (!agOn()) agLoad(); });
+// Off the view, once a minute: the nav's count. While it shows, its own timer asks (agWatch).
+const AG_BACKGROUND = 60e3;
+hooks.refresh.push(() => { if (!agOn() && Date.now() - (ag.at ?? 0) >= AG_BACKGROUND) agLoad(); });
 hooks.readerClosed.push(() => { if (agOn()) agLoad(); });
 
 /* ---------- Drawing ---------- */
