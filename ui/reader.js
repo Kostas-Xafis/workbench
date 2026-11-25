@@ -23,7 +23,7 @@ const rdKey = (k) => `<kbd class="rd-k">${esc(k)}</kbd>`;
 /** A property: its label above its value. */
 const readerProp = (label, value, cls = "") => `<div class="rd-prop${cls ? ` ${cls}` : ""}"><span class="rd-label">${label}</span>${value}</div>`;
 const rdSelect = (field, options, value, label) => `<select class="rd-val" data-field="${field}" aria-label="${esc(label)}">${options.map(([v, l]) => `<option value="${esc(v)}"${String(v) === String(value ?? "") ? " selected" : ""}>${esc(l)}</option>`).join("")}</select>`;
-const rdInput = (field, value, label, more = "") => `<input class="rd-val" data-field="${field}" value="${esc(value ?? "")}" aria-label="${esc(label)}" placeholder="—" spellcheck="false"${more}>`;
+const rdInput = (field, value, label, more = "", ph = "—") => `<input class="rd-val" data-field="${field}" value="${esc(value ?? "")}" aria-label="${esc(label)}" placeholder="${esc(ph)}" spellcheck="false"${more}>`;
 const rdAuthor = (a) => a === "kostas" || a === "web" ? rdName() : a === "agent" ? "Agent" : a === "import" ? "Imported" : RD_SYSTEM.has(a) ? "Board" : a || "Someone";
 const rdMine = (a) => a === "kostas" || a === "web";
 const asDataUrl = (file) => new Promise((ok, no) => {
@@ -77,8 +77,12 @@ const RD_PROPS = [
 	{ order: 80, html: (i, r) => {
 		if (r.compose) return "";
 		// The server's link (a Claude Code or a Desktop session, dispatch.ts desktopLink), opened by the page itself.
-		const href = i.desktop || sessionHref(i.session || "");
-		return readerProp("Session", rdInput("session", i.session, "Session") + (href ? `<a class="rd-small" href="${esc(href)}" title="Opens the session in Claude Desktop on this computer">Open in Claude Desktop</a>` : ""));
+		// The field is the session an agent recorded on the item (start_item); the board's own runs keep theirs on the
+		// run, so with none recorded it shows the newest run's, greyed (dispatch.js runsOf), and that run's link.
+		const run = !i.session && typeof runsOf === "function" ? runsOf(i).find((x) => x.session) : null;
+		const href = i.desktop || sessionHref(i.session || "") || run?.desktop || "";
+		const more = run ? ` title="${esc(`From its run of ${ago(run.started_at)}`)}"` : "";
+		return readerProp("Session", rdInput("session", i.session, "Session", more, run?.session) + (href ? `<a class="rd-small" href="${esc(href)}" title="Opens the session in Claude Desktop on this computer">Open in Claude Desktop</a>` : ""));
 	} },
 	// A decision's choices, one per line.
 	{ order: 85, html: (i) => i.kind !== "decision" ? "" : readerProp("Choices", `<textarea class="rd-val" data-field="options" rows="${Math.max(2, optionsOf(i).length)}" placeholder="One per line" aria-label="Choices, one per line">${esc(optionsOf(i).join("\n"))}</textarea>`) },

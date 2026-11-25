@@ -104,7 +104,7 @@
 /* The agent's run (ui/dispatch.js's box, in its slot). */
 [data-part="runtop"], [data-part="runend"] { margin-top: 22px; }
 [data-part="runtop"] { margin-top: 0; margin-bottom: 16px; }
-.rd .run-box { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; font-size: var(--fs-13); }
+.rd .run-box { border: 1px solid var(--line); border-radius: var(--r-lg); padding: var(--sp-3) var(--sp-4); font-size: var(--fs-13); }
 .rd .run-box h3 { font-size: var(--fs-11); text-transform: uppercase; letter-spacing: .4px; color: var(--muted); margin: 0 0 6px; }
 
 /* The history, as a thread. */
