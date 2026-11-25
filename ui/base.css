@@ -80,9 +80,11 @@ summary::-webkit-details-marker { display: none; }
 .fold > summary::before { content: ""; flex: none; width: 0; height: 0; border-left: 4.5px solid currentColor; border-top: 4px solid transparent; border-bottom: 4px solid transparent;
 	opacity: .55; transition: transform .12s; }
 .fold[open] > summary::before { transform: rotate(90deg); }
-.primary { background: var(--accent); color: var(--accent-ink); border: 0; border-radius: var(--r-md); padding: 6px var(--sp-4); font-weight: 600; }
+/* A primary button has a clear border so it's as tall as a ghost one beside it, small or not. */
+.primary { background: var(--accent); color: var(--accent-ink); border: 1px solid transparent; border-radius: var(--r-md); padding: 5px 15px; font-weight: 600; }
 .ghost { background: transparent; border: 1px solid var(--line); border-radius: var(--r-md); padding: 5px var(--sp-3); }
 .sm { font-size: var(--fs-12); padding: 3px 10px; text-decoration: none; color: var(--ink); white-space: nowrap; }
+.primary.sm { color: var(--accent-ink); }
 .ghost:hover { background: var(--hover); }
 .icon-btn { border: 0; background: transparent; border-radius: var(--r-md); width: 28px; height: 28px; display: grid; place-items: center; color: var(--muted); padding: 0; flex: none; }
 .icon-btn:hover, .icon-btn[aria-pressed="true"] { background: var(--hover); color: var(--ink); }
