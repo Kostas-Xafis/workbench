@@ -1,0 +1,75 @@
+/* The nav (nav.js): a column on the left; icons only between 760 and 1100 px; a bar at the bottom on a phone. */
+
+#nav { background: var(--sunk); border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; padding: var(--sp-3) var(--sp-2); gap: var(--sp-1); }
+.nav-scroll { flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: none; display: flex; flex-direction: column; gap: var(--sp-1); }
+.nav-list { display: flex; flex-direction: column; gap: 2px; }
+.nav-brand { display: flex; align-items: center; gap: var(--sp-2); padding: var(--sp-1) var(--sp-2) var(--sp-3); color: var(--ink); text-decoration: none; font-weight: 600; font-size: var(--fs-14); }
+.nav-brand img { width: 20px; height: 20px; border-radius: var(--r-sm); flex: none; }
+.nav-label { font-size: var(--fs-11); font-weight: 600; letter-spacing: .07em; text-transform: uppercase; color: var(--faint); padding: var(--sp-4) var(--sp-2) var(--sp-1); }
+.nav-row { position: relative; display: flex; align-items: center; gap: var(--sp-2); width: 100%; min-width: 0; padding: 6px var(--sp-2); border: 0; border-radius: var(--r-md);
+	background: transparent; color: var(--ink); text-decoration: none; font-size: var(--fs-13); text-align: left; }
+.nav-row:hover { background: var(--hover); }
+.nav-row[aria-current="page"] { background: var(--card); box-shadow: 0 0 0 1px var(--line); font-weight: 600; }
+.nav-row:focus-visible, .nav-brand:focus-visible, .nav-warn:focus-visible, .tab:focus-visible { outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent); outline-offset: -2px; }
+.nav-ic { width: 18px; height: 18px; flex: none; display: grid; place-items: center; color: var(--muted); }
+.nav-ic svg { width: 16px; height: 16px; }
+.nav-row[aria-current="page"] .nav-ic { color: var(--ink); }
+.nav-ic .plogo { width: 18px; height: 18px; border-radius: var(--r-sm); padding: 0; border: 0; background: transparent; font-size: var(--fs-11); }
+.nav-ic .plogo.letter { background: hsl(var(--hue, 220) 42% 46%); }
+.nav-t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nav-n { font-style: normal; flex: none; font-size: var(--fs-11); font-weight: 600; font-variant-numeric: tabular-nums; color: var(--muted); }
+.nav-n.st-yours { color: var(--st-yours); } .nav-n.st-running { color: var(--st-running); } .nav-n.st-stuck { color: var(--st-stuck); }
+.nav-n.st-failed { color: var(--st-failed); } .nav-n.st-done { color: var(--st-done); }
+.nav-none { font-size: var(--fs-12); color: var(--faint); padding: var(--sp-1) var(--sp-2); }
+#nav-warn { display: flex; flex-direction: column; gap: var(--sp-1); padding-top: var(--sp-2); }
+#nav-warn:empty { display: none; }
+.nav-warn { display: flex; align-items: center; gap: var(--sp-2); padding: 6px var(--sp-2); border-radius: var(--r-md); font-size: var(--fs-12); text-decoration: none; min-width: 0; }
+.nav-warn .nav-ic { width: 14px; height: 14px; color: inherit; }
+.nav-warn .nav-ic svg { width: 14px; height: 14px; }
+.nav-warn.st-stuck { background: var(--st-stuck-bg); color: var(--st-stuck); }
+.nav-warn.st-failed { background: var(--st-failed-bg); color: var(--st-failed); }
+.nav-warn:hover { filter: brightness(.97); }
+.nav-foot { border-top: 1px solid var(--line); padding-top: var(--sp-2); }
+.nav-foot .nav-row { color: var(--muted); }
+.nav-foot .nav-row:hover, .nav-foot .nav-row[aria-current="page"] { color: var(--ink); }
+#notify[aria-pressed="true"] .nav-ic { color: var(--accent); }
+
+/* A project's logo, wherever it shows (the top bar, Settings, the setup guide); a letter tile when it has none. */
+.plogo { width: 38px; height: 38px; border-radius: var(--r-md); object-fit: contain; background: var(--card); border: 1px solid var(--line); padding: 3px; display: grid; place-items: center; flex: none; }
+.plogo.letter { background: hsl(var(--hue, 220) 42% 46%); border-color: transparent; color: #fff; font-weight: 700; font-size: var(--fs-14); letter-spacing: .3px; }
+
+/* The phone's bar and its sheets; hidden on a computer. */
+#tabbar { display: none; }
+dialog.nav-sheet { margin: auto 0 0; width: 100%; max-width: 100%; border-radius: var(--r-lg) var(--r-lg) 0 0; border-bottom: 0; max-height: 75dvh; }
+.nav-sheet-in { padding: var(--sp-2) var(--sp-3) calc(var(--sp-4) + env(safe-area-inset-bottom, 0px)); display: flex; flex-direction: column; gap: var(--sp-1); }
+.nav-sheet .nav-row { font-size: var(--fs-14); padding: 10px var(--sp-2); }
+.nav-sheet .nav-label { padding-top: var(--sp-2); }
+
+/* Narrower windows: icons only, with their tooltips; a count becomes a dot on the icon. */
+@media (min-width: 761px) and (max-width: 1100px) {
+	body { --nav-w: 56px; }
+	#nav { padding: var(--sp-3) var(--sp-1); align-items: stretch; }
+	#nav .nav-t, #nav .nav-label { display: none; }
+	#nav .nav-label + .nav-list { border-top: 1px solid var(--line); padding-top: var(--sp-2); margin-top: var(--sp-2); }
+	.nav-brand { justify-content: center; padding: var(--sp-1) 0 var(--sp-3); }
+	.nav-row, .nav-warn { justify-content: center; padding: var(--sp-2) 0; }
+	.nav-ic, .nav-ic .plogo { width: 20px; height: 20px; }
+	#nav .nav-n { position: absolute; top: 2px; right: 4px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; background: var(--card);
+		box-shadow: 0 0 0 1px var(--line); display: grid; place-items: center; font-size: var(--fs-11); line-height: 1; }
+}
+
+/* Phones: no column; a bar at the bottom with the views' entries, Projects and More. */
+@media (max-width: 760px) {
+	body { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; }
+	#nav { display: none; }
+	#content { grid-column: 1; }
+	#tabbar { grid-column: 1; grid-row: 2; display: flex; border-top: 1px solid var(--line); background: var(--card); padding: var(--sp-1) 0 max(var(--sp-1), env(safe-area-inset-bottom, 0px)); }
+	.tab { position: relative; flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 6px 0 var(--sp-1); border: 0; background: transparent;
+		color: var(--muted); text-decoration: none; font-size: var(--fs-11); }
+	.tab .nav-ic { color: inherit; width: 20px; height: 20px; }
+	.tab .nav-ic svg { width: 20px; height: 20px; }
+	.tab .nav-t { flex: none; max-width: 100%; text-align: center; }
+	.tab[aria-current="page"] { color: var(--accent); font-weight: 600; }
+	.tab .nav-n { position: absolute; top: 2px; left: calc(50% + 6px); min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; background: var(--card);
+		box-shadow: 0 0 0 1px var(--line); display: grid; place-items: center; line-height: 1; }
+}

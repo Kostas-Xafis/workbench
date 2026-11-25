@@ -1,9 +1,10 @@
 /* ---------- Answer & send: agents the board starts (dispatch.ts) ---------- */
 // Run on an agent's to-do, and "resume the agent" with an answer or an objection (ui/answer.js, { send: true }): the
-// board starts Claude Code headless in the project's folder on that item. A card shows a running agent, and Run; the
-// reader shows its output live, Stop, and afterwards how it went, what it cost and how to continue the session.
+// board starts Claude Code headless in the project's folder on that item. A project's page has Run on its rows
+// (project.js), Agents shows what runs (agents.js); the reader shows its output live, Stop, and afterwards how it
+// went, what it cost and how to continue the session.
 // Settings → Agents turns it on and holds the limits.
-// The calls below don't touch the page, so other views (the one-at-a-time queue) can use them: canSend(item),
+// The calls below don't touch the page, so any view can use them: canSend(item),
 // sendWhy(item), sendItem(id), stopAgent(runId).
 // What the reader (ui/reader.js) asks of this file, its whole contract:
 //   runPanel(item) → HTML: the run box for the item ("" for none): its runs, what the agent did, the controls.
@@ -28,7 +29,7 @@ async function runsLoad() {
 		runs.byItem = new Map();
 		for (const r of [...info.active, ...info.runs]) if (!runs.byItem.has(r.item_id)) runs.byItem.set(r.item_id, r);
 		if (before !== JSON.stringify(info.active) + JSON.stringify(info.runs[0] ?? null)) {
-			if (!$("#board").hidden) renderBoard();
+			redraw();
 			if (settings.tab === "agents" && !$("#settings-view").hidden) renderSettings();
 		}
 	} catch {}
@@ -82,41 +83,11 @@ async function stopAgent(runId) {
 	return r;
 }
 
-/* Words and bits shared by the card, the reader and Settings. */
-const runFor = (from, to) => {
-	const m = Math.round(((to ? parseTime(to) : new Date()) - parseTime(from)) / 60e3);
-	return m < 1 ? "under a minute" : m < 90 ? `${m} min` : `${(m / 60).toFixed(1)} h`;
-};
+/* Words and bits shared by the reader and Settings. */
 const RUN_WORD = { running: "running", done: "done", failed: "failed", stopped: "stopped" };
 // What its tokens come to at Claude API list prices: real money on API credits, plan usage on a subscription.
 const runCost = (r) => (r.cost != null ? `$${r.cost.toFixed(2)} at API prices` : "");
 const runFolder = (i) => state.allProjects.find((p) => p.slug === i.project)?.path ?? "its folder";
-
-/* ---------- On the board ---------- */
-
-hooks.cardMeta.push((i) => {
-	const r = runs.byItem.get(i.id);
-	const out = [];
-	if (r && !r.ended_at) out.push(`<span class="run-chip running" title="An agent the board started is on it. Open the item to watch it">agent running · ${esc(runFor(r.started_at))}</span>`);
-	else if (r && OPEN.includes(i.status) && ["failed", "stopped"].includes(r.status) && Date.now() - parseTime(r.ended_at) < 2 * 86400e3)
-		out.push(`<span class="run-chip ${r.status}" title="${esc(r.error || `The agent was ${r.status}`)}">agent ${RUN_WORD[r.status]}</span>`);
-	// It ended, but couldn't do everything: its permissions refused it tools. Open the item for which.
-	else if (r && OPEN.includes(i.status) && r.refused && Date.now() - parseTime(r.ended_at) < 2 * 86400e3)
-		out.push(`<span class="run-chip failed" title="${esc(`The agent's permissions refused ${r.refused}`)}">agent refused tools</span>`);
-	if (!runs.info?.on || !OPEN.includes(i.status)) return out.join("");
-	if (sendKind(i) === "run" && canSend(i))
-		out.push(`<button type="button" class="run-go card-act" data-run-send="${i.id}" title="Start Claude Code on it in ${esc(runFolder(i))}">${glyph("play")}Run</button>`);
-	return out.join("");
-});
-
-$("#sections").addEventListener("click", async (e) => {
-	const b = e.target.closest("[data-run-send]");
-	if (!b) return;
-	e.stopPropagation();
-	b.disabled = true;
-	try { await sendItem(b.dataset.runSend); toast("The agent is on it"); }
-	catch (err) { b.disabled = false; toast(err.message); }
-});
 
 /* ---------- In the reader: the agent's side of the item (the contract is at the top of this file) ---------- */
 // The run box: a header (state, how long, what it cost, where it ran, a switcher between the item's runs), what the
@@ -255,9 +226,9 @@ function feedHtml(r) {
 }
 function headHtml(item, r, list) {
 	const live = !r.ended_at;
-	const state = live ? `<span class="run-chip running">running · ${esc(runFor(r.started_at))}</span>`
+	const state = live ? `<span class="run-chip running">running · ${esc(took(r.started_at))}</span>`
 		: `<span class="run-chip ${r.status}">${r.status === "done" ? "finished" : RUN_WORD[r.status]}</span>`;
-	const facts = [!live && runFor(r.started_at, r.ended_at), runCost(r)].filter(Boolean).join(" · ");
+	const facts = [!live && took(r.started_at, r.ended_at), runCost(r)].filter(Boolean).join(" · ");
 	const where = runWhere(r);
 	const pick = list.length > 1 ? `<span class="run-pick" role="group" aria-label="The item's runs">${list.slice(0, 6).map((x) => `<button type="button" class="${x.id === r.id ? "on" : ""}${x.ended_at ? "" : " live"}" data-run-pick="${x.id}" title="${esc(`${RUN_WORD[x.status]} · ${ago(x.started_at)}`)}"${x.id === r.id ? ' aria-current="true"' : ""}>#${x.id}</button>`).join("")}</span>` : "";
 	return `<div class="run-top"><h3>Agent</h3>${state}${facts ? `<span class="run-muted">${esc(facts)}</span>` : ""}${where ? `<code class="run-where" title="${esc(r.cwd)}">${esc(where)}</code>` : ""}<span class="spacer"></span>${pick}</div>
@@ -402,13 +373,12 @@ hooks.readerClosed.push(() => { clearTimeout(runs.timer); runs.panel = null; });
 /* ---------- Settings → Agents ---------- */
 
 TAB_IC.agents = '<rect x="2.25" y="3" width="11.5" height="9.5" rx="1.75"/><path d="m5 6.25 2 1.75-2 1.75M8.5 9.75h2.5"/>';
-addSettingsTab({ key: "agents", label: "Agents", local: true, render: () => runsSettings(), load: () => runsLoad(), poll: () => runsLoad() }, "you");
 
 function runRow(r) {
-	const took = r.ended_at ? `after ${runFor(r.started_at, r.ended_at)}` : `for ${runFor(r.started_at)}`;
+	const howLong = r.ended_at ? `after ${took(r.started_at, r.ended_at)}` : `for ${took(r.started_at)}`;
 	return `<div class="so-wide run-row"><div class="run-row-main">
 		<button type="button" class="run-link" data-run-item="${r.item_id}"><code>wb-${esc(r.ref)}</code> ${esc(r.title)}</button>
-		<small>${esc([`#${r.id}`, ago(r.started_at), `from ${r.started_from}`, took, runCost(r), r.error, r.refused && `refused ${r.refused}`].filter(Boolean).join(" · "))}</small></div>
+		<small>${esc([`#${r.id}`, ago(r.started_at), `from ${r.started_from}`, howLong, runCost(r), r.error, r.refused && `refused ${r.refused}`].filter(Boolean).join(" · "))}</small></div>
 		<span class="run-chip ${r.status}">${RUN_WORD[r.status]}</span>
 		${r.ended_at ? "" : `<button type="button" class="ghost sm danger" data-run-stop-set="${r.id}">Stop</button>`}</div>`;
 }
@@ -424,11 +394,11 @@ function runsSettings() {
 		${optGroup("Starting agents", [
 			optRow({ label: "Let the board start agents", hint: "Off: Run and Answer &amp; send don't show, and nothing starts by itself.", bind: { setting: "agents.on" }, control: ctlToggle({ setting: "agents.on" }, { label: "Let the board start agents" }) }),
 			optRow({ label: "From a paired phone too", hint: "Off: a phone can answer, but only this computer starts agents.", bind: { setting: "agents.phone" }, control: ctlToggle({ setting: "agents.phone" }, { label: "A paired phone may start agents" }), off }),
-			optRow({ label: "When an agent's work is unblocked", hint: "Work that waited on your answer, or on another item, can carry on. <b>Tell me</b>: a notification (Notifications → An agent can carry on), and Run on its card. <b>Send it</b>: the board starts the agent on it by itself, within the limits below.", bind: { setting: "agents.unblocked" }, control: ctlRadios({ setting: "agents.unblocked" }, [["tell", "Tell me"], ["send", "Send it"]], { label: "When an agent's work is unblocked" }), off }),
+			optRow({ label: "When an agent's work is unblocked", hint: "Work that waited on your answer, or on another item, can carry on. <b>Tell me</b>: a notification (Notifications → An agent can carry on), and Run on its row in the project's page. <b>Send it</b>: the board starts the agent on it by itself, within the limits below.", bind: { setting: "agents.unblocked" }, control: ctlRadios({ setting: "agents.unblocked" }, [["tell", "Tell me"], ["send", "Send it"]], { label: "When an agent's work is unblocked" }), off }),
 		])}
 		${optGroup("Limits", [
 			optRow({ label: "At once, at most", hint: `${info.running} running now.`, bind: { setting: "agents.at-once" }, control: ctlNumber({ setting: "agents.at-once" }, { min: 1, max: 10, unit: "agents", label: "Agents running at once, at most" }), off }),
-			optRow({ label: "Per day, at most", hint: `${info.today} started today. A day starts at ${String(setting("day.start")).padStart(2, "0")}:00 (You and your day).`, bind: { setting: "agents.per-day" }, control: ctlNumber({ setting: "agents.per-day" }, { min: 1, max: 200, unit: "agents", label: "Agents started per day, at most" }), off }),
+			optRow({ label: "Per day, at most", hint: `${info.today} started today. A day starts at ${String(setting("day.start")).padStart(2, "0")}:00 (Settings → About → You).`, bind: { setting: "agents.per-day" }, control: ctlNumber({ setting: "agents.per-day" }, { min: 1, max: 200, unit: "agents", label: "Agents started per day, at most" }), off }),
 			optRow({ label: "A day's usage, at most", hint: `No new agent once the ones started today come to this much at Claude API list prices, as <a href="/usage">Usage</a> counts their sessions (or what they reported, if more). On a subscription you don't pay it: it's a measure of how much of your plan's limits they take. A run already going isn't stopped. 0: no cap.${spent ? ` <b>${esc(spent)}</b> at API prices.` : ""}`, bind: { setting: "agents.day-dollars" }, control: ctlNumber({ setting: "agents.day-dollars" }, { min: 0, max: 10000, unit: "dollars", label: "No new agent once today's runs come to this many dollars at API prices (0 for no cap)" }), off }),
 		])}
 		${optGroup("The command", [`<div class="so-wide run-cmd">

@@ -141,6 +141,15 @@ else
 				);
 				break;
 			}
+			case "land": {
+				// Agents don't start agents: merging is the board's (Merge it), or yours.
+				if (process.env.WB_RUN || process.env.CLAUDECODE)
+					die("agents don't start agents: leave it for the board (Merge it)");
+				const { landItem } = await import("./agents");
+				const r = await landItem(db, idArg(), { where: "cli", label: "wb land" });
+				console.log(`run #${r.id} merges wb-${r.ref}'s branch, in ${projects(db).find((p) => p.slug === r.project)?.path}. wb runs shows how it goes; wb stop ${r.id} stops it`);
+				break;
+			}
 			case "runs": {
 				pollRuns(db);
 				console.log(runsText(listRuns(db, { limit: o.all ? 100 : 15 })));

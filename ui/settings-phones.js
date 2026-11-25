@@ -1,4 +1,4 @@
-/* ---------- Settings → Privacy and security → Phones ---------- */
+/* ---------- Settings → Data → Phones ---------- */
 // Phones paired with the board for `--lan` (devices.ts): "Pair a phone" opens a one-time code with its QR code, and
 // the list of paired phones has Remove and Remove all. /api/devices answers this computer only.
 const phones = { info: null, error: "", busy: false, timer: 0, count: -1 };
@@ -21,7 +21,7 @@ function phonesWatch() {
 	clearTimeout(phones.timer);
 	if (!phones.info?.pairing) return;
 	phones.timer = setTimeout(async () => {
-		if (settings.tab !== "privacy" || $("#settings-view").hidden) return;
+		if (settings.tab !== "data" || $("#settings-view").hidden) return;
 		await phonesLoad();
 		renderSettings();
 	}, 2000);
@@ -31,7 +31,7 @@ const phLeft = (ms) => { const m = Math.max(0, Math.ceil(ms / 60e3)); return m <
 
 function pvPhones() {
 	const info = phones.info;
-	if (!info) return optGroup("Phones", [`<div class="so-wide set-empty">${phones.error ? esc(phones.error) : "Loading…"}</div>`]);
+	if (!info) return optFold("Phones", [`<div class="so-wide set-empty">${phones.error ? esc(phones.error) : "Loading…"}</div>`], { key: "set-data-phones" });
 	const rows = [];
 	const p = info.pairing;
 	if (!info.lan)
@@ -39,7 +39,7 @@ function pvPhones() {
 			label: `<span class="sdot off" aria-hidden="true"></span>Phone access is off`,
 			hint: app
 				? "The board answers this computer only. Turn on <b>Phone access (on my network)</b> in the app's tray menu, then pair a phone here."
-				: "The board answers this computer only. Start it with <code>wb serve --lan</code> (Settings → Health says how for the service), then pair a phone here.",
+				: "The board answers this computer only. Start it with <code>wb serve --lan</code> (Settings → About → Health says how for the service), then pair a phone here.",
 			control: `<button type="button" class="primary sm" disabled>Pair a phone</button>`,
 		}));
 	else if (p)
@@ -71,7 +71,7 @@ function pvPhones() {
 		rows.push(`<div class="so-wide ph-dev"><div class="ph-dev-main"><b>${esc(d.name)}</b>
 			<small>Paired ${esc(ago(d.paired_at))} · last seen ${d.last_seen_at ? esc(ago(d.last_seen_at)) : "never"}${d.last_ip ? ` from ${esc(d.last_ip)}` : ""}</small></div>
 			<button type="button" class="ghost sm danger" data-phones="remove" data-id="${esc(d.id)}" aria-label="Remove ${esc(d.name)}">Remove</button></div>`);
-	return optGroup("Phones", rows, "Under <code>--lan</code>, only phones paired here get in. Anything else on the network gets the pairing page and nothing more.");
+	return optFold("Phones", rows, { key: "set-data-phones", open: !!p, meta: !info.lan ? "Off" : list.length ? `${list.length} paired` : "None paired", note: "Under <code>--lan</code>, only phones paired here get in. Anything else on the network gets the pairing page and nothing more." });
 }
 
 $("#settings-view").addEventListener("click", async (e) => {
@@ -80,20 +80,22 @@ $("#settings-view").addEventListener("click", async (e) => {
 	const act = b.dataset.phones;
 	try {
 		if (act === "pair" || act === "new") {
-			// From Health's Phone card too: over to this tab with the code showing.
-			if (settings.tab !== "privacy") location.hash = "#settings/privacy";
+			// From About → Health's Phone card too: over to Data with the code showing.
+			folds["set-data-phones"] = true;
+			localSet("folds", JSON.stringify(folds));
+			if (settings.tab !== "data") location.hash = "#settings/data";
 			phones.busy = true;
 			phones.info = await api("/api/devices/pairing", { method: "POST" });
 		} else if (act === "cancel") {
 			phones.info = await api("/api/devices/pairing", { method: "DELETE" });
 		} else if (act === "remove") {
 			const d = phones.info?.devices.find((x) => x.id === b.dataset.id);
-			if (!confirm(`Remove “${d?.name ?? "this phone"}”? It stops reaching the board at once, and has to pair again to come back.`)) return;
+			if (!(await confirmIn(b, { text: `Remove “${d?.name ?? "this phone"}”? It stops reaching the board at once, and has to pair again to come back.`, yes: "Remove", danger: true }))) return;
 			phones.info = await api(`/api/devices/${encodeURIComponent(b.dataset.id)}`, { method: "DELETE" });
 			toast("Removed");
 		} else if (act === "remove-all") {
 			const n = phones.info?.devices.length ?? 0;
-			if (!confirm(`Remove all ${n} phones? They stop reaching the board at once, and each has to pair again.`)) return;
+			if (!(await confirmIn(b, { text: `Remove all ${n} phones? They stop reaching the board at once, and each has to pair again.`, yes: "Remove all", danger: true }))) return;
 			phones.info = await api("/api/devices", { method: "DELETE" });
 			toast("Removed every phone");
 		} else return;

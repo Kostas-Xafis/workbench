@@ -36,6 +36,7 @@ import {
 	type Status,
 } from "./db";
 import { exportAll, type Db } from "./db";
+import { agentOrder, moveInOrder } from "./order";
 import {
 	addGoal,
 	goalLine,
@@ -62,6 +63,7 @@ import {
 	type Ruling,
 } from "./rulings";
 import { latestRun, runLine } from "./dispatch";
+import { noteAlive } from "./alive";
 import { deadlineText, defaultText, itemRecommended, resolveAsk } from "./asks";
 import { staleLabel } from "./stale";
 import { removeLinks, waitOn } from "./links";
@@ -90,7 +92,7 @@ import { changeText, checkChange, fileItem, Refusal, type Filed } from "./filing
 
 const ATTACH_CLI = 'wb image add <ref> <file> "what to look at"';
 
-/** How long a new default waits, as Settings → You and your day says now. */
+/** How long a new default waits, as Settings → Agents says now. */
 const askDaysText = (db: Db) =>
 	askDays(db) ? `${askDays(db)} day${askDays(db) > 1 ? "s" : ""} for one with a default` : "none";
 
@@ -106,7 +108,10 @@ Items are named wb-xxxx (e.g. wb-k3f9); commands take that, the bare k3f9, or an
   wb ls [--mine | --agents] [--all] [--project P] [--kind K] [-q text]
                                    open items (--all includes done); --mine = what waits on ${name}
                                    (notices, which don't wait, are counted after it: --kind notice lists them)
-                                   ⚠ marks stale agent work (doing 2+ days quiet, waiting 7+)
+                                   ⚠ marks stale agent work (doing a day with no sign of life, waiting 7+ days)
+  wb order <ref> [--before <ref> | --after <ref> | --top | --bottom]
+                                   move an agent's to-do in its project's order: agents pick work in it, and
+                                   wb ls lists it that way (with no option, prints the order)
   wb show <ref>                     an item with its history
   wb goals [--project P] [--all]    a project's goals: target date, progress, what waits on ${name}, what blocks them
   wb goal add "Title" [--due YYYY-MM-DD] [--body "markdown"] [--active]   a goal items can serve
@@ -186,9 +191,11 @@ Items are named wb-xxxx (e.g. wb-k3f9); commands take that, the bare k3f9, or an
   wb project <slug> --icon <file>  use this logo (path in the repo); --icon "" = find one again
   wb project <slug> --archive      take a finished project off the board (--unarchive brings it back)
   wb serve [--lan]                 run the board on http://localhost:${port}; --lan also on your network, for
-                                   phones paired in Settings → Privacy and security (plain http: a trusted network only)
+                                   phones paired in Settings → Data (plain http: a trusted network only)
   wb run <ref>                     start a Claude Code agent on an agent's to-do, in its project's folder, as the
                                    board's Run does (Settings → Agents: off until turned on there, with its limits)
+  wb land <ref>                    start an agent that merges a done agent item's branch into the main branch, by the
+                                   project's own rules (Merge it on the board), with Run's limits
   wb runs [--all]                  agents the board started: running ones and the latest (--all: the last 100),
                                    with where each ran, how to carry on, and its Claude Desktop link
   wb continue <run> "message"      send that run's agent a message: a new run resumes its session (same folder,
@@ -289,6 +296,17 @@ export async function runCli(ctx: CliCtx): Promise<number> {
 	const { currentProject, refIds, idArg } = cliHelpers(ctx);
 	const die: (msg: string) => never = cliHelpers(ctx).die;
 	const cmd = args[0];
+	// The item an agent's command acts on, a sign of life on it (alive.ts): looked up first, as `wb image rm` takes the
+	// image away. Reads (wb show, wb ls, wb search) don't count.
+	const actedOn = (() => {
+		if (author !== "agent") return undefined;
+		try {
+			if (cmd === "image") return args[1] === "add" ? resolveItem(db, args[2] ?? "") : args[1] === "rm" ? imageInfo(db, Number(args[2]))?.item_id : undefined;
+			return ITEM_ARG[cmd] === undefined ? undefined : resolveItem(db, args[ITEM_ARG[cmd]] ?? "");
+		} catch {
+			return undefined;
+		}
+	})();
 	if (!cmd || o.help || cmd === "help") {
 		out(help(db, ctx.port));
 		return 0;
@@ -541,6 +559,28 @@ export async function runCli(ctx: CliCtx): Promise<number> {
 			case "show":
 				show(idArg());
 				break;
+			case "order": {
+				const id = idArg();
+				const places = [o.top, o.bottom, o.before, o.after].filter((x) => x !== undefined && x !== false).length;
+				if (places > 1) die("usage: wb order <ref> [--before <ref> | --after <ref> | --top | --bottom]");
+				const other = (s: string) => {
+					const x = resolveItem(db, s);
+					if (x === undefined) die(`no item "${s}"`);
+					return x;
+				};
+				const to = o.top
+					? { top: true as const }
+					: o.bottom
+						? { bottom: true as const }
+						: o.before
+							? { before: other(o.before) }
+							: o.after
+								? { after: other(o.after) }
+								: undefined;
+				const order = to ? moveInOrder(db, id, to) : agentOrder(db, getItem(db, id)!.project).map((i) => `wb-${i.ref}`);
+				for (const ref of order) out(row(getItem(db, resolveItem(db, ref)!)!, false));
+				break;
+			}
 			case "add": {
 				const title = args.slice(1).join(" ") || o.title;
 				if (!title) die('usage: wb add "title" [options]');
@@ -1035,7 +1075,7 @@ export async function runCli(ctx: CliCtx): Promise<number> {
 				const { listDevices } = await import("./devices");
 				const list = listDevices(db);
 				if (!list.length)
-					out("no phones paired: pair one in Settings → Privacy and security, with the board under --lan");
+					out("no phones paired: pair one in Settings → Data, with the board under --lan");
 				for (const d of list)
 					out(
 						`${d.id}  ${d.name.padEnd(24)} paired ${d.paired_at}  last seen ${d.last_seen_at ?? "never"}${d.last_ip ? ` from ${d.last_ip}` : ""}`,
@@ -1057,6 +1097,12 @@ export async function runCli(ctx: CliCtx): Promise<number> {
 	} catch (e) {
 		err(`wb: ${(e as Error).message}`);
 		return 1;
+	} finally {
+		// An agent's command that acts on an item, or from the session an item was started in, is a sign of life (alive.ts).
+		if (author === "agent") noteAlive(db, { ids: [actedOn], session: ctx.session });
 	}
 	return 0;
 }
+
+/** Which argument names the item, for the commands that act on one (`wb image` is looked up apart). */
+const ITEM_ARG: Record<string, number> = { start: 1, wait: 1, done: 1, drop: 1, note: 1, edit: 1, answer: 1 };

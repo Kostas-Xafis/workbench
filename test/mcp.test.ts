@@ -75,16 +75,48 @@ describe("tools/list", () => {
 		const { body } = await rpc("tools/list");
 		const tools = body.result.tools as { name: string; description: string; inputSchema: any; annotations?: Record<string, boolean> }[];
 		const names = tools.map((t) => t.name);
-		for (const n of ["add_item", "get_item", "list_items", "start_item", "finish_item", "answer_decision", "search", "record_tracker"])
+		for (const n of ["add_item", "get_item", "list_items", "start_item", "finish_item", "answer_decision", "search", "tracker", "report", "goal"])
 			expect(names).toContain(n);
 		for (const t of tools) {
 			expect(t.description.length).toBeGreaterThan(10);
 			expect(t.inputSchema.type).toBe("object");
-			expect(typeof t.annotations?.readOnlyHint).toBe("boolean");
+			// Annotations carry only what differs from the spec's defaults, to keep the definitions short.
+			expect(t.annotations).toBeDefined();
 		}
 		const by = Object.fromEntries(tools.map((t) => [t.name, t]));
-		for (const n of ["get_item", "list_items", "search", "list_projects", "list_trackers"]) expect(by[n].annotations!.readOnlyHint).toBe(true);
-		for (const n of ["add_item", "start_item", "finish_item", "answer_decision", "drop_item"]) expect(by[n].annotations!.readOnlyHint).toBe(false);
+		for (const n of ["get_item", "list_items", "search", "list_projects"]) expect(by[n].annotations!.readOnlyHint).toBe(true);
+		for (const n of ["add_item", "start_item", "finish_item", "answer_decision", "drop_item"]) expect(by[n].annotations!.readOnlyHint).not.toBe(true);
+	});
+	test("the definitions and instructions stay short (every agent session loads them)", async () => {
+		const { body } = await rpc("tools/list");
+		const init = await rpc("initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "test", version: "1" } });
+		const bytes = JSON.stringify(body.result.tools).length + (init.body.result.instructions as string).length;
+		// 19,626 bytes in 0.6.0 (45,398 before): fails when it grows 10% past that.
+		expect(bytes).toBeLessThan(21_600);
+		expect(body.result.tools.length).toBeLessThanOrEqual(26);
+	});
+	test("tools that went into one still answer to their old names, unlisted", async () => {
+		const { body } = await rpc("tools/list");
+		const names = body.result.tools.map((t: any) => t.name);
+		for (const old of ["list_goals", "list_reports", "record_tracker", "list_trackers", "define_tracker", "retire_ruling", "get_image"]) expect(names).not.toContain(old);
+		expect((await call("list_trackers")).error).toBe(false);
+		// An alias's own action can't be redirected by the caller's arguments.
+		const presets = await call("tracker", { action: "presets" });
+		const listed = await call("list_trackers");
+		const redirected = await call("list_trackers", { action: "presets" });
+		expect(redirected.text).toBe(listed.text);
+		expect(redirected.text).not.toBe(presets.text);
+		expect((await call("list_goals", { action: "add", title: "Sneaked in" })).text).not.toContain("Sneaked in");
+		expect((await call("tracker", { action: "list" })).error).toBe(false);
+		expect((await call("tracker", { action: "get" })).text).toContain("tracker is required for action get");
+		expect((await call("tracker", { action: "nope" })).error).toBe(true);
+		expect((await call("list_reports")).text).toBe("no reports");
+		const g = await call("goal", { action: "add", title: "Alias goal" });
+		expect(g.error).toBe(false);
+		expect((await call("list_goals")).text).toContain("Alias goal");
+		const r = await call("add_ruling", { text: "Aliases keep working for a release" });
+		expect((await call("retire_ruling", { id: r.data.ruling.id })).text).toContain("Retired");
+		expect((await call("tracker", { action: "presets" })).text).toContain("github-actions");
 	});
 	test("the owner and name placeholders are filled in", async () => {
 		const { body } = await rpc("tools/list");

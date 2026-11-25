@@ -85,7 +85,7 @@ function renderUpd() {
 	pill.classList.toggle("quiet", quiet);
 	if (updDlg.open) renderUpdDlg();
 	renderUpdNote();
-	if (!$("#settings-view").hidden && settings.tab === "updates") renderSettings();
+	if (!$("#settings-view").hidden && settings.tab === "about") renderSettings();
 }
 function openUpd(view) {
 	upd.view = view ?? (updOffer() || upd.app?.busy ? "offer" : updMismatch() ? "server" : "offer");
@@ -117,7 +117,7 @@ const shellArg = (p) => (/^[\w@%+=:,./-]+$/.test(p) ? p : `'${p.replace(/'/g, `'
 function updHow(o) {
 	const a = upd.app, port = upd.info?.port;
 	const attached = upd.info?.server === "attached"
-		? `<p class="upd-sub">The board server on port ${port} runs outside the app and keeps running: it's updated on its own (Settings → Updates).</p>` : "";
+		? `<p class="upd-sub">The board server on port ${port} runs outside the app and keeps running: it's updated on its own (Settings → About → Updates).</p>` : "";
 	if (o.from === "app" && o.install === "app") {
 		const what = a.kind === "deb"
 			? "Update now downloads it, asks for your password to install the package, and restarts the app"
@@ -144,7 +144,7 @@ function renderUpdDlg() {
 			<div class="upd-how">${m.older
 				? `<p>The app is up to date, but the board it shows runs on its own${upd.srv.service ? " (the workbench service)" : ""}, so it stays at ${esc(m.server)} until it's updated too. Until then the board may miss what's new.</p>${updHowServer()}`
 				: `<p>The board server was updated and the app not yet. The board works; the app's own parts (tray, notifications, updates) are from ${esc(m.app)}.</p>
-					${o ? "" : `<p>Check for a new app in Settings → Updates.</p>`}`}</div>`;
+					${o ? "" : `<p>Check for a new app in Settings → About → Updates.</p>`}`}</div>`;
 		act = `<button type="button" class="ghost" data-upd="mismatch-hide" title="Don't show this in the board bar for these two versions">Not now</button><span class="spacer"></span>
 			${!m.older && o ? `<button type="button" class="primary" data-upd="to-offer">See the app update</button>` : `<button type="button" class="primary" data-upd="close">Close</button>`}`;
 	} else if (!o && !busy) {
@@ -194,7 +194,7 @@ async function updAct(what, btn) {
 			if (o.from === "app") upd.app = await appCall("update_later", { version: v });
 			else localSet("update.later", JSON.stringify({ version: v, until: Date.now() + 864e5 }));
 			updDlg.close();
-			toast("Hidden for a day. Settings → Updates still has it.");
+			toast("Hidden for a day. Settings → About → Updates still has it.");
 		} else if (what === "skip" || what === "unskip") {
 			const version = what === "skip" ? (v ?? btn.dataset.version) : null;
 			if (updFromApp()) upd.app = await appCall("update_skip", { version });
@@ -242,19 +242,15 @@ if (app?.event) {
 	app.event.listen("update-open", () => updLoad().then(() => openUpd("offer"))).catch(() => {});
 }
 
-/* Settings → Updates (tab "updates"). In the app: the app's own version, checks and skipped version (kept by the
+/* Settings → About → Updates. In the app: the app's own version, checks and skipped version (kept by the
  * app, "This app"), and the board server it shows. In a browser: this board's version, the daily check (a board
  * setting) and how to update. */
-function updWhen(ms) {
-	const d = new Date(ms), today = new Date().toDateString() === d.toDateString();
-	return `${today ? "today" : d.toLocaleDateString([], { day: "numeric", month: "short" })} at ${clockOf(ms)}`;
-}
 function updStatusText() {
 	const fromApp = updFromApp(), at = fromApp ? upd.app.checkedAt : upd.srv?.checkedAt;
 	if (upd.checking || upd.app?.checking) return "Checking…";
 	const err = fromApp ? upd.app.error : upd.srv?.error, o = updOffer();
 	const res = err || (o ? `${o.version} is available${o.skipped ? " (skipped)" : o.later ? " (put off until tomorrow)" : ""}` : at ? "You have the newest version." : "");
-	return `${at ? `Checked ${updWhen(at)}` : "Not checked yet"}${res ? ` · ${res}` : ""}`;
+	return `${at ? `Checked ${when(at)}` : "Not checked yet"}${res ? ` · ${res}` : ""}`;
 }
 const UPD_KIND = {
 	appimage: "An AppImage: Update now replaces it in place.",

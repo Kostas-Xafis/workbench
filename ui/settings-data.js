@@ -65,7 +65,7 @@ function dtRestorePanel(b) {
 
 function setDataRender() {
 	const d = dataTab.info;
-	const intro = `<p class="set-intro">Everything on the board lives in one database on this computer. Keep copies of it, take it with you, and keep it from growing.</p>`;
+	const intro = "";
 	if (!d) return intro + (dataTab.error ? `<p class="error">${esc(dataTab.error)} <button type="button" class="ghost sm" data-data="reload">Try again</button></p>` : `<div class="set-empty">Loading…</div>`);
 	const err = dataTab.error ? `<p class="error" role="alert">${esc(dataTab.error)}</p>` : "";
 	const busy = (what) => dataTab.busy === what;
@@ -171,7 +171,7 @@ function dtRemovedText(r) {
 }
 
 // A keep setting changed (typed, or "Default"): say what it would delete, ask, save, then apply it right away.
-async function dtChangeKeep(key, value) {
+async function dtChangeKeep(key, value, anchor) {
 	const d = DATA_KEEP[key];
 	// Puts the typed value back to the saved one: paint() skips HTML it has already drawn.
 	const back = () => { $("#settings-view")._html = ""; renderSettings(); };
@@ -188,7 +188,7 @@ async function dtChangeKeep(key, value) {
 	if (what) {
 		const backupFirst = key !== "backups.keep";
 		const which = key === "keep.closed-items-days" ? ` (done or dropped more than ${v} days ago)` : "";
-		if (!confirm(`This removes ${what}${which} right away${backupFirst ? ", after making a backup that still has them" : ""}. Go ahead?`)) return back();
+		if (!(await confirmIn(anchor, { text: `This removes ${what}${which} right away${backupFirst ? ", after making a backup that still has them" : ""}. Go ahead?`, yes: "Remove them", danger: true }))) return back();
 	}
 	await saveSetting(key, value);
 	if (setting(key) !== v) return;
@@ -203,7 +203,7 @@ async function dtChangeKeep(key, value) {
 
 $("#settings-view").addEventListener("change", (e) => {
 	const el = e.target.closest("[data-data-keep]");
-	if (el) dtChangeKeep(el.dataset.dataKeep, el.value === "" ? null : Number(el.value));
+	if (el) dtChangeKeep(el.dataset.dataKeep, el.value === "" ? null : Number(el.value), el);
 });
 // While a number is typed, its row says what that number would remove right now.
 let dtPreview;
@@ -230,13 +230,13 @@ $("#settings-view").addEventListener("input", (e) => {
 		}
 	}, 300);
 });
-$("#settings-view").addEventListener("click", (e) => {
+$("#settings-view").addEventListener("click", async (e) => {
 	// "Default" on a keep setting can delete things too: it goes through the same question.
 	const reset = e.target.closest("[data-reset]");
 	const resetKey = reset?.dataset.reset.startsWith("setting:") && reset.dataset.reset.slice(8);
 	if (resetKey && DATA_KEEP[resetKey]) {
 		e.stopImmediatePropagation();
-		return dtChangeKeep(resetKey, null);
+		return dtChangeKeep(resetKey, null, reset);
 	}
 	const b = e.target.closest("[data-data]");
 	if (!b) return;
@@ -250,7 +250,7 @@ $("#settings-view").addEventListener("click", (e) => {
 			toast(`Backed up${pruned ? `, and removed ${dtN(pruned, "older backup")}` : ""}`);
 		});
 	else if (act === "compact") {
-		if (!confirm("Compact the database? It can take a moment, and the board waits until it's done.")) return;
+		if (!(await confirmIn(b, { text: "Compact the database? It can take a moment, and the board waits until it's done.", yes: "Compact", danger: true }))) return;
 		dtRun("compact", async () => {
 			const { before, after, ...info } = await dtPost("/api/data/compact");
 			dataTab.info = info;

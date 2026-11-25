@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, readdirSync, rmSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { createTables as createImageTables, itemImages, type ImageInfo } from "./images";
 import { staleOf, type Stale } from "./stale";
+import { liveRunItems, recent } from "./alive";
 import { blockersOf, clearLinks, createLinkTable, LINK_COUNTS, resumeWaiting, waitersOf, type LinkRef } from "./links";
 import { checkItemGoal, createGoalTables, goalTitle, searchGoals } from "./goals";
 import { createSettingsTable, getSetting, getSettings, ownerFor } from "./settings";
@@ -13,6 +14,7 @@ import { createDeviceTables } from "./devices";
 import { createRunTables, desktopLink } from "./dispatch";
 import { askChanges, cleanAsk, resolveAsk } from "./asks";
 import { createCheckRunTables } from "./checkruns";
+import { appendToOrder, placeInOrder } from "./order";
 
 export const KINDS = ["task", "check", "review", "decision", "setup", "bug", "idea", "notice"] as const;
 export const STATUSES = ["todo", "doing", "waiting", "done", "dropped"] as const;
@@ -55,10 +57,16 @@ export type Item = {
 	picks: string;
 	/** Out of queue mode until then, UTC 'YYYY-MM-DD HH:MM:SS' (queue.ts); NULL = not deferred. Still waits on Kostas. */
 	deferred_until?: string | null;
+	/** Where an open agent item stands in its project's order (order.ts), 1 first; NULL = not ordered, after the ordered ones. */
+	rank?: number | null;
 	/** How many images it has (listItems and getItem). */
 	image_count?: number;
 	/** Quiet for too long (see stale.ts), or null (listItems and getItem). */
 	stale?: Stale | null;
+	/** When an agent last called the board about it (alive.ts), UTC 'YYYY-MM-DD HH:MM:SS'; NULL = never. */
+	alive_at: string | null;
+	/** An agent is on it now: a live run, or a call about it in the last few minutes (alive.ts; listItems and getItem). */
+	alive?: boolean;
 	/** The link that opens its agent session in Claude Desktop (dispatch.ts desktopLink), when `session` is one (listItems and getItem). */
 	desktop?: string;
 	/** How many waiting items this open one holds up, and how many items it waits on (listItems and getItem; see links.ts). */
@@ -160,6 +168,10 @@ export function createSchema(db: Db) {
 	if (!itemCols.includes("picks")) db.run("ALTER TABLE items ADD COLUMN picks TEXT NOT NULL DEFAULT ''");
 	// Queue mode (queue.ts): out of the one-at-a-time pass until this time, UTC; NULL = not deferred.
 	if (!itemCols.includes("deferred_until")) db.run("ALTER TABLE items ADD COLUMN deferred_until TEXT");
+	// The order Kostas gives a project's agent work (order.ts); NULL = unranked.
+	if (!itemCols.includes("rank")) db.run("ALTER TABLE items ADD COLUMN rank REAL");
+	// When an agent last called the board about it (alive.ts).
+	if (!itemCols.includes("alive_at")) db.run("ALTER TABLE items ADD COLUMN alive_at TEXT");
 	const linkCols = (db.query("PRAGMA table_info(links)").all() as { name: string }[]).map((c) => c.name);
 	if (!linkCols.includes("icon_url")) {
 		db.run("ALTER TABLE links ADD COLUMN icon_url TEXT NOT NULL DEFAULT ''");
@@ -285,6 +297,9 @@ export function createSchema(db: Db) {
 		html TEXT NOT NULL,
 		PRIMARY KEY (version_id, i)
 	)`);
+	// Day pages keep their last DAY_PAGE_VERSIONS versions only: pruned after the startup backup (server.ts) and on each
+	// day page's write (day.ts), never here, before a backup could keep them. The cloud board prunes on writes only
+	// (worker/src/board.ts says why).
 }
 
 export type Db = ReturnType<typeof open>;
@@ -515,9 +530,11 @@ export function listItems(db: Db, f: ItemFilter = {}): Item[] {
 		args.q = `%${f.q}%`;
 		args.ref = f.q.trim().toLowerCase().replace(/^wb-/, "");
 	}
+	// Agent work Kostas has put in order (order.ts) comes first within its status, by that order; the rest as before.
 	// Within a priority, what holds up the most waiting work comes first (for what waits on Kostas).
 	const sql = `SELECT *, (SELECT COUNT(*) FROM images WHERE images.item_id = items.id) AS image_count, ${LINK_COUNTS} FROM items ${where.length ? "WHERE " + where.join(" AND ") : ""}
 		ORDER BY CASE status WHEN 'doing' THEN 0 WHEN 'todo' THEN 1 WHEN 'waiting' THEN 2 ELSE 3 END,
+		CASE WHEN owner = 'agent' AND rank IS NOT NULL THEN 0 ELSE 1 END, CASE WHEN owner = 'agent' THEN rank END,
 		priority, CASE WHEN owner = 'kostas' THEN -unblocks ELSE 0 END, COALESCE(done_at, '') DESC, id`;
 	const items = db.query(sql).all(args) as Item[];
 	// One grouped query for every item's newest note, not one per item.
@@ -525,8 +542,9 @@ export function listItems(db: Db, f: ItemFilter = {}): Item[] {
 		(db.query("SELECT item_id, MAX(at) AS at FROM notes GROUP BY item_id").all() as { item_id: number; at: string }[]).map((r) => [r.item_id, r.at]),
 	);
 	const now = Date.now();
+	const runs = liveRunItems(db);
 	for (const i of items) {
-		i.stale = staleOf(i, last.get(i.id), now);
+		lifeOf(i, last.get(i.id), runs.has(i.id), now);
 		if (i.session && desktopLink(i.session)) i.desktop = desktopLink(i.session);
 	}
 	return items;
@@ -542,13 +560,22 @@ export function getItem(
 	const notes = db.query("SELECT * FROM notes WHERE item_id = ? ORDER BY at, id").all(id) as Note[];
 	const images = itemImages(db, id);
 	const desktop = item.session ? desktopLink(item.session) : "";
-	return { ...item, ...(desktop ? { desktop } : {}), notes, images, image_count: images.length, stale: staleOf(item, notes.at(-1)?.at), waits_on: blockersOf(db, id), blocks: waitersOf(db, id) };
+	lifeOf(item, notes.at(-1)?.at, liveRunItems(db).has(id));
+	return { ...item, ...(desktop ? { desktop } : {}), notes, images, image_count: images.length, waits_on: blockersOf(db, id), blocks: waitersOf(db, id) };
+}
+
+/** `alive` and `stale` (alive.ts, stale.ts): an item with a live run on it is alive, and never stalled. */
+function lifeOf(i: Item, lastNote: string | undefined, liveRun: boolean, now = Date.now()) {
+	i.alive_at ??= null;
+	i.alive = liveRun || recent(i.alive_at, now);
+	const stale = staleOf(i, lastNote, now);
+	i.stale = liveRun && stale?.why === "stalled" ? null : stale;
 }
 
 export function addItem(db: Db, item: ItemPatch & { title: string; project: string }, author = ""): number {
 	item = { ...item, ...normalize(item) };
 	validate(item);
-	// Nobody said who acts: the board's setting for the kind (Settings → You and your day).
+	// Nobody said who acts: the board's setting for the kind (Settings → Agents).
 	item.owner ||= ownerFor(db, item.kind || "task");
 	if (item.goal_id != null) checkItemGoal(db, item.project, item.goal_id);
 	item = { ...item, ...cleanAsk(db, item) };
@@ -564,6 +591,7 @@ export function addItem(db: Db, item: ItemPatch & { title: string; project: stri
 	if (item.status !== "done" && item.status !== "dropped")
 		db.query("UPDATE projects SET archived_at = NULL WHERE slug = ? AND archived_at IS NOT NULL").run(item.project);
 	addNote(db, id, "created", author);
+	appendToOrder(db, id);
 	return id;
 }
 
@@ -608,6 +636,11 @@ export function updateItem(db: Db, id: number, patch: ItemPatch, author = "", no
 	if (note.trim()) addNote(db, id, note.trim(), author);
 	// An item that stops waiting waits on nothing; one that is answered, finished or dropped frees what waited on it.
 	if (patch.status && patch.status !== before.status && before.status === "waiting") clearLinks(db, id);
+	// Closed, handed to Kostas or moved away: out of the project's order.
+	if (before.rank != null && (["done", "dropped"].includes(patch.status ?? "") || patch.owner === "kostas" || fields.includes("project")))
+		db.query("UPDATE items SET rank = NULL WHERE id = ?").run(id);
+	// Made priority 1: where a new priority-1 item goes in the order (order.ts).
+	else if (fields.includes("priority") && Number(patch.priority) === 1) placeInOrder(db, id, "p1");
 	if (fields.includes("status") && (patch.status === "done" || patch.status === "dropped")) resumeWaiting(db, id);
 	else if (fields.includes("answer") && patch.answer?.trim()) resumeWaiting(db, id, "answered");
 }
@@ -896,6 +929,30 @@ export function publishReport(
 		rest.forEach((html, i) => part.run(version.id, i + 1, html));
 		db.query("UPDATE reports SET updated_at = datetime('now') WHERE id = ?").run(row.id);
 		return { id: row.id, n, changed: true };
+	})();
+}
+
+/** How many versions of a day page (a report in "Days" made by day.ts) are kept: it is rewritten all day. */
+export const DAY_PAGE_VERSIONS = 3;
+
+/** What every page day.ts makes carries in its head (dayPage): how a version is told from a report named like one. */
+export const DAY_PAGE_MARK = '<meta name="wb-day" content="';
+
+/**
+ * Removes all but the newest DAY_PAGE_VERSIONS versions of day pages (`day-YYYY-MM-DD` in "Days"), of one report or
+ * of all. Only versions day.ts made count (they carry DAY_PAGE_MARK): an agent's report named like a day page keeps
+ * its history, and so does any version of one that someone else published. Other reports keep their history. Safe to
+ * run again: it finds nothing once it has run. Returns how many versions it removed. (The file gives the room back
+ * only after Settings → Data → Compact.)
+ */
+export function pruneDayVersions(db: Db, reportId?: number): number {
+	const old = `SELECT id FROM (SELECT v.id, ROW_NUMBER() OVER (PARTITION BY v.report_id ORDER BY v.n DESC) AS k
+		FROM report_versions v JOIN reports r ON r.id = v.report_id
+		WHERE r.grp = 'Days' AND r.name GLOB 'day-[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]' AND instr(v.html, $mark) > 0${reportId === undefined ? "" : " AND r.id = $id"}) WHERE k > $keep`;
+	const p: Record<string, number | string> = { keep: DAY_PAGE_VERSIONS, mark: DAY_PAGE_MARK, ...(reportId === undefined ? {} : { id: reportId }) };
+	return db.transaction(() => {
+		db.query(`DELETE FROM report_parts WHERE version_id IN (${old})`).run(p);
+		return db.query(`DELETE FROM report_versions WHERE id IN (${old})`).run(p).changes;
 	})();
 }
 

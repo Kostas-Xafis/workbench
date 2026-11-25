@@ -4,13 +4,13 @@
 // ciphertext and a hash of an auth token derived next to the key, never the password. Unlocking shows the
 // names; every value asks for the password again. Leaving the vault, or a few idle minutes, locks it.
 const ITERATIONS = 600_000;
-// Settings → Privacy and security; read each time a timer starts, so an open vault picks a change up on its next one.
+// Settings → Data → Vault; read each time a timer starts, so an open vault picks a change up on its next one.
 const lockMinutes = () => setting("vault.lock-minutes") ?? 5;
 const showSeconds = () => setting("vault.show-seconds") ?? 20;
 const te = new TextEncoder(), td = new TextDecoder();
 const b64 = (bytes) => btoa(Array.from(new Uint8Array(bytes), (b) => String.fromCharCode(b)).join(""));
 const unb64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
-// `then` is what to do right after unlocking ("rekey" when Settings → Privacy and security sent you here).
+// `then` is what to do right after unlocking ("rekey" when Settings → Data → Vault sent you here).
 const vault = { info: undefined, error: "", key: null, auth: null, secrets: [], access: [], shown: new Map(), idle: 0, then: null };
 // WebCrypto exists only in a secure context: localhost, not the LAN address of `wb serve --lan`.
 const canVault = () => window.isSecureContext && !!crypto.subtle;
@@ -96,7 +96,7 @@ function vaultTimesText() {
 
 const vaultCard = (title, text, form = "") =>
 	`<div class="vault-card"><div class="vault-ic">${icon("lock")}</div><h2>${title}</h2><p>${text}</p>${form}</div>
-	<button class="ghost sm vault-back" data-act="board">← Back to the board</button>`;
+	<button class="ghost sm vault-back" data-act="board">← Back to the Inbox</button>`;
 
 function renderVault() {
 	const el = $("#vault-view");
@@ -143,7 +143,7 @@ function renderVault() {
 	};
 	const groups = scopes.map((slug) => [slug, visible.filter((s) => s.project === slug)]).filter(([, list]) => list.length)
 		.map(([slug, list]) => `<div class="v-group">${esc(slug ? projectName(slug) : "Every project")}</div>${list.map(row).join("")}`).join("");
-	el.innerHTML = `<div class="vault-head"><button class="ghost sm" data-act="board">← Board</button><div><h2>Secrets</h2><small>${esc(state.project ? `${projectName(state.project)}, and those shared with every project` : "All projects")}</small></div>
+	el.innerHTML = `<div class="vault-head"><button class="ghost sm" data-act="board">← Inbox</button><div><h2>Secrets</h2><small>${esc(state.project ? `${projectName(state.project)}, and those shared with every project` : "All projects")}</small></div>
 		<span class="spacer"></span>
 		<button class="primary sm" data-act="add">+ Add secret</button>
 		<button class="ghost sm" data-act="env"${visible.length ? "" : " disabled"}>Export .env</button>
@@ -352,7 +352,7 @@ vaultView.addEventListener("submit", async (e) => {
 });
 vaultView.addEventListener("click", async (e) => {
 	const b = e.target.closest("[data-act]");
-	if (b?.dataset.act === "board") return goBoard();
+	if (b?.dataset.act === "board") return goHome();
 	if (!b || !vault.key) return;
 	const act = b.dataset.act;
 	if (act === "env") return openEnv();
@@ -377,7 +377,7 @@ vaultView.addEventListener("click", async (e) => {
 			const v = await secretValue(s, "Duplicate");
 			if (v != null) openSecret({ name: `${s.name}_COPY`, value: v, note: s.note, project: s.project, copyOf: s.name });
 		} else if (act === "delete") {
-			if (!confirm(`Delete the secret “${s.name}”? This can't be undone.`)) return;
+			if (!(await confirmIn(b, { text: `Delete the secret “${s.name}”? This can't be undone.`, yes: "Delete", danger: true }))) return;
 			await vaultApi(`/api/secrets/${s.id}`, vault.auth, { method: "DELETE" });
 			await loadSecrets();
 			renderVault();
@@ -392,7 +392,17 @@ $("#usage-btn").onclick = (e) => {
 	e.preventDefault();
 	location.href = state.project ? `/usage?project=${encodeURIComponent(state.project)}` : "/usage";
 };
-$("#vault-btn").onclick = () => (location.hash === "#vault" ? goBoard() : (location.hash = "#vault"));
+$("#vault-btn").onclick = () => (location.hash === "#vault" ? goHome() : go("#vault"));
+defineView({
+	name: "vault",
+	el: "#vault-view",
+	match: (h) => (h === "#vault" ? {} : null),
+	show: () => openVault(),
+	// It locks when you leave it.
+	hide: () => lockVault(),
+	title: "Vault",
+	nav: "vault",
+});
 
 // .env export: pick secrets, enter the password once, then copy or download. The text leaves with the dialog.
 const envDlg = $("#env-dlg");

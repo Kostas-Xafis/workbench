@@ -1,16 +1,4 @@
-/* ---------- Projects ---------- */
-
-function renderProjects() {
-	const total = state.projects.reduce((n, p) => n + p.mine, 0);
-	const btn = (p) => `<button class="pbtn" data-project="${esc(p.slug)}" aria-current="${p.slug === state.project}"
-		title="${esc(p.name)}${p.mine ? ` · ${p.mine} waiting on you` : ""}${p.notices ? ` · ${p.notices} notice${p.notices > 1 ? "s" : ""}` : ""}">${logo(p)}<span class="pname">${esc(p.slug ? p.name : "All")}</span>${p.mine ? `<span class="badge">${p.mine}</span>` : ""}</button>`;
-	const settingsBtn = `<button type="button" class="pbtn set-pbtn" id="settings-btn" title="Settings" aria-label="Settings" aria-pressed="${inSettings()}">
-		<span class="set-ic"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor"><g stroke-width="1.4"><path d="M2.5 4.5h6M11.5 4.5h2M2.5 11.5h2M7.5 11.5h6"/><circle cx="10" cy="4.5" r="1.5"/><circle cx="6" cy="11.5" r="1.5"/></g></svg></span><span class="pname">Settings</span></button>`;
-	paint($("#prail"), btn({ slug: "", name: "All projects", mine: total }) + `<div class="prail-sep"></div>` + state.projects.map(btn).join("") + settingsBtn);
-	const p = state.projects.find((p) => p.slug === state.project);
-	paint($("#here"), `<span class="here" style="gap:10px">${logo(p ?? { slug: "" })}<div><b>${esc(p ? p.name : "All projects")}</b>
-		<small>${esc(p ? p.path : `${state.projects.length} projects`)}</small></div></span>`);
-}
+/* ---------- Projects, and what the board loads with them: items, repositories, code ---------- */
 
 async function loadProjects() {
 	const all = await api("/api/projects");
@@ -18,23 +6,50 @@ async function loadProjects() {
 	state.allProjects = all;
 	state.projects = state.allProjects.filter((p) => !p.archived_at);
 	if (state.project && !state.projects.some((p) => p.slug === state.project)) state.project = "";
-	renderProjects();
+	renderNav();
+	retitle();
 }
 
-function setProject(slug) {
+// The project whose page shows last (#project/<slug>), "" for all of them: the items, code and pages loaded are for it,
+// and the rulings view, the vault and a new item start from it. The Projects page sets it. True when it changed.
+function useProject(slug) {
+	if (slug && !state.projects.some((p) => p.slug === slug)) slug = "";
+	if (slug === state.project) return false;
 	state.project = slug;
 	localSet("project", slug);
-	renderProjects();
-	renderRail();
-	// The vault, Today and the queue stay open (showing the new project's); a report goes back to the board.
-	if (location.hash && !["#vault", "#today", "#queue"].includes(location.hash)) history.pushState(null, "", location.pathname + location.search);
-	route();
+	redraw();
 	loadItems();
 	loadCode();
 	loadRepos();
+	return true;
 }
-$("#prail").addEventListener("click", (e) => {
-	if (e.target.closest("#settings-btn")) return inSettings() ? goBoard() : (location.hash = "#settings");
-	const b = e.target.closest("[data-project]");
-	if (b) setProject(b.dataset.project);
-});
+// Goes to a project's page, or to where the board opens.
+const setProject = (slug) => go(slug ? `#project/${encodeURIComponent(slug)}` : "");
+
+// Each loader draws again (redraw(), hooks.js) only when its answer changed: api() gives back the same object when
+// the board answered 304 (ui/core.js), which is most polls. Closed items come without their details (bodies=open),
+// which the reader loads when one is opened.
+const drawn = {};
+async function loadItems() {
+	const items = await api(`/api/items?bodies=open${state.project ? `&project=${encodeURIComponent(state.project)}` : ""}`);
+	const archived = state.allProjects.filter((p) => p.archived_at).map((p) => p.slug).join();
+	if (drawn.items === items && drawn.archived === archived) return;
+	Object.assign(drawn, { items, archived });
+	state.items = state.project ? items : items.filter((i) => !isArchived(i.project));
+	$("#areas").innerHTML = [...new Set(state.items.map((i) => i.area).filter(Boolean))].sort().map((a) => `<option value="${esc(a)}">`).join("");
+	redraw();
+}
+// Each project's git state (GET /api/git): the Projects page's header line.
+async function loadRepos() {
+	const repos = await api("/api/git");
+	if (repos === state.repos) return;
+	state.repos = repos;
+	redraw();
+}
+// Pull requests and commits per item (GET /api/code): the reader's Code.
+async function loadCode() {
+	const code = await api(`/api/code${state.project ? `?project=${encodeURIComponent(state.project)}` : ""}`);
+	if (code === state.code) return;
+	state.code = code;
+	redraw();
+}

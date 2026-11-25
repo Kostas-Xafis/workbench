@@ -173,6 +173,14 @@ export async function cloudCommand(cmd: string, args: string[], o: Options): Pro
 			out(`run #${run.id} started on wb-${run.ref}, on a computer that syncs with ${cfg.url}. wb runs shows how it goes; wb stop ${run.id} stops it`);
 			return 0;
 		}
+		case "land": {
+			if (process.env.WB_RUN || process.env.CLAUDECODE) throw new Error("agents don't start agents: leave it for the board (Merge it)");
+			if (!args[1]) throw new Error("usage: wb land <ref>");
+			const res = await cloudFetch(cfg, `/api/items/${encodeURIComponent(args[1].replace(/^wb-/i, ""))}/land`, { method: "POST", body: JSON.stringify({ from: "cli" }) });
+			const { run } = (await res.json()) as { run: { id: number; ref: string } };
+			out(`run #${run.id} merges wb-${run.ref}'s branch, on a computer that syncs with ${cfg.url}. wb runs shows how it goes; wb stop ${run.id} stops it`);
+			return 0;
+		}
 		case "runs": {
 			const { runsText } = await import("./dispatch");
 			const info = (await (await cloudFetch(cfg, "/api/runs")).json()) as { runs: Parameters<typeof runsText>[0]; active: Parameters<typeof runsText>[0]; computers?: string[] };
@@ -223,6 +231,7 @@ export async function cloudCommand(cmd: string, args: string[], o: Options): Pro
 			out("\nwb open opens the cloud board (the desktop app, or the browser) and wb mcp relays the MCP server to it.");
 			out("wb serve                              the computer helper: agents, trackers' commands, git for the cloud board");
 			out("wb run <ref> · wb runs · wb stop <n>  start, list and stop agents (on a computer whose helper is online)");
+			out("wb land <ref>                          start an agent that merges a done item's branch by the project's rules");
 			out('wb continue <n> "message"             send a run\'s agent a message: it carries on in the same session');
 			out("wb helper [allow]                     which computers are online; allow the new commands that wait here");
 			out(`While this computer syncs, wb ${Object.keys(COMPUTER_ONLY_SAYS).join(", ")} need this computer: they say so and what to use instead (wb sync off brings the board back).`);

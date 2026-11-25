@@ -195,7 +195,7 @@ function suggestSlug(db: Db, root: string) {
 	return s;
 }
 
-/** For Settings → Health: the prompt to copy, and how many projects on the board have the rules at each state. */
+/** For Settings → About: the prompt to copy, and how many projects on the board have the rules at each state. */
 export function integrateSummary(db: Db) {
 	const counts = { current: 0, outdated: 0, manual: 0, none: 0 };
 	const behind: string[] = [];

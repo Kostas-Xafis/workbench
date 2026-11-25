@@ -54,7 +54,7 @@ export const clock = (v: unknown): string => {
 	return `${m[1].padStart(2, "0")}:${m[2]}`;
 };
 
-/* ---------- You and your day ---------- */
+/* ---------- About (name, day start) and Agents (asks, who gets new items) ---------- */
 // Who the board is for, when their work day starts, and who gets a new item when nobody says. The owner value
 // stays "kostas" in the data and the APIs (filters, --owner, owner: …): only what people and agents read says `name`.
 
@@ -106,13 +106,9 @@ export function ownerDefaultsText(db: Db) {
 	if (!mine.length) return "Every kind defaults to agents.";
 	return `${list(mine)} default${mine.length === 1 ? "s" : ""} to ${name}; ${list(theirs)} to agents.`;
 }
-/* ---------- end: You and your day ---------- */
+/* ---------- end: About and Agents ---------- */
 
-/* ---------- Notifications ---------- */
-// Notifications are this browser's own (prefs in index.html); declare a key here only for a board-wide one.
-const NOTIFY: Defs = {
-};
-/* ---------- end: Notifications ---------- */
+// Notifications and the look (theme, zoom) are this browser's own (prefs in index.html): nothing is declared here for them.
 
 /* ---------- Data ---------- */
 // Read where they're used: server.ts (nightly backup and tidy), `wb backup`, trackers.ts (history), db.ts (tidy).
@@ -134,28 +130,22 @@ const DATA: Defs = {
 };
 /* ---------- end: Data ---------- */
 
-/* ---------- Privacy and security ---------- */
+/* ---------- Data: vault and sharing ---------- */
 /** The lengths a share link can be started for, in hours; the most it may run (counting extensions) is one of them too. */
 export const SHARE_HOURS = [1, 2, 4, 8, 12, 24];
 const PRIVACY: Defs = {
 	// Used by the vault in the page (index.html), read whenever one of its timers starts.
 	"vault.lock-minutes": { about: "Vault locks after this many idle minutes", default: 5, check: int(1, 60) },
 	"vault.show-seconds": { about: "A shown secret hides after this many seconds", default: 20, check: int(5, 120) },
-	// vaultask.ts: whether agents may ask (each request still needs the vault password in a popup on this computer).
+	// vaultask.ts: whether agents may ask (Settings → Agents; each request still needs the vault password in a popup on this computer).
 	"vault.agents": { about: "Agents may ask for secrets", default: true, check: bool },
 	// share.ts. The start length is capped by the most at the moment of use, so the two never disagree.
 	"share.default-hours": { about: "Share links start at this many hours", default: 1, check: oneOf(...SHARE_HOURS) },
 	"share.max-hours": { about: "A share link runs at most this many hours", default: 8, check: oneOf(...SHARE_HOURS) },
 };
-/* ---------- end: Privacy and security ---------- */
+/* ---------- end: vault and sharing ---------- */
 
-/* ---------- Appearance ---------- */
-// Appearance is this browser's own (prefs in index.html); declare a key here only for a board-wide one.
-const LOOK: Defs = {
-};
-/* ---------- end: Appearance ---------- */
-
-/* ---------- Updates ---------- */
+/* ---------- Updates (About) ---------- */
 // updates.ts. The desktop app keeps its own (automatic checks, skipped version) in its app.json; these are for a
 // board opened in a plain browser.
 const UPDATES: Defs = {
@@ -225,7 +215,7 @@ const AGENTS: Defs = {
 };
 /* ---------- end: Agents ---------- */
 
-export const SETTINGS: Defs = { ...YOU, ...NOTIFY, ...DATA, ...PRIVACY, ...LOOK, ...UPDATES, ...SETUP, ...AGENTS };
+export const SETTINGS: Defs = { ...YOU, ...DATA, ...PRIVACY, ...UPDATES, ...SETUP, ...AGENTS };
 
 /* ---------- Storage ---------- */
 

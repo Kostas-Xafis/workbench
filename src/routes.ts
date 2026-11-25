@@ -71,7 +71,8 @@ import { todayData } from "./today";
 import { buildQueue, deferItem, giveBack } from "./queue";
 import { resolveAsk } from "./asks";
 import { fileItem } from "./filing";
-import { codeLinks, repoState, type CodeLinks } from "./git";
+import { setOrder } from "./order";
+import { codeLinksOf, repoStateOf } from "./git";
 import { candidateFolders, checkFolder, folderState, health } from "./health";
 import { addGoal, goalsWithStats, itemGoals, moveGoal, updateGoal, type GoalPatch } from "./goals";
 import { getSettings, settingDefs, updateSettings } from "./settings";
@@ -102,6 +103,7 @@ import { etagRoutes, IMMUTABLE, versionedPage } from "./fresh";
 import { addStepPhoto, finishRun, removeStepPhoto, runState, saveStep, startOver } from "./checkruns";
 import { addImage, imageData, prepareImage, removeImage, setImageCaption } from "./images";
 import { mcpHttp } from "./mcp";
+import { agentsView, landItem } from "./agents";
 import { continueRun, getRun, listRuns, openInDesktop, runEvents, runPrompt, runsInfo, startRun, stopRun, testCommand, type From } from "./dispatch";
 import { refreshUsage, usageData } from "./usage";
 import { agentFiles, integratePrompt, integrateSummary } from "./integrate";
@@ -155,7 +157,7 @@ export type BoardHost = {
 	port: number;
 	/** Answering the network (`wb serve --lan`); always true in the cloud. */
 	lan: boolean;
-	/** The compiled server (the app's sidecar, the standalone server), for Settings → Updates. */
+	/** The compiled server (the app's sidecar, the standalone server), for Settings → About. */
 	compiled: boolean;
 	/** A request from this computer itself. Never in the cloud. */
 	loopback: Check;
@@ -194,15 +196,9 @@ export function boardRoutes(h: BoardHost) {
 		}
 		return null;
 	};
-	// Commits and pull requests per project; gh is slow and rate-limited, so each project is asked at most every 90 s.
-	const codeCache = new Map<string, { at: number; links: Promise<CodeLinks> }>();
-	const projectCode = (p: Project) => {
-		const hit = codeCache.get(p.slug);
-		if (hit && Date.now() - hit.at < 90e3) return hit.links;
-		const links = codeLinks(p);
-		codeCache.set(p.slug, { at: Date.now(), links });
-		return links;
-	};
+	// Commits and pull requests per project; gh is slow and rate-limited, so each project is asked at most every 90 s
+	// (git.ts codeLinksOf, shared with the Agents place; a changed folder is a read of its own).
+	const projectCode = (p: Project) => codeLinksOf(p, 90e3);
 	// A new or changed tracker is read right away rather than at the next tick.
 	const readSoon = (id: number) => {
 		const t = getTracker(db, id);
@@ -337,8 +333,8 @@ export function boardRoutes(h: BoardHost) {
 					],
 					// A long press on the app's icon.
 					shortcuts: [
-						{ name: "Today", url: "/#today", icons: [{ src: "/icons/icon-192.png", sizes: "192x192", type: "image/png" }] },
-						{ name: "Answer what needs you", short_name: "Queue", url: "/#queue", icons: [{ src: "/icons/icon-192.png", sizes: "192x192", type: "image/png" }] },
+						{ name: "Inbox", url: "/#inbox", icons: [{ src: "/icons/icon-192.png", sizes: "192x192", type: "image/png" }] },
+						{ name: "Agents", url: "/#agents", icons: [{ src: "/icons/icon-192.png", sizes: "192x192", type: "image/png" }] },
 					],
 				},
 				{ headers: { "content-type": "application/manifest+json", "cache-control": "max-age=3600" } },
@@ -349,7 +345,7 @@ export function boardRoutes(h: BoardHost) {
 				? new Response(png, { headers: { "content-type": "image/png", "cache-control": "max-age=86400" } })
 				: new Response("not found", { status: 404 });
 		},
-		// Settings → Privacy and security → Phones: this computer only, like the rest of Settings.
+		// Settings → Data → Phones: this computer only, like the rest of Settings.
 		"/api/devices": {
 			GET: (req, srv) => (localRead(req, srv) ? json(devicesInfo()) : json({ error: SETTINGS_LOCAL }, 403)),
 			// Remove all: every phone has to pair again.
@@ -402,7 +398,6 @@ export function boardRoutes(h: BoardHost) {
 					const before = getProject(db, req.params.slug);
 					if (before && body?.path !== undefined && body.path !== before.path) body.path = h.cloud ? String(body.path ?? "").trim() : checkFolder(body.path);
 					const p = updateProject(db, req.params.slug, body ?? {});
-					codeCache.delete(p.slug);
 					forgetLogo(p.slug);
 					return json(p);
 				} catch (e) {
@@ -446,7 +441,7 @@ export function boardRoutes(h: BoardHost) {
 			}),
 		},
 		"/api/settings/defs": () => json(settingDefs()),
-		// Settings → Updates (updates.ts): this server's version, how it runs, and the newest release it knows of.
+		// Settings → About (updates.ts): this server's version, how it runs, and the newest release it knows of.
 		// Read by anyone who can open the board (the board bar says when there's a newer one); "Check now" calls the
 		// internet, so only from this computer.
 		"/api/update": () => json(updateInfo(db, h.compiled)),
@@ -458,8 +453,8 @@ export function boardRoutes(h: BoardHost) {
 			}),
 		},
 
-		// Settings → You and your day: routes
-		// end: You and your day routes
+		// Settings → About and Agents: routes
+		// end: About and Agents routes
 
 		// Settings → Notifications: routes
 		// end: Notifications routes
@@ -571,7 +566,7 @@ export function boardRoutes(h: BoardHost) {
 		})(),
 		// end: Data routes
 
-		// Settings → Privacy and security: routes
+		// Settings → Data: routes
 		// What's exposed and how secrets behave, for the tab: never a secret, a header value or the vault's salt.
 		// Only for the board's page on this computer (localRead: no other site, no DNS rebinding).
 		"/api/settings/privacy": (req, srv) => {
@@ -596,8 +591,8 @@ export function boardRoutes(h: BoardHost) {
 		},
 		// end: Privacy and security routes
 
-		// Settings → Appearance: routes
-		// end: Appearance routes
+		// Settings → About: routes
+		// end: About routes
 
 		// Settings: projects with their folder and what points at them, folders that could be projects, and health.
 		"/api/settings/projects": (req, srv) =>
@@ -652,7 +647,7 @@ export function boardRoutes(h: BoardHost) {
 				}
 			}),
 		},
-		// The Today view's part the page can't build alone: what agents finished since `since` (with the finishing
+		// What the Inbox and Agents pages can't build alone: what agents finished since `since` (with the finishing
 		// note's first line) and the reports updated since, day pages left out. ?project= (default all), ?since= (any time).
 		"/api/today": (req) => {
 			const u = new URL(req.url).searchParams;
@@ -725,6 +720,18 @@ export function boardRoutes(h: BoardHost) {
 				try {
 					const { groups } = await req.json();
 					return json({ groups: setReportOrder(db, req.params.slug, groups) });
+				} catch (e) {
+					return fail(e);
+				}
+			}),
+		},
+		// The order of a project's agent work (order.ts): agents pick in it and the Projects page drags it.
+		"/api/projects/:slug/order": {
+			PUT: jsonOnly(async (req) => {
+				try {
+					if (!getProject(db, req.params.slug)) return json({ error: "not found" }, 404);
+					const { refs } = await req.json();
+					return json({ refs: setOrder(db, req.params.slug, refs) });
 				} catch (e) {
 					return fail(e);
 				}
@@ -1012,7 +1019,7 @@ export function boardRoutes(h: BoardHost) {
 		},
 		"/api/git": async (req) => {
 			const only = new URL(req.url).searchParams.get("project");
-			return json(await Promise.all(projects(db).filter((p) => (only ? p.slug === only : !p.archived_at)).map(repoState)));
+			return json(await Promise.all(projects(db).filter((p) => (only ? p.slug === only : !p.archived_at)).map((p) => repoStateOf(p, 0))));
 		},
 		"/api/items": {
 			GET: (req) => {
@@ -1102,6 +1109,28 @@ export function boardRoutes(h: BoardHost) {
 					const { item, answer, object } = await req.json();
 					const how = answer !== undefined ? { answer: Array.isArray(answer) ? answer.map(String) : String(answer) } : object !== undefined ? { object: String(object) } : {};
 					const run = await startRun(db, itemId(String(item)), from, how);
+					return json({ run, item: getItem(db, run.item_id) }, 201);
+				} catch (e) {
+					return fail(e);
+				}
+			}),
+		},
+		// The Agents place (agents.ts): running, ready to land, stuck and finished, in one answer; and Merge it, a run
+		// that lands a done item's branch.
+		"/api/agents": async (req, srv) => {
+			const u = new URL(req.url).searchParams;
+			try {
+				return json(await agentsView(db, { project: u.get("project") || "*", since: u.get("since") || undefined }, runFrom(req, srv)));
+			} catch (e) {
+				return fail(e);
+			}
+		},
+		"/api/items/:id/land": {
+			POST: jsonOnly(async (req, srv) => {
+				const from = runFrom(req, srv);
+				if (!from) return json({ error: "agents start only from the board on this computer, or a phone paired with it" }, 403);
+				try {
+					const run = await landItem(db, itemId(req.params.id), from);
 					return json({ run, item: getItem(db, run.item_id) }, 201);
 				} catch (e) {
 					return fail(e);

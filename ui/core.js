@@ -7,9 +7,9 @@ const OPEN = ["todo", "doing", "waiting"];
 // Waits on you: yours, open, and not a notice (notices are just so you know; asks.ts has the same rule). Every
 // "needs you" count goes by this.
 const needsYou = (i) => i.owner === "kostas" && OPEN.includes(i.status) && i.kind !== "notice";
-// Board sections, in order; the third value is whether a section starts open.
-const SECTIONS = [["decision", "Decisions", true], ["setup", "Setup", true], ["check", "Checks", true], ["review", "Reviews", true],
-	["notice", "Notices", true], ["bug", "Bugs", true], ["task", "Tasks", true], ["idea", "Ideas", false]];
+// The kinds with their names, in the order lists of them go (Settings → Agents, the setup guide).
+const KIND_NAMES = [["decision", "Decisions"], ["setup", "Setup"], ["check", "Checks"], ["review", "Reviews"],
+	["notice", "Notices"], ["bug", "Bugs"], ["task", "Tasks"], ["idea", "Ideas"]];
 // Same line glyphs as the day reports (day.ts).
 const RING = '<circle cx="8" cy="8" r="6.25"/>';
 const GLYPH = {
@@ -18,26 +18,15 @@ const GLYPH = {
 	play: RING + '<path d="M6.8 5.6v4.8L10.6 8z"/>',
 	pause: RING + '<path d="M6.5 5.8v4.4M9.5 5.8v4.4"/>',
 	commit: '<circle cx="8" cy="8" r="2.6"/><path d="M1.5 8h3.9M10.6 8h3.9"/>',
-	// One per kind, in the kind's colour: section headers and search results.
-	"k-decision": '<path d="M8 14.25V8.75L4 4.25M8 8.75l4-4.5M3.75 7.25V4h3.25M12.25 7.25V4H9"/>',
-	"k-setup": '<path d="M10.6 2.1a3.4 3.4 0 0 0-3.9 4.5L2.3 11a1.5 1.5 0 0 0 2.1 2.1l4.4-4.4a3.4 3.4 0 0 0 4.5-3.9l-2.1 2.1-1.9-.3-.3-1.9z"/>',
-	"k-check": '<rect x="4.25" y="1.75" width="7.5" height="12.5" rx="1.75"/><path d="M6.3 7.9l1.3 1.3 2.2-2.5M7.25 12.1h1.5"/>',
-	"k-review": '<path d="M1.75 8S4.25 3.75 8 3.75 14.25 8 14.25 8 11.75 12.25 8 12.25 1.75 8 1.75 8z"/><circle cx="8" cy="8" r="1.9"/>',
-	"k-bug": '<path d="M6.2 5.9a1.8 1.8 0 0 1 3.6 0M6.6 4.3 5.7 2.7M9.4 4.3l.9-1.6"/><rect x="4.75" y="5.75" width="6.5" height="8" rx="3.25"/><path d="M8 8.25v5.5M4.75 9.5H2.4M11.25 9.5h2.35M5 7.2 3.4 5.9M11 7.2l1.6-1.3M5.1 12.2l-1.7 1.3M10.9 12.2l1.7 1.3"/>',
-	"k-task": '<path d="M5.25 4.5 1.75 8l3.5 3.5M10.75 4.5 14.25 8l-3.5 3.5M9.1 3 6.9 13"/>',
-	"k-notice": '<circle cx="8" cy="8" r="6.25"/><path d="M8 7.4v3.85M8 4.9v.05"/>',
-	"k-idea": '<path d="M6.25 11.25c0-1.1-.5-1.8-1.2-2.5a4 4 0 1 1 5.9 0c-.7.7-1.2 1.4-1.2 2.5zM6.5 13.75h3"/>',
 };
-const kindIcon = (kind) => `<span class="kic k-${kind}" aria-hidden="true">${glyph(`k-${kind}`)}</span>`;
 const glyph = (name) => `<svg class="gl" viewBox="0 0 16 16" aria-hidden="true">${GLYPH[name]}</svg>`;
-const WHO = [["all", "Everything"], ["kostas", "Needs you"], ["agent", "With agents"]];
 const $ = (s, el = document) => el.querySelector(s);
 const solo = new URLSearchParams(location.search).has("solo");
 const state = {
-	project: localGet("project") || "", who: startWho(), items: [], projects: [], allProjects: [], links: [], reports: [], repos: [],
-	code: {}, sources: [], trackers: [], current: null, report: null, reportV: null, collapsed: narrow() || localGet("rail") === "collapsed",
+	project: localGet("project") || "", items: [], projects: [], allProjects: [], links: [], reports: [], repos: [],
+	code: {}, sources: [], trackers: [], current: null, report: null, reportV: null,
 };
-// On a phone the rail opens over the page, so it starts folded and its state isn't remembered.
+// A phone-sized window (phone.css's width).
 function narrow() { return matchMedia("(max-width: 760px)").matches; }
 
 function localGet(k) { try { return localStorage.getItem("wb." + k); } catch { return null; } }
@@ -48,15 +37,6 @@ function pref(key, def) {
 	if (raw == null) return def;
 	try { return JSON.parse(raw); } catch { return def; }
 }
-// Settings → Appearance: the board opens on the last filter used ("last"), or always on one. Runs while `state` is
-// built, so nothing declared with const below this point can be used here.
-function startWho() {
-	const START_WHO = ["all", "kostas", "agent"];
-	const v = pref("look.start", "last");
-	if (START_WHO.includes(v)) return v;
-	const last = localGet("who");
-	return START_WHO.includes(last) ? last : "all";
-}
 // Everything is redrawn on every poll, so whether a <details data-key> is open lives here.
 const folds = (() => {
 	try {
@@ -66,6 +46,23 @@ const folds = (() => {
 	} catch { return {}; }
 })();
 const isOpen = (key, def = false) => ((folds[key] ?? def) ? " open" : "");
+// Once, what only the board sorted by kind, its side column and Today kept in this browser goes: the who-switch, the
+// folded side column, the old list of open sections, the sections' and the side column's folds, and the "board opens
+// on" setting. The Inbox's last visit, which Today kept, moves to keys of its own (inbox.since, inbox.last).
+(function tidy() {
+	if (localGet("tidy") === "board") return;
+	try {
+		for (const [from, to] of [["today.since", "inbox.since"], ["today.last", "inbox.last"]]) {
+			const v = localGet(from);
+			if (v != null && localGet(to) == null) localSet(to, v);
+		}
+		for (const k of ["who", "rail", "open", "today.since", "today.last", "pref.look.start", "pref.look.sections", "pref.look.density"]) localStorage.removeItem(`wb.${k}`);
+		const gone = (k) => /^(sec-|later-|repo-|rail-)/.test(k) || k === "done-more";
+		for (const k of Object.keys(folds)) if (gone(k)) delete folds[k];
+		localSet("folds", JSON.stringify(folds));
+		localSet("tidy", "board");
+	} catch {}
+})();
 document.addEventListener("toggle", (e) => {
 	const key = e.target.dataset?.key;
 	if (!key) return;
@@ -148,18 +145,10 @@ function hl(text, q) {
 	return out + esc(text.slice(last));
 }
 
-const parseTime = (s) => new Date(s.replace(" ", "T") + "Z");
-function ago(s) {
-	const d = (Date.now() - parseTime(s)) / 1000;
-	if (d < 60) return "just now";
-	if (d < 3600) return `${Math.floor(d / 60)} min ago`;
-	if (d < 86400) return `${Math.floor(d / 3600)} h ago`;
-	if (d < 86400 * 30) return `${Math.floor(d / 86400)} d ago`;
-	return parseTime(s).toLocaleDateString();
-}
+// Times (ago, when, day, inDays, took, parseTime) are in time.js.
 const sessionHref = (s) => /^local_[0-9a-f-]+$/.test(s) ? `claude://claude.ai/epitaxy/${s}` : null;
 const projectName = (slug) => state.allProjects.find((p) => p.slug === slug)?.name ?? slug;
-// Archived projects stay out of the rail and "All", but their names still resolve (search, old items).
+// Archived projects stay out of the nav and "All", but their names still resolve (search, old items).
 const isArchived = (slug) => !!slug && state.allProjects.some((p) => p.slug === slug && p.archived_at);
 const initials = (name) => name.split(/[\s_-]+|(?<=[a-z])(?=[A-Z])/).filter((w) => /^[\p{L}\p{N}]/u.test(w)).slice(0, 2).map((w) => w[0]).join("").toUpperCase() || "?";
 const hue = (s) => [...s].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 360, 7);

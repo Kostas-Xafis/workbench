@@ -1,7 +1,7 @@
 /* ---------- Status trackers (trackers.ts) ---------- */
 
-// Under the project's name in the rail: its trackers, then the global ones. A tracker is a few meters
-// (value of max, or a state in words), each with a level; grey until it warns.
+// A project's trackers show as meters in its page's header (project.js), and one that runs low in the nav (nav.js). A
+// tracker is a few meters (value of max, or a state in words), each with a level; grey until it warns.
 const LOCAL = !CLOUD && ["localhost", "127.0.0.1", "[::1]"].includes(location.hostname);
 const TRK_ADD = `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-linecap="round"><g stroke-width="1.4"><path d="M2 12.5a6 6 0 0 1 9.4-4.95"/><path d="M8 12.5l2.2-3.3"/><path d="M12.5 10v5M10 12.5h5"/></g></svg>`;
 const EVERY = [[300, "5 min"], [900, "15 min"], [1800, "30 min"], [3600, "1 hour"], [10800, "3 hours"], [21600, "6 hours"], [43200, "12 hours"], [86400, "1 day"], [0, "Only when asked"]];
@@ -13,12 +13,7 @@ const unitOf = (u) => !u || CURRENCY.includes(u) ? "" : u === "%" ? "%" : ` ${u}
 const withUnit = (n, u) => `${CURRENCY.includes(u) ? u : ""}${fmtNum(n)}`;
 const everyText = (s) => !s ? "only when asked" : s % 86400 === 0 ? (s === 86400 ? "every day" : `every ${s / 86400} days`)
 	: s % 3600 === 0 ? (s === 3600 ? "every hour" : `every ${s / 3600} h`) : s % 60 === 0 ? `every ${s / 60} min` : `every ${s} s`;
-function inDays(iso) {
-	const d = Math.ceil((Date.parse(iso) - Date.now()) / 86400e3);
-	return d <= 0 ? "today" : d === 1 ? "tomorrow" : `in ${d} days`;
-}
-const trkName = (t) => !state.project && t.project ? `${projectName(t.project)} · ${t.title}` : t.title;
-const shownTrackers = () => state.trackers.filter((t) => !t.project || (state.project ? t.project === state.project : !isArchived(t.project)));
+const trkName = (t) => t.project ? `${projectName(t.project)} · ${t.title}` : t.title;
 // "12/15 builds" with the number in bold; a state in words as it is.
 const valueHtml = (m) => m.value == null ? esc(m.text ?? "")
 	: `<b>${esc(withUnit(m.value, m.unit))}</b><small>${m.max != null ? `/${esc(withUnit(m.max, m.unit))}` : ""}${esc(unitOf(m.unit))}</small>`;
@@ -30,7 +25,7 @@ function trkTip(t) {
 	return [
 		trkName(t) + (t.project ? "" : " (every project)"),
 		...(r ? r.meters.map(meterPlain) : ["no reading yet"]),
-		r?.resets_at ? `resets ${new Date(r.resets_at).toLocaleDateString()} (${inDays(r.resets_at)})` : "",
+		r?.resets_at ? `resets ${day(r.resets_at)} (${inDays(r.resets_at)})` : "",
 		r?.note ?? "",
 		t.error ? `last read failed: ${t.error}` : "",
 		t.stale ? "stale: it hasn't read for a while" : "",
@@ -38,86 +33,12 @@ function trkTip(t) {
 	].filter(Boolean).join("\n");
 }
 
-// card: the same look as a plain block, for the hover card of the folded rail.
-function trackerRow(t, card = false) {
-	const ms = t.reading?.meters ?? [];
-	const flag = t.error ? `<span class="trk-flag" aria-label="Last read failed">!</span>` : "";
-	const cls = `trk${t.stale ? " stale" : ""}`;
-	const head = (right) => `<div class="trk-top"><span class="trk-name">${esc(trkName(t))}</span>${flag}${right}</div>`;
-	const open = (lv, body) => card ? `<div class="${cls}${lv ? ` lv-${lv}` : ""}">${body}</div>`
-		: `<button type="button" class="${cls}${lv ? ` lv-${lv}` : ""}" data-tracker="${t.id}" title="${esc(trkTip(t))}">${body}</button>`;
-	if (!ms.length) return open("", head(`<small>${t.running ? "reading…" : t.error ? "failed" : "no reading yet"}</small>`));
-	if (ms.length === 1) {
-		const m = ms[0], p = pctOf(m);
-		return open(m.level, head(m.value == null ? `<span class="mt">${esc(m.text ?? "")}</span>` : `<span class="mv">${valueHtml(m)}</span>`) +
-			(p == null ? "" : `<span class="bar"><i style="width:${p}%"></i></span>`));
-	}
-	// Under All the name carries its project, so the reset date stays in the tooltip.
-	const resets = t.reading.resets_at && state.project ? `<small>resets ${inDays(t.reading.resets_at)}</small>` : "";
-	const rows = ms.map((m) => {
-		const p = pctOf(m);
-		const cells = m.value == null ? `<span class="mt">${esc(m.text ?? "")}</span>`
-			: `${p == null ? "<span></span>" : `<span class="bar"><i style="width:${p}%"></i></span>`}<span class="mv">${valueHtml(m)}</span>`;
-		return `<span class="trk-m${m.level ? ` lv-${m.level}` : ""}"><span class="ml">${esc(m.label)}</span>${cells}</span>`;
-	}).join("");
-	return open("", head(resets) + `<div class="trk-ms">${rows}</div>`);
-}
-
-function railTrackers(collapsed) {
-	const list = shownTrackers();
-	if (!list.length) return "";
-	if (collapsed) return `<div class="trackers">${list.map((t) => {
-		const ps = (t.reading?.meters ?? []).map(pctOf).filter((p) => p != null);
-		const c = t.error ? "var(--bug)" : t.level === "bad" ? "var(--bug)" : t.level === "warn" ? "var(--review)" : "var(--muted)";
-		return `<button type="button" class="trk-mini${t.stale ? " stale" : ""}" data-tracker="${t.id}" aria-label="${esc(trkTip(t))}"><span class="trk-ring" style="--c:${c}">${ringSvg(ps.length ? Math.max(...ps) : 100, 22, 3.5)}</span></button>`;
-	}).join("")}</div>`;
-	return `<div class="trackers">${list.map((t) => trackerRow(t)).join("")}</div>`;
-}
-
-// The folded rail's hover card: it lives on <body> because the rail clips what overflows it.
-const trkPop = document.createElement("div");
-trkPop.id = "trk-pop";
-trkPop.setAttribute("aria-hidden", "true");
-document.body.append(trkPop);
-let popFor = null, popHide = 0;
-function showTrkPop(btn) {
-	clearTimeout(popHide);
-	const t = state.trackers.find((x) => x.id === Number(btn.dataset.tracker));
-	if (!t) return hideTrkPop(true);
-	popFor = t.id;
-	paint(trkPop, trackerRow(t, true));
-	// Beside the rail, centred on the ring, kept on screen.
-	const r = btn.getBoundingClientRect(), h = trkPop.offsetHeight;
-	trkPop.style.left = `${$("#rail").getBoundingClientRect().right + 6}px`;
-	trkPop.style.top = `${Math.max(8, Math.min(r.top + r.height / 2 - h / 2, innerHeight - h - 8))}px`;
-	trkPop.classList.add("show");
-}
-// A short wait, so sliding from one ring to the next swaps the card instead of blinking it.
-function hideTrkPop(now = false) {
-	clearTimeout(popHide);
-	const go = () => { trkPop.classList.remove("show"); popFor = null; };
-	if (now) go(); else popHide = setTimeout(go, 90);
-}
-$("#rail").addEventListener("pointerover", (e) => {
-	const b = e.target.closest(".trk-mini");
-	if (b && e.pointerType !== "touch") showTrkPop(b);
-});
-$("#rail").addEventListener("pointerout", (e) => {
-	const b = e.target.closest(".trk-mini");
-	if (b && !b.contains(e.relatedTarget)) hideTrkPop();
-});
-$("#rail").addEventListener("focusin", (e) => {
-	const b = e.target.closest(".trk-mini");
-	if (b?.matches(":focus-visible")) showTrkPop(b);
-});
-$("#rail").addEventListener("focusout", (e) => { if (e.target.closest(".trk-mini")) hideTrkPop(); });
-$("#rail").addEventListener("scroll", () => hideTrkPop(true));
-
 async function loadTrackers() {
 	const list = await api("/api/trackers");
 	if (JSON.stringify(list) === JSON.stringify(state.trackers)) return;
 	state.trackers = list;
-	renderRail();
+	redraw();
+	renderNav();
 }
 
 const trkDlg = $("#trk-dlg");
@@ -157,7 +78,6 @@ function trackerChart(t) {
 	}).join("");
 	const guides = maxes.map((v) => `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" stroke="var(--muted)" stroke-dasharray="3 3" stroke-width="1" opacity=".6"/>` +
 		`<text class="ax" x="${L - 5}" y="${y(v) + 3}" text-anchor="end">${fmtNum(v)}</text>`).join("");
-	const day = (at) => new Date(at).toLocaleDateString([], { month: "short", day: "numeric" });
 	const svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Readings over time">
 		<line x1="${L}" x2="${W - R}" y1="${y(0)}" y2="${y(0)}" stroke="var(--line)"/>${guides}
 		<text class="ax" x="${L - 5}" y="${y(0) + 3}" text-anchor="end">0</text>${lines}
@@ -187,7 +107,7 @@ function showTrackerView() {
 	}).join("") : `<span class="hint" style="grid-column:1/-1">${t.kind === "manual" ? "No reading yet: record one below." : t.error ? "No reading yet: the last read failed." : "No reading yet."}</span>`;
 	const r = t.reading;
 	$("#tv-info").innerHTML = [
-		r?.resets_at ? `<span>Resets ${esc(new Date(r.resets_at).toLocaleDateString([], { month: "short", day: "numeric" }))} (${inDays(r.resets_at)})</span>` : "",
+		r?.resets_at ? `<span>Resets ${esc(day(r.resets_at))} (${inDays(r.resets_at)})</span>` : "",
 		r?.note ? `<span>${esc(r.note)}</span>` : "",
 		r?.url ? `<a href="${esc(r.url)}" target="_blank" rel="noreferrer">Details ↗</a>` : "",
 	].join("");
@@ -199,9 +119,9 @@ function showTrackerView() {
 	if (manual) $("#tv-reading").value = ms.map((m) => m.value == null ? `${m.label ? `${m.label}: ` : ""}${m.text ?? ""}` : `${m.label ? `${m.label} ` : ""}${m.value}${m.max != null && m.max !== t.max ? `/${m.max}` : ""}`).join("\n");
 	const last = t.history?.at(-1);
 	const how = manual ? "Manual" : t.kind === "command" ? `Runs <code>${esc(t.command)}</code>` : esc(trkPresets?.[t.kind]?.title ?? t.kind) + (Object.keys(t.options).length ? ` (${esc(Object.entries(t.options).map(([k, v]) => `${k} ${v}`).join(", "))})` : "");
-	const when = manual ? (t.read_at ? `recorded ${ago(t.read_at)}${last?.author ? ` by ${esc(last.author)}` : ""}` : "")
-		: [everyText(t.every), t.read_at ? `read ${ago(t.read_at)}` : "", t.due_at && t.every ? `next ${parseTime(t.due_at) > Date.now() ? `at ${parseTime(t.due_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : "soon"}` : ""].filter(Boolean).join(" · ");
-	$("#tv-source").innerHTML = [how, when].filter(Boolean).join(" · ");
+	const read = manual ? (t.read_at ? `recorded ${ago(t.read_at)}${last?.author ? ` by ${esc(last.author)}` : ""}` : "")
+		: [everyText(t.every), t.read_at ? `read ${ago(t.read_at)}` : "", t.due_at && t.every ? `next ${parseTime(t.due_at) > Date.now() ? when(t.due_at) : "soon"}` : ""].filter(Boolean).join(" · ");
+	$("#tv-source").innerHTML = [how, read].filter(Boolean).join(" · ");
 	$("#tv-refresh").hidden = manual;
 	$("#tv-err").textContent = "";
 }
@@ -231,8 +151,8 @@ $("#tv-save").onclick = async () => {
 	} catch (e) { $("#tv-err").textContent = e.message; }
 };
 $("#tv-reading").addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); $("#tv-save").click(); } });
-$("#tv-delete").onclick = async () => {
-	if (!confirm(`Delete the tracker "${trk.title}" and its history?`)) return;
+$("#tv-delete").onclick = async (e) => {
+	if (!(await confirmIn(e.currentTarget, { text: `Delete the tracker "${trk.title}" and its history?`, yes: "Delete", danger: true }))) return;
 	try {
 		await api(`/api/trackers/${trk.id}`, { method: "DELETE" });
 		trkDlg.close();
@@ -282,7 +202,7 @@ function showKind() {
 	trkForm.command.disabled = k === "command" && !LOCAL;
 	trkForm.every.closest("label").hidden = k === "manual";
 	$("#te-about").textContent = k === "manual"
-		? "Record readings in this dialog, with wb track, or from an agent (record_tracker). Readings look like 12/15, a line per meter (Android 12/15), or a state (In review)."
+		? "Record readings in this dialog, with wb track, or from an agent (the tracker tool, action record). Readings look like 12/15, a line per meter (Android 12/15), or a state (In review)."
 		: k === "command"
 			? (LOCAL ? "It prints 12/15, a line per meter (Android 12/15), a state (In review), or JSON: {value, max, unit} or {meters: [...], note, resets_at, url}. Exit code non-zero = failed."
 				: "A command runs on the board's computer, so it can be set only there (localhost) or with wb tracker.")

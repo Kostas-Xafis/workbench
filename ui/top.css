@@ -1,32 +1,34 @@
-/* Top bar and search */
+/* The top bar: the place's title (router.js), search, and New. */
 #content { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
-header.top { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 560px) minmax(max-content, 1fr); align-items: center; gap: 14px; padding: 10px 18px; border-bottom: 1px solid var(--line); }
-.here { display: flex; align-items: center; gap: 10px; min-width: 0; }
-.here .plogo { width: 30px; height: 30px; border-radius: 9px; font-size: 12px; }
-.here div { min-width: 0; }
-header.top > .here { overflow: hidden; }
-.here b { display: block; font-size: 15px; line-height: 1.2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.here small { display: block; color: var(--muted); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+header.top { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 520px) minmax(max-content, 1fr); align-items: center; gap: var(--sp-4);
+	padding: 0 var(--sp-5); height: 56px; flex: none; border-bottom: 1px solid var(--line); }
+header.top .here { display: flex; align-items: center; gap: var(--sp-2); min-width: 0; overflow: hidden; }
+header.top .here .plogo { width: 24px; height: 24px; border-radius: var(--r-sm); padding: 1px; font-size: var(--fs-11); }
+header.top .here b { font-size: var(--fs-16); font-weight: 600; line-height: 1.2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The report view says its title in the top bar; its own bar keeps the version and the project. */
+body:not(.solo) #r-title { display: none; }
 .search-wrap { position: relative; }
 .search-wrap > svg { position: absolute; left: 11px; top: 50%; translate: 0 -50%; width: 15px; height: 15px; color: var(--muted); pointer-events: none; }
-.search-wrap kbd { position: absolute; right: 9px; top: 50%; translate: 0 -50%; font: 11px ui-monospace, monospace; color: var(--muted); border: 1px solid var(--line); border-radius: 5px; padding: 1px 5px; pointer-events: none; }
+.search-wrap kbd { position: absolute; right: 9px; top: 50%; translate: 0 -50%; font: var(--fs-11) var(--mono); color: var(--muted); border: 1px solid var(--line); border-radius: var(--r-sm); padding: 1px 5px; pointer-events: none; }
 #search:focus + kbd, #search:not(:placeholder-shown) + kbd { display: none; }
-#search { width: 100%; border: 1px solid var(--line); background: var(--card); border-radius: 10px; padding: 7px 60px 7px 33px; }
+#search { width: 100%; border: 1px solid var(--line); background: var(--card); border-radius: var(--r-md); padding: 7px 60px 7px 33px; }
 #search:focus { outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent); outline-offset: -1px; }
-#results { position: absolute; z-index: 5; top: calc(100% + 6px); left: 0; right: 0; background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+#results { position: absolute; z-index: 5; top: calc(100% + 6px); left: 0; right: 0; background: var(--card); border: 1px solid var(--line); border-radius: var(--r-lg);
 	box-shadow: var(--shadow); max-height: min(70vh, 560px); overflow: auto; padding: 6px; }
-.rgroup { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); padding: 8px 9px 3px; }
-.res { display: flex; gap: 9px; align-items: center; width: 100%; text-align: left; border: 0; background: transparent; padding: 6px 9px; border-radius: 8px; color: var(--ink); text-decoration: none; }
+.rgroup { font-size: var(--fs-11); font-weight: 700; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); padding: var(--sp-2) 9px 3px; }
+.res { display: flex; gap: 9px; align-items: center; width: 100%; text-align: left; border: 0; background: transparent; padding: 6px 9px; border-radius: var(--r-md); color: var(--ink); text-decoration: none; }
 .res[aria-selected="true"], .res:hover { background: var(--hover); }
 .res .rt { flex: 1; min-width: 0; }
 .res .rt > div, .res .rt > small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.res .rt > small { display: block; color: var(--muted); font-size: 12px; }
-.res-foot { font-size: 11.5px; color: var(--muted); padding: 8px 9px 4px; border-top: 1px solid var(--line); margin-top: 6px; }
-.res-none { color: var(--muted); padding: 10px 9px; font-size: 13px; }
+.res .rt > small { display: block; color: var(--muted); font-size: var(--fs-12); }
+.res-foot { font-size: var(--fs-12); color: var(--muted); padding: var(--sp-2) 9px var(--sp-1); border-top: 1px solid var(--line); margin-top: 6px; }
+.res-none { color: var(--muted); padding: 10px 9px; font-size: var(--fs-13); }
 mark { background: color-mix(in srgb, var(--review) 30%, transparent); color: inherit; border-radius: 3px; padding: 0 1px; }
-.top-right { display: flex; justify-content: flex-end; gap: 8px; }
-#rail-open { display: none; }
-/* Narrower windows: Today, Usage and Vault keep their icons only, so New stays in view. */
-@media (max-width: 1180px) {
-	header.top .vault-btn span { display: none; }
+.top-right { display: flex; justify-content: flex-end; align-items: center; gap: var(--sp-2); }
+@media (max-width: 760px) {
+	header.top { grid-template-columns: minmax(0, auto) minmax(0, 1fr) auto; padding: 0 var(--sp-3); gap: var(--sp-2); height: 52px; }
+	header.top .here { max-width: 38vw; }
+	header.top .here b { font-size: var(--fs-14); }
+	.search-wrap kbd { display: none; }
+	#search { padding-right: 10px; }
 }

@@ -4,8 +4,11 @@ async function start() {
 		$("#r-back").hidden = true;
 		$("#r-home").hidden = false;
 	}
+	// The project the address names (#project/<slug>; none where the board opens), so the first load is for it.
+	const named = location.hash.match(/^#project\/([^/]+)$/);
+	if (named) state.project = decodeURIComponent(named[1]);
+	else if (!location.hash || /^#item\//.test(location.hash)) state.project = "";
 	await Promise.all([loadProjects(), loadSettings()]);
-	renderRail();
 	await Promise.all([loadItems(), loadLinks(), loadReports(), loadSources(), loadTrackers()]);
 	route();
 	renderNotify();
@@ -32,6 +35,6 @@ setInterval(() => {
 	loadTrackers();
 	refreshReport();
 	// The setup guide's checks, while something shows them (the guide polls faster by itself on the steps that wait).
-	if (setupCardShown() || (Date.now() - setup.at > 30e3 && $("#sections .empty-card"))) setupLoad();
+	if (setupCardShown()) setupLoad();
 	hookRun(hooks.refresh);
 }, 10000);

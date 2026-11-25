@@ -87,7 +87,7 @@ describe("briefText", () => {
 		updateItem(db, f, { status: "done" });
 		addNote(db, f, "abc123: shipped", "agent");
 		const text = briefText(db, "demo", ago(2));
-		expect(text).toContain("Needs you: 2 waiting, 1 new since then.");
+		expect(text).toContain("Waiting on you: 2, 1 new since then.");
 		expect(text).toContain("Pick a database (P1) (waiting 9 days)");
 		expect(text).toContain("Check the phone layout (new)");
 		expect(text).toContain("Done by agents: 1.");

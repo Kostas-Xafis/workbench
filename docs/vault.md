@@ -1,14 +1,20 @@
 # Secrets vault
 
-The **Vault** button at the top opens the secrets of the selected project, plus those shared with every project. The first time, it asks for a vault password.
+**Vault**, at the foot of the nav, opens the secrets of the project you're on, plus those shared with every project. The first time, it asks for a vault password.
 
-- **Two gates:** the password unlocks the vault and shows the names only. Showing, copying or editing a value asks for the password again. A shown value hides after 20 seconds and the vault locks after 5 idle minutes, unless changed in Settings → Privacy and security; it always locks when you leave it.
-- **Encrypted in the browser:** the page derives a key from the password (PBKDF2-SHA256, 600,000 rounds) and encrypts each name, note and value with AES-GCM. The server and `workbench.db` hold only ciphertext, plus a hash of an auth token derived next to the key. The password itself is never stored or sent.
-- **This computer only:** the vault answers only requests from localhost. Under `wb serve --lan` the phone sees the board but not the vault, because over plain HTTP the browser offers no encryption and the token would cross the network in the clear.
+- **Two gates:** the password unlocks the vault and shows the names only. Showing, copying or editing a value asks for the password again. A shown value hides after 20 seconds and the vault locks after 5 idle minutes (both set in Settings → Data), and it always locks when you leave it.
+- **Encrypted in the browser:** the page derives a key from the password (PBKDF2-SHA256, 600,000 rounds) and encrypts each name, note and value with AES-GCM. The server and the database hold only ciphertext, plus a hash of an auth token derived next to the key. The password is never stored or sent.
+- **This computer only:** the vault answers only requests from localhost. Under `wb serve --lan` a phone sees the board but not the vault, because over plain HTTP the token would cross the network in the clear.
 - **Export as .env:** pick secrets, enter the password once, and the `.env` block is copied (or downloaded). Names that aren't valid variable names become `UPPER_SNAKE`; notes become comments.
-- **No recovery:** forget the password and the secrets are gone. `wb vault` says whether a vault exists. `wb vault reset --yes` deletes it, with every secret, so you can start over. "Change password" in the vault re-encrypts everything under a new one.
-- **Agents ask, you type the password:** an agent asks through MCP, never in the chat. `vault_list` (names and notes, for its project and those shared with every project) and `vault_get` (named secrets) each open a window on this computer (zenity, from `/usr/bin` only) that says which project's agent asks, which secrets by name, its reason, and where the values go. Typing the vault password there gives them; **Deny** refuses, and further requests from that agent's server are refused for a minute. The password goes from that window to the workbench process, never through the agent, decrypts just what was asked and is forgotten: every request needs it again. Three wrong passwords, or no answer in 2 minutes, and the request fails.
-- **Values out of the conversation:** by default `vault_get` writes the values to a private `.env` file (0600, in `$XDG_RUNTIME_DIR/workbench-vault`, deleted after 15 minutes) and gives the agent only its path, to use as `set -a; . <path>; set +a`. With `deliver: "text"` they come back in the reply, which the window says, and then they stay in Claude's saved transcript.
-- **Seen in the vault:** the unlocked vault lists **Agent requests**: when, which project, which secrets were given (or that you said no). Settings → Privacy and security → Vault → **Agents may ask for secrets** turns requests off.
-- **What it can't stop:** an agent that rewrites the workbench, or draws a look-alike window to catch the password. Type it only when an agent just asked for what the window names.
+- **No recovery:** forget the password and the secrets are gone. `wb vault` says whether a vault exists. `wb vault reset --yes` deletes it, with every secret. "Change password" in the vault re-encrypts everything under a new one.
 - **Not for reports:** the `wb` CLI can't read secrets, and report pages can't reach the vault. For a report that needs an API token, use a [data source](reports.md#data-sources).
+
+## Agents ask, you type the password
+
+An agent asks through MCP, never in the chat. `vault_list` (names and notes, for its project and those shared with every project) and `vault_get` (named secrets) each open a window on this computer (zenity, from `/usr/bin` only). It says which project's agent asks, which secrets by name, its reason, and where the values go.
+
+- Typing the vault password there gives them. **Deny** refuses, and further requests from that agent's server are refused for a minute. Three wrong passwords, or no answer in 2 minutes, and the request fails.
+- The password goes from that window to the workbench process, never through the agent, decrypts just what was asked and is forgotten: every request needs it again.
+- **Values out of the conversation:** by default `vault_get` writes the values to a private `.env` file (0600, in `$XDG_RUNTIME_DIR/workbench-vault`, deleted after 15 minutes) and gives the agent only its path, to use as `set -a; . <path>; set +a`. With `deliver: "text"` they come back in the reply, which the window says, and then they stay in Claude's saved transcript.
+- **Seen in the vault:** the unlocked vault lists **Agent requests**: when, which project, which secrets were given (or that you said no). Settings → Agents → **Agents may ask for secrets** turns requests off.
+- **What it can't stop:** an agent that rewrites the workbench, or draws a look-alike window to catch the password. Type it only when an agent just asked for what the window names.

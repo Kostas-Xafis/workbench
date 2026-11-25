@@ -55,7 +55,7 @@ export function createPushTables(db: Db) {
 		sent_at TEXT,
 		error TEXT NOT NULL DEFAULT ''
 	)`);
-	// Removing a device (Settings → Privacy and security, or `wb sync off`) stops its notifications at once.
+	// Removing a device (Settings → Data, or `wb sync off`) stops its notifications at once.
 	db.run("CREATE TRIGGER IF NOT EXISTS push_device_gone AFTER DELETE ON devices BEGIN DELETE FROM push_subscriptions WHERE device_id = OLD.id; END");
 }
 

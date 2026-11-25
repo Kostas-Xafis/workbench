@@ -38,6 +38,8 @@ import {
 	type ReadLog,
 } from "../../src/dispatch";
 import { reader, RUN_TIMEOUT_MS, runDue, type Reading } from "../../src/trackers";
+import { agentGit, agentsView, landItem, type GitRead } from "../../src/agents";
+import type { CodeLinks, RepoState } from "../../src/git";
 import { getSetting } from "../../src/settings";
 
 export const NO_COMPUTER =
@@ -117,6 +119,7 @@ export class Helpers {
 			}
 		};
 		costs.of = (sessions, since = 0) => this.costs(sessions, since);
+		agentGit.read = (list) => this.gitForAgents(list);
 		desktop.here = false;
 		reader.read = (t, folder) =>
 			this.ask<Reading>("tracker", { tracker: { id: t.id, kind: t.kind, command: t.command, options: t.options, name: t.name, project: t.project }, folder }, { prefer: folder, timeout: RUN_TIMEOUT_MS + 15e3 });
@@ -285,6 +288,56 @@ export class Helpers {
 		return Promise.race([p, new Promise<T>((r) => setTimeout(() => r(fallback), wait))]).catch(() => fallback);
 	}
 
+	/**
+	 * The Agents place's git (agents.ts), for the projects it names (those with finished work on a branch): what the
+	 * page's own git and code polls keep, when that covers them (the board-wide answer, key "", or the one project's),
+	 * else these projects alone, asked under a key of their own. With what isn't known said in words.
+	 */
+	private async gitForAgents(wanted: { slug: string; path: string }[]): Promise<GitRead> {
+		const list = wanted.map((p) => ({ slug: p.slug, path: p.path }));
+		const slugs = list.map((p) => p.slug).sort();
+		const live = new Set(
+			projects(this.db)
+				.filter((p) => !p.archived_at)
+				.map((p) => p.slug),
+		);
+		const read = async <T>(kind: "git" | "code", maxAge: number, fallback: T): Promise<{ value: T; at: number | null }> => {
+			const own = slugs.length === 1 ? `${kind}:${slugs[0]}` : `${kind}:agents:${slugs.join(",")}`;
+			const keys = slugs.every((s) => live.has(s)) ? [own, `${kind}:`] : [own];
+			const rows = keys
+				.map((k) => this.db.query("SELECT value, at FROM helper_cache WHERE key = ?").get(k) as { value: string; at: number } | null)
+				.filter((r): r is { value: string; at: number } => !!r)
+				.sort((a, b) => b.at - a.at);
+			const newest = rows[0];
+			if (newest && Date.now() - newest.at < maxAge) return { value: JSON.parse(newest.value) as T, at: newest.at };
+			// Old: shown meanwhile, and these projects asked again behind it (only ever under their own key).
+			if (newest) {
+				void this.cached<T>(own, maxAge, kind, { projects: list }, fallback).catch(() => {});
+				return { value: JSON.parse(newest.value) as T, at: newest.at };
+			}
+			const value = await this.cached<T>(own, maxAge, kind, { projects: list }, fallback);
+			const at = (this.db.query("SELECT at FROM helper_cache WHERE key = ?").get(own) as { at: number } | null)?.at ?? null;
+			return { value, at };
+		};
+		const [g, c] = await Promise.all([read<RepoState[]>("git", 30e3, []), read<CodeLinks>("code", 90e3, {})]);
+		const repos = (g.value ?? []).filter((r) => slugs.includes(r.project));
+		const code = c.value;
+		const limits: string[] = [];
+		const row = g.at === null ? null : { at: g.at };
+		const online = this.online();
+		if (!online.length)
+			limits.push(
+				row
+					? `No computer is online: git state is as a computer last sent it, ${Math.max(1, Math.round((Date.now() - row.at) / 60e3))} min ago.`
+					: "No computer is online, and none has sent git state yet: the board can't tell which branches are merged.",
+			);
+		else if (!row) limits.push(`${online[0].name} is reading git state for the first time: ready to land fills in on the next look.`);
+		if ((repos ?? []).some((r) => r.ok && r.base === undefined))
+			limits.push("The computer that sends git state has an older Workbench app: no commit counts per branch, and the main branch is taken to be main or master. Update the app there.");
+		if (!(repos ?? []).length && list.length && row) limits.push("No computer has these projects' folders, so their git state isn't known.");
+		return { repos: repos ?? [], code: code ?? {}, limits };
+	}
+
 	/* ---------- Routes the board hands over ---------- */
 
 	/**
@@ -327,6 +380,33 @@ export class Helpers {
 					const name = c.device?.name || "the cloud board";
 					const who: From = from === "cli" ? { where: "cli", label: `wb continue on ${name}` } : { where: "local", label: name };
 					const run = await continueRun(db, Number(url.pathname.split("/")[3]), String(message ?? ""), who);
+					return json({ run, item: getItem(db, run.item_id) }, 201);
+				} catch (e) {
+					return json({ error: (e as Error).message }, 400);
+				}
+			}
+			case "/api/agents": {
+				const name = c.device?.name || "the cloud board";
+				try {
+					const view = await agentsView(db, { project: url.searchParams.get("project") || "*", since: url.searchParams.get("since") || undefined }, c.boardOnly ? { where: "local", label: name } : null);
+					if (!this.online().length) view.start = { allowed: false, why: view.start.why || NO_COMPUTER_AGENTS };
+					return json(view);
+				} catch (e) {
+					return json({ error: (e as Error).message }, 400);
+				}
+			}
+			case "/api/items/:id/land": {
+				if (!post) return null;
+				if (!c.boardOnly) return refuse("agents start only from the board's own page or a tool with this board's token");
+				if (!this.online().length) return refuse(NO_COMPUTER_AGENTS, 503);
+				try {
+					const ref = decodeURIComponent(url.pathname.split("/")[3] ?? "");
+					const id = resolveItem(db, ref);
+					if (id === undefined) throw new Error(`no item ${ref}`);
+					const { from } = (await req.json().catch(() => ({}))) as { from?: unknown };
+					const name = c.device?.name || "the cloud board";
+					const who: From = from === "cli" ? { where: "cli", label: `wb land on ${name}` } : { where: "local", label: name };
+					const run = await landItem(db, id, who);
 					return json({ run, item: getItem(db, run.item_id) }, 201);
 				} catch (e) {
 					return json({ error: (e as Error).message }, 400);
@@ -467,7 +547,7 @@ export class Helpers {
 
 	private hello(device: string, m: Hello, ws?: WebSocket): ToHelper[] {
 		const db = this.db;
-		// Named as its device is (Settings → Privacy and security lists it), not as it names itself.
+		// Named as its device is (Settings → Data lists it), not as it names itself.
 		const named = (db.query("SELECT name FROM devices WHERE id = ?").get(device) as { name: string } | null)?.name;
 		const hello = {
 			name: String(named || m.name || "a computer").slice(0, 80),

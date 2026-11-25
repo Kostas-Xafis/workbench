@@ -29,7 +29,7 @@ self.addEventListener("push", (e) => {
 // Where a target opens when no board window is open (ui/push.js reads ?open=).
 function targetUrl(t) {
 	if (t?.report) return `/#report/${t.report}`;
-	if (t?.today) return "/#today";
+	if (t?.inbox || t?.today) return "/#inbox";
 	if (t?.item) return `/?open=item:${t.item}`;
 	if (t?.tracker) return `/?open=tracker:${t.tracker}`;
 	return "/";

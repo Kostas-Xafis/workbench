@@ -112,7 +112,7 @@ export function howRun(compiled: boolean): "app" | "binary" | "source" {
 	return compiled ? "binary" : "source";
 }
 
-/** What Settings → Updates and the board bar show. */
+/** What Settings → About and the board bar show. */
 export function updateInfo(db: Db, compiled: boolean) {
 	const skip = getSetting<string>(db, "updates.skip");
 	const latest = saved.latest;

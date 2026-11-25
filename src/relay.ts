@@ -9,6 +9,8 @@
  *   `_meta` into them; a legacy one sends the revision `initialize` agreed.
  * - A picture given as a file (attach_image, add_item's images) is a path on this computer: the relay reads it and
  *   sends its bytes instead, since the cloud board has no files.
+ * - The desktop-app session it runs in (CLAUDE_CODE_HOST_SESSION_ID) goes along in `x-wb-session`, so start_item
+ *   links it and the board sees the session's calls as signs of life (alive.ts), as with the local server.
  * - vault_list and vault_get are answered here (cloudvault.ts): the password window opens on this computer, and the
  *   .env file is written here, where the agent runs.
  */
@@ -67,6 +69,7 @@ export async function relay(cfg: SyncConfig) {
 	const project = await projectFor(cfg, process.cwd());
 	const endpoint = `/mcp${project ? `?project=${encodeURIComponent(project)}` : ""}`;
 	let agreed: string | undefined;
+	const session = /^[\w.:-]{1,120}$/.test(process.env.CLAUDE_CODE_HOST_SESSION_ID ?? "") ? process.env.CLAUDE_CODE_HOST_SESSION_ID : undefined;
 	const write = (m: unknown) => process.stdout.write(`${JSON.stringify(m)}\n`);
 	const failed = (m: Msg, message: string) => {
 		if (m.id !== undefined && m.id !== null) write({ jsonrpc: "2.0", id: m.id, error: { code: -32000, message } });
@@ -87,6 +90,9 @@ export async function relay(cfg: SyncConfig) {
 			return failed(raw, (e as Error).message);
 		}
 		const headers: Record<string, string> = { accept: "application/json, text/event-stream" };
+		// The session this runs in, as a stdio server on a computer has it: start_item links it, and the board counts
+		// its calls as a sign of life on the items that record it (alive.ts).
+		if (session) headers["x-wb-session"] = session;
 		const meta = ((m.params?._meta ?? {}) as Record<string, unknown>)[`${M}protocolVersion`];
 		if (typeof meta === "string") {
 			headers["mcp-protocol-version"] = meta;

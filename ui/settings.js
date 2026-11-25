@@ -64,6 +64,9 @@ function optRow({ label, hint = "", bind, control, off = false, id = "" }) {
 	return `<div class="so${off ? " off" : ""}"${id ? ` id="${esc(id)}"` : ""}><div class="so-main"><div class="so-label">${label}${bind ? `<span class="scope ${scope}" title="${SCOPE[scope][1]}">${SCOPE[scope][0]}</span>` : ""}${reset}</div>${hint ? `<small>${hint}</small>` : ""}</div><div class="so-ctl">${control}</div></div>`;
 }
 const optGroup = (title, rows, note = "") => `<section class="so-group"><h3>${title}</h3>${note ? `<p class="hint">${note}</p>` : ""}<div class="so-list">${rows.join("")}</div></section>`;
+// The same, folded away until opened: for sections that are rarely needed. `meta` is a short status beside the title.
+const optFold = (title, rows, { note = "", key, meta = "", open = false } = {}) =>
+	`<details class="so-fold fold" data-key="${esc(key)}"${open ? " open" : isOpen(key)}><summary><span>${title}</span>${meta ? `<small>${meta}</small>` : ""}</summary>${note ? `<p class="hint">${note}</p>` : ""}<div class="so-list">${rows.join("")}</div></details>`;
 // Controls. The page saves them on change (see the listener below); `label` is for screen readers when the row's
 // own label isn't next to the control.
 function ctlToggle(b, { label = "", disabled = false } = {}) {
@@ -101,36 +104,27 @@ function readControl(el) {
 const canChangeBoard = () => OWNER;
 
 const TAB_IC = {
-	start: '<path d="M3.75 14.25V2.25M3.75 2.75h8.5l-2 3 2 3h-8.5"/>',
 	projects: '<path d="M2 4.25a1 1 0 0 1 1-1h3.2l1.5 1.5H13a1 1 0 0 1 1 1v6.5a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1z"/>',
 	notify: '<path d="M4 11V7a4 4 0 0 1 8 0v4l1.5 1.5h-11zM6.5 13.5a1.5 1.5 0 0 0 3 0"/>',
-	health: '<path d="M1.5 8.5h3l1.5-4 3 8 1.5-4h4"/>',
-	you: '<circle cx="8" cy="5.5" r="2.75"/><path d="M2.75 14a5.25 5.25 0 0 1 10.5 0"/>',
 	data: '<ellipse cx="8" cy="3.75" rx="5.25" ry="2"/><path d="M2.75 3.75v8.5c0 1.1 2.35 2 5.25 2s5.25-.9 5.25-2v-8.5M2.75 8c0 1.1 2.35 2 5.25 2s5.25-.9 5.25-2"/>',
-	privacy: '<path d="M8 1.75 2.75 3.75v4c0 3.2 2.2 5.6 5.25 6.5 3.05-.9 5.25-3.3 5.25-6.5v-4z"/><path d="m5.9 8 1.5 1.5 2.8-3"/>',
-	look: '<circle cx="8" cy="8" r="6.25"/><path d="M8 1.75v12.5a6.25 6.25 0 0 0 0-12.5z" fill="currentColor" stroke="none"/>',
-	updates: '<circle cx="8" cy="8" r="6.25"/><path d="M8 4.75v6M5.5 8.5 8 11l2.5-2.5"/>',
+	about: '<circle cx="8" cy="8" r="6.25"/><path d="M8 7.25v4M8 4.9v.05"/>',
 };
 // In order. render() returns the tab's HTML; load() runs when the tab opens; poll() runs every 10 s while it's open.
-// local: only for the owner (this computer, or the cloud board). computer: needs a computer, so not on the cloud board.
-// A tab whose code is in a later file (settings-*.js, setup.js, updates.js) is called through an arrow: that file
-// hasn't run yet when this list is made.
+// local: only for the owner (this computer, or the cloud board). A tab whose code is in a later file (settings-*.js,
+// setup.js, updates.js, dispatch.js) is called through an arrow: that file hasn't run yet when this list is made.
 const SET_TABS = [
-	{ key: "start", label: "Getting started", local: true, computer: true, render: () => setStartRender(), load: () => setupLoad(), poll: () => setupLoad() },
 	{ key: "projects", label: "Projects", local: true, render: projectsTab, load: loadSettingsProjects, poll: loadSettingsProjects },
+	{ key: "agents", label: "Agents", local: true, render: () => setAgentsRender(), load: () => setAgentsLoad(), poll: () => setAgentsPoll() },
 	{ key: "notify", label: "Notifications", local: false, render: () => setNotifyRender(), load: () => setNotifyLoad(), poll: () => setNotifyPoll() },
-	{ key: "health", label: "Health", local: true, computer: true, render: healthTab, load: () => (Date.now() - settings.checkedAt > 30e3 ? checkHealth() : null), poll: () => {} },
-	{ key: "you", label: "You and your day", local: true, render: () => setYouRender(), load: () => setYouLoad(), poll: () => setYouPoll() },
-	{ key: "data", label: "Data", local: true, render: () => setDataRender(), load: () => setDataLoad(), poll: () => setDataPoll() },
-	{ key: "privacy", label: "Privacy and security", local: true, render: () => setPrivacyRender(), load: () => setPrivacyLoad(), poll: () => setPrivacyPoll() },
-	{ key: "look", label: "Appearance", local: false, render: () => setLookRender(), load: () => setLookLoad(), poll: () => setLookPoll() },
-	{ key: "updates", label: "Updates", local: true, render: () => setUpdRender(), load: () => setUpdLoad(), poll: () => setUpdPoll() },
+	{ key: "data", label: "Data", local: true, render: () => setDataTabRender(), load: () => setDataTabLoad(), poll: () => setDataTabPoll() },
+	{ key: "about", label: "About", local: false, render: () => aboutRender(), load: () => aboutLoad(), poll: () => aboutPoll() },
 ];
-const currentTab = () => SET_TABS.find((t) => t.key === settings.tab) ?? SET_TABS[0];
+const setTabs = () => SET_TABS.filter((t, i) => SET_TABS.findIndex((x) => x.key === t.key) === i);
+// Tabs that were folded into others: an old address (#settings/health) opens the tab that holds it now.
+const TAB_ALIAS = { start: "about", health: "about", you: "about", look: "about", updates: "about", privacy: "data" };
+const currentTab = () => setTabs().find((t) => t.key === settings.tab) ?? setTabs()[0];
 const localOnlyCard = (what) => `<div class="vault-card" style="margin-top:0"><div class="vault-ic">${svg16(SLIDERS)}</div><h2>${esc(what)} opens on this computer</h2>
-	<p>It changes the board for every device, so it opens only where the board runs, at <a href="http://localhost:${esc(location.port)}/#settings/${esc(settings.tab)}">localhost</a>. Notifications and Appearance work here.</p></div>`;
-const computerOnlyCard = (what) => `<div class="vault-card" style="margin-top:0"><div class="vault-ic">${svg16(SLIDERS)}</div><h2>${esc(what)} needs a computer</h2>
-	<p>This is the cloud board: it checks nothing on a computer. On a computer that syncs with it, <code>wb sync status</code> says where the board is.</p></div>`;
+	<p>It changes the board for every device, so it opens only where the board runs, at <a href="http://localhost:${esc(location.port)}/#settings/${esc(settings.tab)}">localhost</a>. Notifications and About work here.</p></div>`;
 const projDlg = $("#proj-dlg");
 const projForm = $("#proj-form");
 let currentProj = null;
@@ -141,21 +135,20 @@ const SLIDERS = '<path d="M2.5 4.5h6M11.5 4.5h2M2.5 11.5h2M7.5 11.5h6"/><circle 
 const cmdRow = (cmd, multi = false) => `<div class="row">${multi ? `<pre class="cmd">${esc(cmd)}</pre>` : `<code class="cmd">${esc(cmd)}</code>`}<button type="button" class="ghost sm" data-copy="${esc(cmd)}">Copy</button></div>`;
 const fmtBytes = (n) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1e3))} KB`);
 const slugify = (s) => s.replace(/([a-z0-9])([A-Z])/g, "$1-$2").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40);
-const clockOf = (ms) => new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 function runningFor(ms) {
 	const m = Math.round((Date.now() - ms) / 60e3);
 	return m < 60 ? `${m} min` : m < 2880 ? `${Math.round(m / 60)} h` : `${Math.round(m / 1440)} days`;
 }
 
 async function openSettings(tab) {
-	const known = SET_TABS.find((t) => t.key === tab);
+	const known = setTabs().find((t) => t.key === (TAB_ALIAS[tab] ?? tab));
 	// On the phone, start on a tab that works there.
 	settings.tab = known ? known.key : OWNER ? "projects" : "notify";
-	if (!known && tab !== undefined) history.replaceState(null, "", `#settings/${settings.tab}`);
+	if (tab !== undefined && tab !== settings.tab) history.replaceState(null, "", `#settings/${settings.tab}`);
 	settings.error = "";
 	renderSettings();
 	const t = currentTab();
-	if ((t.local && !OWNER) || (t.computer && CLOUD)) return;
+	if (t.local && !OWNER) return;
 	await Promise.all([loadSettings(), OWNER ? loadSettingsProjects() : null, t.load?.()]);
 	renderSettings();
 }
@@ -243,14 +236,14 @@ function healthCards(h) {
 	const restart = su.underSystemd
 		? `<span class="muted">Add <code>--lan</code> to the end of the <code>ExecStart</code> line in <code>${esc(su.unitPath)}</code>, then:</span>${cmdRow("systemctl --user daemon-reload && systemctl --user restart workbench")}`
 		: `<span class="muted">Stop this board, then start it with:</span>${cmdRow("wb serve --lan")}`;
-	// Phones pair in Privacy and security (settings-phones.js); the button here takes you there with a code showing.
+	// Phones pair in Data (settings-phones.js); the button here takes you there with a code showing.
 	const paired = h.devices ?? 0;
 	const phone = card(ph.lan ? "ok" : "off", "Phone", ph.lan
 		? `<p>On: phones you pair open and change the board; anything else on your network gets only the pairing page. ${paired ? `${paired} phone${paired === 1 ? "" : "s"} paired.` : "No phone paired yet."}</p>
 			<div style="display:flex;flex-direction:column;align-items:flex-start;gap:4px;min-width:0">${ph.urls.map((u) => `<code>${esc(u.url)}</code>`).join("") || `<span class="muted">No network address found.</span>`}</div>
 			<div class="row"><button type="button" class="primary sm" data-phones="pair">Pair a phone</button></div>
 			<p class="hint">Over plain http, without encryption: only on a network you trust. The vault, data sources and Settings stay on this computer.</p>`
-		: `<p>Off: the board answers this computer only. To open it from your phone, it has to listen on the network; phones then pair once with a code from Privacy and security. It's plain http, so do that only on a network you trust.</p>${h.app ? `<p>In the Workbench app, switch it on in the tray menu: <b>Phone access (on my network)</b>.</p>` : restart}`);
+		: `<p>Off: the board answers this computer only. To open it from your phone, it has to listen on the network; phones then pair once with a code from Settings → Data. It's plain http, so do that only on a network you trust.</p>${h.app ? `<p>In the Workbench app, switch it on in the tray menu: <b>Phone access (on my network)</b>.</p>` : restart}`);
 	let startup;
 	if (h.app) startup = card("", "Start on login", "<p>The Workbench app handles this itself. Switch it in the app's tray menu: <b>Start on login</b>.</p>");
 	else if (!su.supported) startup = card("off", "Start on login", "<p>Set up here only on Linux with systemd. Elsewhere, start the board from your login items (the README has the command).</p>");
@@ -284,31 +277,64 @@ function projectsTab() {
 }
 
 const healthProblems = () => (settings.health ? settings.health.checks.filter((c) => c.status === "warn" || c.status === "bad").length : 0);
-function healthTab() {
+function healthFold() {
 	const h = settings.health, problems = healthProblems();
-	const status = settings.checking ? "Checking…" : h ? `${problems ? `${problems} need${problems === 1 ? "s" : ""} a look` : "All good"} · checked at ${clockOf(settings.checkedAt)}` : "";
-	return `<section class="set-sec" aria-labelledby="set-health-h">
-		<div class="set-sec-head"><h3 id="set-health-h">Health</h3><small>${esc(status)}</small>
-			<span class="spacer"></span><button type="button" class="ghost sm" data-act="check"${settings.checking ? " disabled" : ""}>Check again</button></div>
-		${h ? h.checks.map(checkRow).join("") + healthCards(h) : `<div class="set-empty">${settings.checking ? "Checking the tools the board uses…" : ""}</div>`}
-	</section>`;
+	const status = settings.checking ? "Checking…" : h ? (problems ? `${problems} need${problems === 1 ? "s" : ""} a look` : "All good") : "";
+	const body = h ? h.checks.map(checkRow).join("") + healthCards(h) : `<div class="set-empty">${settings.checking ? "Checking the tools the board uses…" : ""}</div>`;
+	return `<details class="so-fold fold" data-key="set-about-health"${isOpen("set-about-health")}><summary><span>Health</span><small${problems ? ' class="warn-text"' : ""}>${esc(status)}</small></summary>
+		<div class="set-fold-bar"><button type="button" class="ghost sm" data-act="check"${settings.checking ? " disabled" : ""}>Check again</button>${settings.checkedAt ? `<small>checked at ${clockOf(settings.checkedAt)}</small>` : ""}</div>${body}</details>`;
+}
+
+// Updates (updates.js draws its own groups and an intro that only restates the title: left out here).
+function setUpdFold() {
+	const o = typeof updOffer === "function" ? updOffer() : null;
+	const body = setUpdRender().replace(/<p class="set-intro">[\s\S]*?<\/p>/, "");
+	return `<details class="so-fold fold" data-key="set-about-updates"${isOpen("set-about-updates")}><summary><span>Updates</span>${o ? `<small>${esc(o.version)} is available</small>` : ""}</summary>${body}</details>`;
+}
+
+// About: you and your day, the look, then the setup guide, updates and health, folded. On a phone: the look only.
+function aboutRender() {
+	const computer = OWNER && !CLOUD;
+	return [
+		OWNER ? setYouRender() : "",
+		setLookRender(),
+		computer ? setStartRender() : "",
+		OWNER ? setUpdFold() : "",
+		computer ? healthFold() : "",
+		OWNER ? "" : `<p class="hint">Your name, updates and health open on the computer the board runs on.</p>`,
+	].join("");
+}
+async function aboutLoad() {
+	const computer = OWNER && !CLOUD;
+	await Promise.allSettled([
+		OWNER ? setYouLoad() : null,
+		setLookLoad(),
+		computer ? setupLoad() : null,
+		OWNER ? setUpdLoad() : null,
+		computer && Date.now() - settings.checkedAt > 30e3 ? checkHealth() : null,
+	]);
+	renderSettings();
+}
+async function aboutPoll() {
+	const computer = OWNER && !CLOUD;
+	await Promise.allSettled([OWNER ? setYouPoll() : null, computer ? setupLoad() : null, OWNER ? setUpdPoll() : null]);
 }
 
 function renderSettings() {
 	const el = $("#settings-view");
 	if (el.hidden) return;
 	const t = currentTab();
-	const nav = SET_TABS.map((x) => {
-		const n = x.key === "health" ? healthProblems() : 0;
+	const nav = setTabs().map((x) => {
+		const n = x.key === "about" ? healthProblems() : 0;
 		return `<a href="#settings/${x.key}"${x.key === t.key ? ' aria-current="page"' : ""}>${svg16(TAB_IC[x.key] ?? "", 1.4)}<span>${esc(x.label)}</span>${n ? `<span class="tab-n" title="${n} need a look">${n}</span>` : ""}</a>`;
 	}).join("");
 	let body;
-	try { body = t.local && !OWNER ? localOnlyCard(t.label) : t.computer && CLOUD ? computerOnlyCard(t.label) : t.render(); }
+	try { body = t.local && !OWNER ? localOnlyCard(t.label) : t.render(); }
 	catch (e) { console.error(e); body = `<p class="error">This tab couldn't be drawn: ${esc(e.message)}</p>`; }
 	// On a phone the tabs scroll sideways: a redraw keeps where they were, and a newly opened tab comes into view.
 	const scrolled = el.querySelector(".set-tabs")?.scrollLeft ?? 0;
 	paint(el, `<div class="set-wrap">
-		<div class="vault-head"><button type="button" class="ghost sm" data-act="board">← Board</button><div><h2>Settings</h2><small>For the whole workbench</small></div></div>
+		<div class="vault-head"><button type="button" class="ghost sm" data-act="board">← Inbox</button><div><h2>Settings</h2><small>For the whole workbench</small></div></div>
 		<div class="set-layout"><nav class="set-tabs" aria-label="Settings sections">${nav}</nav>
 		<div class="set-panel">${settings.error ? `<p class="error">${esc(settings.error)}</p>` : ""}${body}</div></div></div>`);
 	const tabs = el.querySelector(".set-tabs");

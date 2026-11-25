@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Workbench</title>
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <!-- On a phone, "Add to Home Screen" makes the board an app with its own icon (docs/board.md, "From the phone"). -->
@@ -13,15 +13,15 @@
 <meta name="apple-mobile-web-app-title" content="Workbench">
 <meta name="theme-color" content="#f6f5f2" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#151514" media="(prefers-color-scheme: dark)">
-<!-- Settings → Appearance: the theme picked in this browser, set before the first paint so a reload doesn't flash. -->
+<!-- Settings → About → Look: the theme picked in this browser, set before the first paint so a reload doesn't flash. -->
 <script>try { const t = JSON.parse(localStorage.getItem("wb.pref.look.theme")); if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; } catch {}</script>
 <!-- The board's styles and scripts are in ui/ (docs/development.md, "The board's page"); the server sends each file listed in ui.ts. -->
 <link rel="stylesheet" href="/ui/base.css">
-<link rel="stylesheet" href="/ui/projects.css">
-<link rel="stylesheet" href="/ui/rail.css">
+<link rel="stylesheet" href="/ui/kit.css">
+<link rel="stylesheet" href="/ui/nav.css">
+<link rel="stylesheet" href="/ui/pages.css">
 <link rel="stylesheet" href="/ui/trackers.css">
 <link rel="stylesheet" href="/ui/top.css">
-<link rel="stylesheet" href="/ui/board.css">
 <link rel="stylesheet" href="/ui/report.css">
 <link rel="stylesheet" href="/ui/updates.css">
 <link rel="stylesheet" href="/ui/vault.css">
@@ -31,51 +31,50 @@
 <link rel="stylesheet" href="/ui/reader.css">
 <link rel="stylesheet" href="/ui/phone.css">
 <!-- features (after the core's styles) -->
-<link rel="stylesheet" href="/ui/stale.css">
-<link rel="stylesheet" href="/ui/today.css">
 <link rel="stylesheet" href="/ui/links.css">
 <link rel="stylesheet" href="/ui/rulings.css">
 <link rel="stylesheet" href="/ui/goals.css">
 <link rel="stylesheet" href="/ui/phones.css">
 <link rel="stylesheet" href="/ui/asks.css">
 <link rel="stylesheet" href="/ui/checkrun.css">
-<link rel="stylesheet" href="/ui/queue.css">
+<link rel="stylesheet" href="/ui/inbox.css">
 <link rel="stylesheet" href="/ui/dispatch.css">
+<link rel="stylesheet" href="/ui/agents.css">
+<link rel="stylesheet" href="/ui/project.css">
 <!-- end: features -->
 </head>
 <body>
-<nav id="prail" aria-label="Projects"></nav>
-<aside id="rail" aria-label="Reports and links"></aside>
+<nav id="nav" aria-label="Workbench">
+	<a class="nav-brand" href="#" title="Workbench"><img src="/favicon.svg" alt=""><span class="nav-t">Workbench</span></a>
+	<div class="nav-scroll">
+		<div class="nav-list" id="nav-entries"></div>
+		<div class="nav-label">Projects</div>
+		<div class="nav-list" id="nav-projects"></div>
+		<div id="nav-warn"></div>
+	</div>
+	<div class="nav-list nav-foot">
+		<a class="nav-row" id="settings-btn" href="#settings" data-nav="settings" title="Settings"><span class="nav-ic"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-linecap="round"><g stroke-width="1.5"><path d="M2.5 4.5h6M11.5 4.5h2M2.5 11.5h2M7.5 11.5h6"/><circle cx="10" cy="4.5" r="1.5"/><circle cx="6" cy="11.5" r="1.5"/></g></svg></span><span class="nav-t">Settings</span></a>
+		<a class="nav-row" id="usage-btn" href="/usage" title="Claude usage: tokens and cost, for this project or all of them"><span class="nav-ic"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-linecap="round"><g stroke-width="1.5"><path d="M2.5 13.5h11M4.5 11V8M8 11V4.5M11.5 11V6.5"/></g></svg></span><span class="nav-t">Usage</span></a>
+		<button type="button" class="nav-row" id="vault-btn" data-nav="vault" title="Secrets vault"><span class="nav-ic"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor"><g stroke-width="1.5"><rect x="3" y="7" width="10" height="7" rx="1.5"/><path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2"/></g></svg></span><span class="nav-t">Vault</span></button>
+		<button type="button" class="nav-row" id="notify" title="Desktop notifications" aria-pressed="false" hidden><span class="nav-ic"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor"><g stroke-width="1.4"><path d="M4 11V7a4 4 0 0 1 8 0v4l1.5 1.5h-11zM6.5 13.5a1.5 1.5 0 0 0 3 0"/></g></svg></span><span class="nav-t">Notifications</span></button>
+	</div>
+</nav>
 <div id="content">
 	<header class="top">
-		<div class="here"><button class="icon-btn" id="rail-open" title="Reports and links" aria-label="Reports and links"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor"><g stroke-width="1.5"><path d="M2.5 4h11M2.5 8h11M2.5 12h11"/></g></svg></button><span id="here"></span></div>
+		<div class="here" id="here"></div>
 		<div class="search-wrap">
 			<svg viewBox="0 0 16 16" fill="none" stroke="currentColor"><g stroke-width="1.6"><circle cx="7" cy="7" r="4.75"/><path d="m10.5 10.5 3 3"/></g></svg>
 			<input id="search" type="search" placeholder="Search" autocomplete="off" aria-controls="results"><kbd>Ctrl K</kbd>
 			<div id="results" role="listbox" hidden></div>
 		</div>
 		<div class="top-right">
-			<a class="ghost vault-btn" id="usage-btn" href="/usage" title="Claude usage: tokens and cost, for this project or all of them">
-				<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-linecap="round"><g stroke-width="1.5"><path d="M2.5 13.5h11M4.5 11V8M8 11V4.5M11.5 11V6.5"/></g></svg><span>Usage</span></a>
-			<button class="ghost vault-btn" id="vault-btn" title="Secrets vault" aria-pressed="false">
-				<svg viewBox="0 0 16 16" fill="none" stroke="currentColor"><g stroke-width="1.5"><rect x="3" y="7" width="10" height="7" rx="1.5"/><path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2"/></g></svg><span>Vault</span></button>
+			<button type="button" class="upd-pill" id="upd-pill" hidden></button>
 			<button class="primary" id="new">New</button>
 		</div>
 	</header>
-	<main id="board">
-		<div class="board-bar">
-			<div class="seg" id="who" role="group" aria-label="Who acts"></div>
-			<span class="spacer"></span>
-			<button type="button" class="upd-pill" id="upd-pill" hidden></button>
-			<button class="icon-btn" id="fold-toggle" title="Fold all sections" aria-label="Fold all sections"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor"><g stroke-width="1.5"><path d="m4.5 2.5 3.5 3.5 3.5-3.5M4.5 13.5 8 10l3.5 3.5"/></g></svg></button>
-			<button class="icon-btn" id="notify" title="Desktop notifications" aria-label="Desktop notifications" aria-pressed="false" hidden><svg viewBox="0 0 16 16" fill="none" stroke="currentColor"><g stroke-width="1.4"><path d="M4 11V7a4 4 0 0 1 8 0v4l1.5 1.5h-11zM6.5 13.5a1.5 1.5 0 0 0 3 0"/></g></svg></button>
-		</div>
-		<div id="setup-card"></div>
-		<div id="sections"></div>
-	</main>
 	<section id="report-view" hidden>
 		<div class="rbar">
-			<button type="button" class="ghost sm" id="r-back">← Board</button>
+			<button type="button" class="ghost sm" id="r-back">← Back</button>
 			<a class="ghost sm" id="r-home" hidden>Open in workbench</a>
 			<div class="r-title"><b id="r-title"></b><small id="r-sub"></small></div>
 			<select id="r-version" title="Version" aria-label="Version"></select>
@@ -92,6 +91,7 @@
 	<section id="settings-view" aria-label="Settings" hidden></section>
 	<section id="welcome-view" aria-label="Set up the Workbench" hidden></section>
 </div>
+<nav id="tabbar" aria-label="Places"></nav>
 <div id="toast" role="status" hidden></div>
 <div id="upd-note" role="status" aria-live="polite" hidden></div>
 
@@ -239,11 +239,14 @@
 <!-- Classic scripts, run in this order and sharing one global scope, like one long script. A feature's own file goes
      in the features block: after the core, before boot.js starts the board. -->
 <script src="/ui/core.js"></script>
+<script src="/ui/time.js"></script>
+<script src="/ui/kit.js"></script>
 <script src="/ui/hooks.js"></script>
+<script src="/ui/router.js"></script>
+<script src="/ui/nav.js"></script>
 <script src="/ui/projects.js"></script>
-<script src="/ui/rail.js"></script>
+<script src="/ui/pages.js"></script>
 <script src="/ui/trackers.js"></script>
-<script src="/ui/board.js"></script>
 <script src="/ui/answer.js"></script>
 <script src="/ui/reader.js"></script>
 <script src="/ui/search.js"></script>
@@ -262,17 +265,17 @@
 <script src="/ui/copy.js"></script>
 <script src="/ui/updates.js"></script>
 <!-- features -->
-<script src="/ui/stale.js"></script>
-<script src="/ui/today.js"></script>
 <script src="/ui/links.js"></script>
 <script src="/ui/rulings.js"></script>
 <script src="/ui/goals.js"></script>
 <script src="/ui/settings-phones.js"></script>
 <script src="/ui/asks.js"></script>
 <script src="/ui/checkrun.js"></script>
-<script src="/ui/queue.js"></script>
+<script src="/ui/inbox.js"></script>
 <script src="/ui/dispatch.js"></script>
+<script src="/ui/agents.js"></script>
 <script src="/ui/push.js"></script>
+<script src="/ui/project.js"></script>
 <!-- end: features -->
 <script src="/ui/boot.js"></script>
 </body>

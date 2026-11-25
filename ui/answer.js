@@ -9,6 +9,8 @@
 const ASK_KINDS = ["decision", "review", "notice"];
 const askList = (s) => { try { const v = JSON.parse(s || "[]"); return Array.isArray(v) ? v.map(String) : []; } catch { return []; } };
 const askRecommended = (i) => askList(i.recommended);
+// An item's choices, from its options (a JSON list).
+const optionsOf = (i) => { try { const l = JSON.parse(i.options || "[]"); return Array.isArray(l) ? l.map(String) : []; } catch { return []; } };
 const askMany = (i) => i.pick === "many" && optionsOf(i).length > 0;
 // What happens if you say nothing, in words ('' = nothing happens by itself). Same as defaultText in asks.ts.
 function askDefaultText(i) {
@@ -19,18 +21,12 @@ function askDefaultText(i) {
 const askGoesAhead = (i) => ASK_KINDS.includes(i.kind) && (!!i.default_answer || i.kind === "notice");
 // Yours and open: answering is up to you.
 const askOpen = (i) => i.owner === "kostas" && OPEN.includes(i.status);
-const askDay = (d) => {
-	const today = new Date(), tomorrow = new Date(Date.now() + 86400e3);
-	if (d.toDateString() === today.toDateString()) return `today at ${d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
-	if (d.toDateString() === tomorrow.toDateString()) return "tomorrow";
-	return `on ${d.toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" })}`;
-};
 /** When an open ask of yours goes ahead by itself: { at, soon (within a day), what, text }, or null. */
 function askDue(i) {
 	if (!askOpen(i) || !i.decide_by || !askGoesAhead(i)) return null;
 	const at = parseTime(i.decide_by);
 	const what = askDefaultText(i);
-	return { at, soon: at - Date.now() < 86400e3, what, text: what ? `Goes ahead with ${what} ${askDay(at)}` : `Closes as seen ${askDay(at)}` };
+	return { at, soon: at - Date.now() < 86400e3, what, text: what ? `Goes ahead with ${what} ${when(at)}` : `Closes as seen ${when(at)}` };
 }
 /** What the agent recommends, in words: its recommended options, else an option marked "(recommended)", else the default. */
 function askRecommends(i) {
@@ -61,6 +57,7 @@ async function settled(id, call) {
 	askTicks.delete(Number(id));
 	await Promise.all([loadItems(), loadProjects()]);
 	refreshReport();
+	hookRun(hooks.settled, item);
 	return item;
 }
 const itemPost = (id, path, body = {}) => api(`/api/items/${id}/${path}`, { method: "POST", body: JSON.stringify(body) });

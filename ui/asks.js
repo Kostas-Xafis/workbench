@@ -1,20 +1,6 @@
 /* ---------- Asks that don't block: notices, defaults with a deadline, several picks (asks.ts) ---------- */
-// On a card: what the agent recommends, and "Goes ahead with X on Fri 14 Nov" when an ask has a default; nothing to
-// click there, since an ask is answered in the reader after reading it. In the reader: one quiet line under the
-// title ("If you say nothing, it goes ahead with X on Thu 26 Nov", change the date or remove it), and the default
+// In the reader: one quiet line under the title ("If you say nothing, it goes ahead with X on Thu 26 Nov", change the date or remove it), and the default
 // with its date among the properties. What an ask is and the calls that answer it are in ui/answer.js.
-
-/* ---------- On the board ---------- */
-
-hooks.cardMeta.push((i) => {
-	if (!askOpen(i)) return "";
-	const due = askDue(i);
-	const rec = i.kind === "decision" ? askRecommends(i) : "";
-	return (rec && !(due && due.what === rec) ? `<span class="ask-rec-tag" title="What the agent recommends. Open it to answer">recommends: ${esc(rec)}</span>` : "") +
-		(due ? `<span class="ask-due${due.soon ? " soon" : ""}" title="If you say nothing. Open the item to change the date">${esc(due.text)}</span>` : "");
-});
-// "Needs you" with only notices left: say that nothing waits.
-hooks.boardTop.push((shown) => (state.who === "kostas" && shown.length && !shown.some(needsYou) ? `<div class="empty ask-none">Nothing waits on you. The notices are just so you know.</div>` : ""));
 
 /* ---------- In the reader ---------- */
 
@@ -23,7 +9,7 @@ const askShows = (i) => !!i.id && askOpen(i) && ASK_KINDS.includes(i.kind);
 // What saying nothing does, in a sentence.
 function askNothing(i) {
 	const what = askDefaultText(i);
-	const at = i.decide_by ? ` ${askDay(parseTime(i.decide_by))}` : "";
+	const at = i.decide_by ? ` ${when(i.decide_by)}` : "";
 	if (i.kind === "notice") return `If you say nothing, it closes as seen${at}`;
 	if (!what) return "";
 	return i.kind === "decision" ? `If you say nothing, it goes ahead with ${what}${at}` : `If you say nothing, it goes ahead: ${what}${at}`;

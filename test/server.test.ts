@@ -88,15 +88,15 @@ describe("server", () => {
 		const page = await fetch(`${BASE}/`);
 		expect(page.headers.get("cache-control")).toBe("no-cache");
 		const html = await page.text();
-		const m = html.match(/src="\/ui\/board\.js\?v=([\w-]+)"/);
+		const m = html.match(/src="\/ui\/router\.js\?v=([\w-]+)"/);
 		expect(m).not.toBeNull();
 		expect(html).not.toMatch(/(?:href|src)="\/ui\/[^"?]+"/);
 		const again = await fetch(`${BASE}/`, { headers: { "if-none-match": page.headers.get("etag")! } });
 		expect(again.status).toBe(304);
-		const kept = await fetch(`${BASE}/ui/board.js?v=${m![1]}`);
+		const kept = await fetch(`${BASE}/ui/router.js?v=${m![1]}`);
 		expect(kept.headers.get("cache-control")).toBe("private, max-age=31536000, immutable");
-		expect(await kept.text()).toContain("function renderBoard");
-		expect((await fetch(`${BASE}/ui/board.js`)).headers.get("cache-control")).toBe("no-cache");
+		expect(await kept.text()).toContain("function defineView");
+		expect((await fetch(`${BASE}/ui/router.js`)).headers.get("cache-control")).toBe("no-cache");
 	});
 
 	test("the write guard: a write that isn't JSON gets 415 and changes nothing", async () => {
@@ -208,5 +208,27 @@ echo '{"type":"result","subtype":"success","is_error":false,"total_cost_usd":0.1
 		expect(ok.status).toBe(200);
 		const evil = await fetch(`${BASE}/mcp`, { method: "POST", headers: { "content-type": "application/json", host: "evil.example.com" }, body });
 		expect(evil.status).toBe(403);
+	});
+});
+
+describe("the order of a project's agent work", () => {
+	const put = (path: string, body: unknown) =>
+		fetch(BASE + path, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+	test("PUT /api/projects/:slug/order sets it, and /api/items lists in it", async () => {
+		await post("/api/projects", JSON.stringify({ slug: "ord", name: "Ord", path: dir }), "application/json");
+		const refs: string[] = [];
+		for (const t of ["first", "second", "third"]) {
+			const r = await post("/api/items", JSON.stringify({ title: t, project: "ord", kind: "task", owner: "agent" }), "application/json");
+			const id = ((await r.json()) as { id: number }).id;
+			refs.push("wb-" + ((await (await fetch(`${BASE}/api/items/${id}`)).json()) as { ref: string }).ref);
+		}
+		const r = await put("/api/projects/ord/order", { refs: [refs[2], refs[0]] });
+		expect(r.status).toBe(200);
+		expect(((await r.json()) as { refs: string[] }).refs).toEqual([refs[2], refs[0], refs[1]]);
+		const items = (await (await fetch(`${BASE}/api/items?project=ord&owner=agent`)).json()) as { title: string }[];
+		expect(items.map((i) => i.title)).toEqual(["third", "first", "second"]);
+		expect((await put("/api/projects/ord/order", { refs: ["wb-nope"] })).status).toBe(400);
+		expect((await put("/api/projects/nowhere/order", { refs: [] })).status).toBe(404);
+		expect((await fetch(BASE + "/api/projects/ord/order", { method: "PUT", body: "{}" })).status).toBe(415);
 	});
 });

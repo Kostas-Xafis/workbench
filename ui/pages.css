@@ -1,43 +1,26 @@
-/* Reports and links */
-#rail { border-right: 1px solid var(--line); overflow-y: auto; overflow-x: hidden; background: color-mix(in srgb, var(--rail-bg) 45%, var(--bg)); padding-bottom: 16px; }
-.rail-head { display: flex; align-items: center; gap: 4px; padding: 12px 8px 6px 14px; }
-.rail-head b { flex: 1; font-size: 12px; color: var(--muted); font-weight: 600; }
-.rail-collapsed .rail-head { padding: 12px 0 6px; justify-content: center; }
-.rsec { padding: 2px 6px 6px; }
-.rsec > summary { display: flex; align-items: center; gap: 7px; padding: 5px 8px; font-size: 11px; font-weight: 700; letter-spacing: .6px; text-transform: uppercase; color: var(--muted); border-radius: 6px; }
-.rsec > summary .count { font-weight: 500; letter-spacing: 0; }
-.rsec > summary:hover { color: var(--ink); }
-.rsec > summary .tools { margin-left: auto; display: flex; gap: 2px; text-transform: none; letter-spacing: 0; }
-.rsec > summary .icon-btn { width: 24px; height: 24px; }
+/* A project's pages, links and data sources as lines (pages.js); the Projects page's Pages tab lays them out (project.css). */
 .glabel { font-size: 11.5px; font-weight: 600; color: var(--muted); padding: 6px 8px 2px 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .glabel.moving { display: flex; align-items: center; gap: 2px; padding-right: 2px; }
 .glabel.moving > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .glabel .icon-btn { width: 24px; height: 24px; flex: none; }
 .glabel .icon-btn:disabled { opacity: .25; cursor: default; background: transparent; }
-.rsec .lgroup.archive { margin-top: 8px; border-top: 1px solid var(--line); padding-top: 4px; }
+.lgroup.archive { margin-top: 8px; border-top: 1px solid var(--line); padding-top: 4px; }
 .lgroup > summary { display: flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 600; color: var(--muted); padding: 5px 8px 3px 10px; }
 .lgroup > summary span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lgroup > summary:hover { color: var(--ink); }
 .lgroup.more > summary { font-weight: 500; font-size: 11.5px; padding-left: 12px; }
 .ritem { display: flex; align-items: center; gap: 9px; padding: 5px 8px 5px 10px; border-radius: 7px; color: var(--ink); text-decoration: none; font-size: 13px; min-width: 0; }
 .ritem > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ritem > span.fav, .ritem > span.tile { flex: none; }
+.ritem > span.fav { flex: none; }
 .ritem small { color: var(--muted); font-size: 11px; flex: none; }
 .ritem:hover { background: var(--hover); }
 .ritem[aria-current="true"] { background: color-mix(in srgb, var(--accent) 15%, transparent); font-weight: 500; }
-.rail-collapsed .ritem { justify-content: center; padding: 6px 0; margin: 1px 4px; }
-.rail-sep { height: 1px; background: var(--line); margin: 6px 12px; }
 .doc-ic { width: 16px; height: 16px; flex: none; color: var(--muted); }
 .rep-ic { width: 16px; height: 16px; flex: none; object-fit: contain; }
 .ritem > span.rep-ic, .res > span.rep-ic { flex: none; display: grid; place-items: center; font-size: 14px; line-height: 1; overflow: visible; }
-.tile { width: 24px; height: 24px; border-radius: 7px; display: grid; place-items: center; font-size: 11px; font-weight: 700; background: var(--hover); color: var(--muted); border: 1px solid var(--line); }
-[aria-current="true"] > .tile { border-color: var(--accent); color: var(--accent); }
 .fav { width: 16px; height: 16px; flex: none; border-radius: 3px; object-fit: contain; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) img.fav { background: #f4f3f0; padding: 1.5px; border-radius: 4px; } }
 :root[data-theme="dark"] img.fav { background: #f4f3f0; padding: 1.5px; border-radius: 4px; }
 .fav.letter { display: inline-grid; place-items: center; background: var(--hover); color: var(--muted); font-size: 10px; font-weight: 700; }
-#rail.editing a.ritem.link { outline: 1px dashed var(--line); outline-offset: -1px; }
-#rail.editing a.ritem.link::after { content: "✎"; color: var(--muted); font-size: 11px; }
 .ritem.source { cursor: default; }
 .ritem.source:hover { background: none; }
-.rail-empty { font-size: 12px; color: var(--muted); padding: 2px 10px 6px; }

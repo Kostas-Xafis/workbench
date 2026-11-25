@@ -9,7 +9,7 @@
  *   MAX_GROUP; priority 1 items only group with each other.
  * - Notices come after the asks, as a quick "seen / object" pass. They don't wait on Kostas (needsKostas).
  * - Deferred items (`deferred_until`, set by deferItem) stay out of the queue until then. They still wait on him
- *   and count in "Needs you"; the queue says how many are deferred.
+ *   and count in the Inbox; the queue says how many are deferred.
  * - Giving an item back (giveBack) hands it to the agent with his line in the history.
  *
  * Deferring and giving back are history lines, so agents need nothing new to read them.
@@ -123,7 +123,7 @@ export type Queue = {
 	asks: number;
 	notices: number;
 	/** Out of the queue for now, soonest back first. */
-	deferred: { id: number; ref: string; title: string; kind: string; until: string }[];
+	deferred: { id: number; ref: string; title: string; kind: string; project: string; until: string }[];
 };
 
 type Ordered = Item & { goal: ItemGoal | null };
@@ -207,7 +207,7 @@ export function buildQueue(db: Db, { project = "", now = new Date() }: { project
 	const deferred = open
 		.filter(later)
 		.sort((a, b) => a.deferred_until!.localeCompare(b.deferred_until!) || a.id - b.id)
-		.map((i) => ({ id: i.id, ref: i.ref, title: i.title, kind: i.kind, until: i.deferred_until! }));
+		.map((i) => ({ id: i.id, ref: i.ref, title: i.title, kind: i.kind, project: i.project, until: i.deferred_until! }));
 	return { project, items: [...asks, ...notices].map(entry), asks: asks.length, notices: notices.length, deferred };
 }
 

@@ -1,4 +1,4 @@
-/* ---------- Settings → Privacy and security (tab "privacy") ---------- */
+/* ---------- Settings → Data → Vault, Sharing, Phones, Who can reach what, Data sources ---------- */
 // What's exposed and how secrets behave: the vault's timers and password, share links (their lengths and every live
 // one), who can reach the board, and every project's data sources. /api/settings/privacy never carries a secret.
 const privacy = {
@@ -54,12 +54,6 @@ function pvVault(info) {
 			control: ctlNumber({ setting: "vault.lock-minutes" }, { min: 1, max: 60, unit: "idle minutes", label: "Lock the vault after this many idle minutes (1 to 60)" }),
 		}),
 		optRow({
-			label: "Agents may ask for secrets",
-			hint: "An agent names the secrets it needs and why; a window on this computer asks you for the vault password each time. Off: every request is refused.",
-			bind: { setting: "vault.agents" },
-			control: ctlToggle({ setting: "vault.agents" }, { label: "Agents may ask for secrets" }),
-		}),
-		optRow({
 			label: "Hide a shown value after",
 			hint: `A value you show stays on screen ${show} seconds, then hides again.`,
 			bind: { setting: "vault.show-seconds" },
@@ -70,7 +64,7 @@ function pvVault(info) {
 		rows.push(`<div class="so-wide pv-reset"><div class="so-label">Forgot the password?</div>
 			<p class="caution">Nobody can recover the secrets: not the board, not this computer. This command deletes the vault and <b>every secret in it</b>, for good, so you can set it up again.</p>
 			${cmdRow("wb vault reset --yes")}</div>`);
-	return optGroup("Vault", rows, "Secrets are encrypted in your browser with your password; the board keeps only the encrypted text.");
+	return optFold("Vault", rows, { key: "set-data-vault", meta: v ? `${v.secrets} secret${v.secrets === 1 ? "" : "s"}` : info ? "Not set up" : "", note: "Encrypted in your browser with your password; the board keeps only the encrypted text." });
 }
 
 function pvShareRow(s) {
@@ -122,7 +116,7 @@ function pvSharing() {
 				? live.map(pvShareRow)
 				: [`<div class="so-wide set-empty">Nothing is shared right now.</div>`]),
 	];
-	return optGroup("Sharing", rows, `“Share” in a report's bar opens a temporary public link to a read-only copy of it, for up to ${hoursText(max)}.`);
+	return optFold("Sharing", rows, { key: "set-data-sharing", meta: running ? `${running} live` : "", note: `A report's Share opens a temporary public link to a read-only copy, for up to ${hoursText(max)}.` });
 }
 
 function pvReach(info) {
@@ -142,11 +136,11 @@ function pvReach(info) {
 			? pvFact("warn", `${live} public link${live === 1 ? "" : "s"}`, "Share links", "Each shows one report, read-only, to anyone with the link, until it ends. See Sharing above.")
 			: pvFact("off", "None", "Share links", "Nothing is shared. A link shows one report, read-only, to anyone who has it, and nothing else."),
 	];
-	return optGroup("Who can reach what", [`<div class="so-wide pv-facts">${facts.join("")}</div>`], "On this computer, right now.");
+	return optFold("Who can reach what", [`<div class="so-wide pv-facts">${facts.join("")}</div>`], { key: "set-data-reach", meta: info?.lan ? "On your network" : "This computer only" });
 }
 
 function pvSources(info) {
-	if (!info) return optGroup("Data sources", [`<div class="so-wide set-empty">Loading…</div>`]);
+	if (!info) return optFold("Data sources", [`<div class="so-wide set-empty">Loading…</div>`], { key: "set-data-sources" });
 	const list = info.sources, key = info.sourcesKey;
 	const keyRow = key.cloud ? optRow({
 		label: `<span class="sdot ok" aria-hidden="true"></span>Key`,
@@ -173,15 +167,18 @@ function pvSources(info) {
 			? list.map(row)
 			: [`<div class="so-wide set-empty">No data sources. A report can call an API that needs a secret through one, added with <code>wb source add</code> (<code>wb help</code> shows how).</div>`]),
 	];
-	return optGroup("Data sources", rows, "APIs that reports call through the board, which adds the secret headers itself. A page never sees them.");
+	return optFold("Data sources", rows, { key: "set-data-sources", meta: list.length ? String(list.length) : "", note: "APIs that reports call through the board, which adds the secret headers itself. A page never sees them." });
 }
 
 function setPrivacyRender() {
 	const info = privacy.info;
-	return `<p class="set-intro">What's open to whom, and how long secrets and share links stay out.</p>
-		${privacy.error ? `<p class="error">${esc(privacy.error)}</p>` : ""}
-		${pvVault(info)}${pvSharing()}${pvPhones()}${pvReach(info)}${pvSources(info)}`;
+	return `${privacy.error ? `<p class="error">${esc(privacy.error)}</p>` : ""}${pvVault(info)}${pvSharing()}${pvPhones()}${pvReach(info)}${pvSources(info)}`;
 }
+
+// The Data tab: the database and its copies (settings-data.js), then what's kept private and who can reach the board.
+const setDataTabRender = () => setDataRender() + setPrivacyRender();
+const setDataTabLoad = () => Promise.allSettled([setDataLoad(), setPrivacyLoad()]);
+const setDataTabPoll = () => Promise.allSettled([setDataPoll(), setPrivacyLoad()]);
 
 onSettingsChange(async (key) => {
 	// The vault's hint shows the current times.
@@ -195,7 +192,7 @@ onSettingsChange(async (key) => {
 		renderSettings();
 	}
 	// A refused value (out of range) puts the field back: the page is otherwise unchanged, so it wouldn't repaint.
-	const el = key && settings.tab === "privacy" && $(`#settings-view input[data-setting="${CSS.escape(key)}"]`);
+	const el = key && settings.tab === "data" && $(`#settings-view input[data-setting="${CSS.escape(key)}"]`);
 	if (el && String(el.value) !== String(setting(key))) $("#settings-view")._html = "";
 });
 
@@ -221,12 +218,12 @@ $("#settings-view").addEventListener("click", async (e) => {
 			const r = await api(`/api/reports/${id}/share/extend`, { method: "POST" });
 			toast(`Sharing until ${clockOf(r.expiresAt)}`);
 		} else if (act === "stop") {
-			if (s && s.status !== "failed" && !confirm(`Stop sharing “${s.title}”? The link stops working at once, for everyone who has it.`)) return;
+			if (s && s.status !== "failed" && !(await confirmIn(b, { text: `Stop sharing “${s.title}”? The link stops working at once, for everyone who has it.`, yes: "Stop sharing", danger: true }))) return;
 			await api(`/api/reports/${id}/share`, { method: "DELETE" });
 			if (s?.status !== "failed") toast("Stopped sharing");
 		} else if (act === "stop-all") {
 			const n = privacy.shares?.length ?? 0;
-			if (!confirm(`Stop all ${n} share link${n === 1 ? "" : "s"}? They stop working at once, for everyone who has them.`)) return;
+			if (!(await confirmIn(b, { text: `Stop all ${n} share link${n === 1 ? "" : "s"}? They stop working at once, for everyone who has them.`, yes: "Stop all", danger: true }))) return;
 			await api("/api/shares/stop-all", { method: "POST" });
 			toast("Stopped every share");
 		} else return;
@@ -234,4 +231,4 @@ $("#settings-view").addEventListener("click", async (e) => {
 	await setPrivacyLoad();
 	if (state.report) refreshShares();
 });
-/* ---------- end: Privacy and security ---------- */
+/* ---------- end: Data → Vault, Sharing, Phones, Who can reach what, Data sources ---------- */

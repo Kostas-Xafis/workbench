@@ -9,14 +9,13 @@ let shares = [];
 let shareCheck = null;
 let sharePoll = 0;
 let shareHours = 1;
-// The lengths share.ts allows (SHARE_HOURS in settings.ts). Settings → Privacy and security picks the most a link
+// The lengths share.ts allows (SHARE_HOURS in settings.ts). Settings → Data → Sharing picks the most a link
 // runs (counting extensions) and the one the dialog starts on; read when used, like the server does.
 const SHARE_LENGTHS = [1, 2, 4, 8, 12, 24];
 const shareMax = () => setting("share.max-hours") ?? 8;
 const shareLengths = () => SHARE_LENGTHS.filter((h) => h <= shareMax());
 const shareStartHours = () => Math.min(setting("share.default-hours") ?? 1, shareMax());
 const hoursText = (h) => `${h} hour${h === 1 ? "" : "s"}`;
-const clock = (t) => new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 const shareOf = (id) => shares.find((s) => s.report === id);
 
 async function refreshShares() {
@@ -62,8 +61,8 @@ function renderShare() {
 				<div class="share-cmd"><input class="share-url" readonly value="${esc(s.url)}" aria-label="Link"></div>
 				<div class="row"><button type="button" class="ghost sm" data-act="copy-url">Copy link</button><a class="ghost sm" href="${esc(s.url)}" target="_blank" rel="noreferrer">Open ↗</a></div>
 				<p class="hint">${s.reachable ? "The link answers." : "Checking that the link answers (a new address can take a few seconds to work)…"}</p>
-				<p>Sharing v${s.version}${s.version !== viewing ? ` (you're looking at v${viewing})` : ""} until <b>${clock(s.expiresAt)}</b>.</p>
-				<p class="hint">${atCap ? `That's the limit: a link runs at most ${hoursText(shareMax())}.` : `It can be extended up to ${clock(s.maxAt)}.`}</p>
+				<p>Sharing v${s.version}${s.version !== viewing ? ` (you're looking at v${viewing})` : ""} until <b>${when(s.expiresAt)}</b>.</p>
+				<p class="hint">${atCap ? `That's the limit: a link runs at most ${hoursText(shareMax())}.` : `It can be extended up to ${when(s.maxAt)}.`}</p>
 			</div></div>`;
 		}
 		actions.innerHTML = `${s.status === "ready" && !atCap ? `<button type="button" class="ghost" data-act="extend">Extend by 1 hour</button>` : ""}<button type="button" class="primary" data-act="stop">Stop sharing</button>`;
@@ -114,7 +113,7 @@ shareDlg.addEventListener("click", async (e) => {
 			await api(`/api/reports/${id}/share`, { method: "POST", body: JSON.stringify({ version: Number(frame.dataset.version) || null, hours: shareHours }) });
 		} else if (act === "extend") {
 			const s = await api(`/api/reports/${id}/share/extend`, { method: "POST" });
-			toast(`Sharing until ${clock(s.expiresAt)}`);
+			toast(`Sharing until ${when(s.expiresAt)}`);
 		} else if (act === "stop") {
 			await api(`/api/reports/${id}/share`, { method: "DELETE" });
 			shareCheck = await api("/api/share/check");

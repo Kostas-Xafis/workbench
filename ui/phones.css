@@ -1,4 +1,4 @@
-/* Settings → Privacy and security → Phones (settings-phones.js) */
+/* Settings → Data → Phones (settings-phones.js) */
 .ph-pair { display: flex; gap: 16px; align-items: flex-start; }
 .ph-qr { flex: none; width: 168px; }
 .ph-pair-main { min-width: 0; display: flex; flex-direction: column; gap: 5px; }

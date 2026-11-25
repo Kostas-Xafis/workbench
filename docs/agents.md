@@ -1,45 +1,120 @@
 # Agents
 
-Agents work the board with the `wb` command or the workbench's MCP server. The rules they follow are a standard block in each project's AGENTS.md or CLAUDE.md, and how to write an item is in the MCP server's instructions and `wb guide`.
+Agents work the board with the `wb` command or the workbench's MCP server. The rules they follow are a standard block in each project's AGENTS.md or CLAUDE.md. How to write an item is in the MCP server's instructions and `wb guide`.
 
 ## Setting a project up for agents
 
-Settings → Health has a short prompt to paste into a session in any project. The agent runs `wb integrate` (or the MCP tool `integration_guide`), which says what's set up and what's left: the project on the board, the board's rules in its AGENTS.md or CLAUDE.md, and Claude Code's MCP server and permissions, asking you before adding the project, changing settings or moving to-do lists into items. The rules sit between markers that carry a version (`<!-- workbench rules v1 … -->` … `<!-- /workbench rules -->`), so running it again replaces them, and a project's own notes go outside the markers. Settings → Projects shows each project's rules as up to date, out of date, written by hand or missing, with a button that copies the prompt for that folder. When the rules change (`RULES_VERSION` in integrate.ts), every project shows as out of date until it's run there. `wb start` records the desktop-app session, and the item's dialog links back to it.
+Settings → About has a short prompt to paste into a session in any project. The agent runs `wb integrate` (or the MCP tool `integration_guide`), which says what's set up and what's left: the project on the board, the board's rules in its AGENTS.md or CLAUDE.md, and Claude Code's MCP server and permissions. It asks you before adding the project, changing settings or moving to-do lists into items.
+
+- **Rules sit between markers** that carry a version (`<!-- workbench rules v4 … -->` … `<!-- /workbench rules -->`), so running it again replaces them. A project's own notes go outside the markers.
+- **Settings → Projects** shows each project's rules as up to date, out of date, written by hand or missing, with a button that copies the prompt for that folder. When the rules change (`RULES_VERSION` in integrate.ts), every project shows as out of date until it's run there.
+- `wb start` records the desktop-app session, and the item links back to it.
 
 ## MCP server
 
-The workbench is also an MCP server, so agents can work the board with tools instead of shelling out to `wb`. It runs two ways, with the same tools:
+The workbench is an MCP server, so agents work the board with tools instead of shelling out to `wb`. It runs two ways, with the same tools:
 
 ```bash
 claude mcp add -s user wb -- wb mcp                               # stdio: Claude Code starts `wb mcp` itself
 claude mcp add -s user --transport http wb http://localhost:4321/mcp   # or through the running board
 ```
 
-- **stdio** (`wb mcp`) works without the board running. Its default project is the one whose folder the client starts it in (`WB_PROJECT=slug` to pin one); `start_item` links the desktop-app session it runs in. While this computer syncs with the [cloud board](cloud.md), `wb mcp` relays every call to it, so the same configuration keeps working.
-- **HTTP** is `POST /mcp` on the board, for this computer only: it refuses other addresses (so not the phone under `--lan`), a Host other than localhost, and any web page's Origin. `?project=slug` sets the default project.
-- **Tools:** `list_projects`, `project_overview` (goals, open items, rulings, trackers, git state, reports, links and data sources of a project), `search`, `list_goals`, `add_goal`, `update_goal`, `list_items`, `get_item`, `add_item`, `update_item`, `attach_image`, `get_image`, `remove_image`, `start_item`, `wait_item` (with `on`: the items it waits on), `finish_item`, `drop_item`, `add_note`, `answer_decision` (only with an answer you gave in the conversation), `list_rulings`, `add_ruling`, `update_ruling`, `retire_ruling`, `list_reports`, `read_report`, `publish_report`, `set_report_icon`, `add_link`, `vault_list`, `vault_get` (both only after you type the vault password in a window on this computer; see [the vault](vault.md)), `list_trackers`, `get_tracker`, `record_tracker`, `refresh_trackers`, `define_tracker`, `remove_tracker`. Read-only tools are marked as such, so a client can let them run without asking.
-- **Resources:** `wb://projects`, `wb://project/{slug}`, `wb://item/{wb-xxxx}`, `wb://report/{id}`, `wb://rulings/{slug}`, `wb://trackers` and `wb://trackers/{slug}`; open items and reports are listed, so `@` in Claude Code can attach one.
-- **Prompts** (slash commands in Claude Code): `/mcp__wb__work-on wb-k3f9` (the item's brief and how to track it), `/mcp__wb__next` (pick the next agent task) and `/mcp__wb__status` (a short status of the project) and `/mcp__wb__today` (the Today brief as text, for all projects or one, since a time you give or the last 24 hours). Item refs and project slugs complete as you type.
-- **Not on MCP:** reading the vault without you (see [the vault](vault.md)), data sources' secrets, deleting items, reports or links, and starting agents (agents don't start agents). (`remove_image` is there so an agent can replace a picture it got wrong; the item's history keeps a line.)
-- **Protocol:** MCP 2026-07-28 (stateless, `server/discover`) and the earlier revisions down to 2024-11-05 (the `initialize` handshake), on both transports, written by hand like the rest of the board.
+- **stdio** (`wb mcp`) works without the board running. Its default project is the one whose folder the client starts it in (`WB_PROJECT=slug` pins one). While this computer syncs with the [cloud board](cloud.md), `wb mcp` relays every call to it.
+- **HTTP** (`POST /mcp`) is for this computer only: it refuses other addresses (so not the phone under `--lan`), a Host other than localhost, and any web page's Origin. `?project=slug` sets the default project.
+- **Tools:** `list_projects`, `project_overview` (open items, rulings, trackers, git state, reports, links and data sources of a project), `search`, `list_items`, `get_item`, `add_item`, `update_item`, `attach_image`, `start_item`, `wait_item` (with `on`: the items it waits on), `finish_item`, `drop_item`, `add_note`, `answer_decision` (only with an answer you gave in the conversation), `list_rulings`, `add_ruling`, `update_ruling` (also moves a ruling, or retires it), `add_link`, `vault_list`, `vault_get` ([the vault](vault.md)), and four that take an `action`: `goal` (list, add, update), `report` (list, read, publish, icon), `tracker` (list, get, record, refresh, define, remove, presets) and `image` (get, remove). Every tool's definition is loaded into every agent session, so they are kept few and short: about 19.6 KB with the instructions, and a test fails if that grows 10%. Read-only tools are marked as such, so a client can let them run without asking.
+- **Resources:** `wb://projects`, `wb://project/{slug}`, `wb://item/{wb-xxxx}`, `wb://report/{id}`, `wb://rulings/{slug}`, `wb://trackers`, `wb://trackers/{slug}`. `@` in Claude Code can attach an open item or a report.
+- **Prompts** (slash commands in Claude Code): `/mcp__wb__work-on wb-k3f9` (the item's brief and how to track it), `/mcp__wb__next` (pick the next agent task), `/mcp__wb__status` (a short status of the project) and `/mcp__wb__today` (what waits on you, what finished and what's stuck, since a time you give or the last 24 hours).
+- **Not on MCP:** reading the vault without you, data sources' secrets, deleting items, reports or links, and starting agents (agents don't start agents). `image` with `remove` is there so an agent can replace a picture it got wrong; the item's history keeps a line.
+- **Protocol:** MCP 2026-07-28 (stateless) and the earlier revisions down to 2024-11-05, on both transports.
+
+### Renamed tools
+
+Up to 0.5.0 these were tools of their own. The old names still work, unlisted and with the same arguments, for one release (0.6.0); use the new ones.
+
+| Old | Now |
+| --- | --- |
+| `list_goals`, `add_goal`, `update_goal` | `goal` with `action` list, add, update |
+| `list_reports`, `read_report`, `publish_report`, `set_report_icon` | `report` with `action` list, read, publish, icon |
+| `list_trackers`, `get_tracker`, `record_tracker`, `refresh_trackers`, `define_tracker`, `remove_tracker` | `tracker` with `action` list, get, record, refresh, define, remove (`presets` lists the preset kinds) |
+| `get_image`, `remove_image` | `image` with `action` get, remove |
+| `retire_ruling` | `update_ruling` with `retire: true` |
+
+## Is it running?
+
+The board tells a live agent from an item someone left in doing. An agent counts as **alive** on an item while:
+
+- **a run the board started** is going on it, or
+- **it acted on it in the last 5 minutes:** an MCP call that changes the item (`start_item`, `add_note`, `update_item`, `finish_item`, `wait_item`, `attach_image`, the `image` tool, `answer_decision`, `drop_item`), any MCP call from the session that started the item (`start_item` records the desktop-app session the server runs in) while it's doing, or the same from an agent's `wb` (`wb start`, `wb note`, `wb done`, `wb wait`, `wb edit`, `wb drop`, `wb answer`, `wb image add`/`rm`). Reading doesn't count (`get_item`, `list_items`, `search`, `wb show`), nor do your own `wb` commands and the board's page.
+
+**Running now** on the Agents place lists the runs the board started that are going, and the agents' items that are alive and in doing.
+
+The cloud board works the same way.
+
+**Stalled** is "no sign of life for a day while doing": no note, no call, and no run going. A waiting item is stale after 7 days.
 
 ## Agents the board starts
 
-Answering a decision hands it back to the agent, but nothing runs until someone opens a session and types "Do wb-xxxx". The board knows the project's folder and the item, so it can start the agent itself. **It's off until you turn it on** in Settings → Agents, and every agent it starts is a Claude Code session on your account: **it uses your plan's limits (or API credits) as any session does.** What the board shows for a run ("$0.42 at API prices") is what its tokens come to at Claude API list prices, as the Usage page counts: on a subscription (Pro, Max) you don't pay it, it's a measure of how much the run took.
+Answering a decision hands it back to the agent, but nothing runs until someone opens a session and types "Do wb-xxxx". The board knows the project's folder and the item, so it can start the agent itself. **It's off until you turn it on** in Settings → Agents, and every agent it starts is a Claude Code session on your account: **it uses your plan's limits (or API credits) as any session does.** The cost the board shows for a run ("$0.42 at API prices") is what its tokens come to at Claude API list prices, as the Usage page counts. On a subscription you don't pay it: it measures how much the run took.
 
-- **Run** on an agent's to-do (on its card, and in the item): the board starts `claude -p` headless in the project's folder, told to read the item with `get_item`, `start_item` it, do it by the project's own rules, and `finish_item` it or file what it needs from you and wait. Nobody watches it, so it puts questions on the board.
-- **Answer & send:** in an item that asks you something, tick **resume the agent** next to the answer (or the objection): your answer, by a choice, ticked choices or your own words, then also starts the agent on it. Nothing is answered when the agent can't start (off, a limit, no folder): you get the reason instead.
-- **While it runs**, its card says "agent running · 4 min", and the item's **Agent** box (at the top of the reader while it runs, below the brief after) shows what it does as it comes: what it says, each tool call in a line (with a small sign for edit, run, read, search and the board's tools), errors in red with what was refused, and the result at the end; the last 12, with Show all. It follows the bottom unless you scrolled up in it. Its header says running, finished, failed or stopped, how long, what it cost at API prices and where it ran (its worktree), and with several runs on the item, #7 · #6 · #5 to look at an earlier one ("continues #6"). Its buttons: **Stop** (the agent and everything it started), **Open in Claude Desktop** (a `claude://` link the page opens, so it works from the cloud board too), **Copy resume command** (`cd <folder> && claude --resume <session>`), **Run again** (when the board would allow it) and **Tell the agent…**. The item's history gets a line when it starts and when it ends.
-- **Talking to the agent** happens in the reader's one reply box: on an item whose last run ended with a session, it has a **send to the agent** tick (Tell the agent… ticks it and puts you there). Ticked, what you write goes to the agent: a new run carries on in its session with it (Continue, below), and it's in the history as yours.
-- **Tools it was refused:** a run counts the tool calls its permissions refused ("Edit ×4, Bash ×6"). The item and Settings → Agents → Recent runs say so, its card shows "agent refused tools" for two days, and its end line in the item's history names them.
-- **Nothing left parked:** an item a run leaves doing, or waiting on nothing (no item it waits on), goes back to to-do with a line saying so, since nobody watched the run and nothing would bring it back. One waiting on an item (a check, a decision for you) stays waiting and comes back when that's dealt with.
-- **What it said and did** (`GET /api/runs/<n>/events?after=<k>`): the run's stream-json parsed into events, numbered in the order they came: `start` (the model and the folder), `text` (what the agent said), `tool` (each call in one line: `Edit src/app.ts`, `Bash: bun test`, `mcp__wb__finish_item wb-k3f9`), `error` (a call that failed, `refused` when its permissions refused it; other tool results aren't kept), `result` (what it said at the end, `cost`, `duration_ms`, `turns`) and `output` (a line that isn't stream-json, such as Claude Code's own error). The answer is `{ run, events, next }`; ask again with `after=<next>` for what came since. It works while the run goes (read every 2 s) and after, on the cloud board too (the computer helper sends them). The last 500 of a run are kept (the `run_events` table), each text 4,000 characters at most. The run's `tail` (its last 200 lines) is still there.
-- **Continue** (`POST /api/runs/<n>/continue {message}`, `wb continue <n> "message"`): a new run resumes that run's Claude Code session with your message as the prompt, so the agent carries on with what it knows, in the folder the session ran in (its worktree: the run's `cwd`, from Claude Code's first line; on the computer, the session's transcript says where it is). Allowed on any item, a done one too (a follow-up), within the limits; refused while that session, or any run on the item, still runs. The item's history gets your message and "Agent continued (run #n …)"; the new run's `continues` is the run it went on from, and its first event (number 0, `message`) is what you sent. **The command** for it is made from the command above, word by word as the shell splits it and never inside quotes: `--session-id <id>` becomes `--resume "$WB_RESUME"` (before `-p`), and `-w` / `--worktree` with its name (and `--tmux`) go, since the session has its worktree. A command with more than one plain command in it (a pipe, `&&`, `;`, a redirection, `$(…)`) gets none made: then Settings' `agents.continue-command` has to be set, and when set it's used anyway. The computer helper runs a continue command made from a start command it allowed without asking again. On the cloud board, a computer whose app is older than 0.5.0 can't continue a session: Continue says "Update the Workbench app on <computer> to continue sessions from the board."
-- **Restart:** Run works again on an item whose last run failed or was stopped (doing, or waiting on nothing), or that has sat doing for two days (stalled): a fresh session, and the history says "Agent restarted (run #n): run #m had failed". Never while a run is on it.
-- **Open in Claude Desktop:** a run is a headless Claude Code session, which Claude Desktop doesn't list by itself. Once a run has ended, it has `desktop`, `claude://resume?session=<id>`: opened on any computer with Claude Desktop (the board's page opens it itself, so the cloud board's too), Desktop imports the session into its sidebar (under the item's title, in that folder) and opens it there, to read or carry on. An item whose `session` is a Claude Code session (a UUID) or a Desktop one (`local_<uuid>`, what `start_item` records from the desktop app) has `desktop` too. The desktop app lets exactly these two `claude://` links through to the system (`src-tauri/src/web.rs`). The board on this computer can still open one itself (`POST /api/runs/<n>/desktop`).
-- **When an agent's work is unblocked** (Settings → Agents): **Tell me** (the default) is the notification "An agent can carry on" and Run on its card; **Send it** starts the agent on it by itself, whoever answered (the board, `wb answer`, an agent), within the limits. What a limit holds back goes when the limit allows, the same day.
-- **Limits:** at most 1 at once and 5 a day unless changed, and optionally a day's usage: no new agent once today's runs come to that much at API prices, counted from their sessions the way the Usage page counts (or what the agent reported, if more). A run already going isn't stopped. A day starts at Settings → You and your day's hour.
-- **Only this computer starts agents.** A paired phone can answer, but starting needs "From a paired phone too" in Settings → Agents; Settings itself changes only here. Agents never start agents: there's no MCP tool for it, and `wb run` refuses inside an agent.
-- **The command** is a setting: `claude -p "$WB_PROMPT" --output-format stream-json --verbose --permission-mode auto --allowedTools mcp__wb -w --session-id "$WB_SESSION" --name "$WB_TITLE"`, run with bash and your shell's PATH. `auto` lets the agent edit files and run commands, with Claude Code's own checks refusing what looks risky (nothing is asked: nobody watches); the board's tools are always allowed. `-w` puts it in a git worktree of its own on a new branch (`.claude/worktrees/` in the project), so your checkout isn't touched; the prompt tells it to commit there and name the branch when it finishes, and to merge only if the project's rules say so. For less, `--permission-mode dontAsk` allows only what your Claude Code settings already allow (`permissions.allow` in `~/.claude/settings.json` and the project's `.claude/settings.json`); `--max-budget-usd 5` caps one run. Up to 0.4.0 the default was that `dontAsk` command, with which an agent could do next to nothing; a board that has it saved unchanged gets today's default, and a command you changed stays yours. The cloud board's computer helper asks for an OK on the computer before it runs a new command, as for any. **Test the command** asks the program for its version and its flags only: no agent starts. Settings → Agents shows what the agent is told.
-- **It outlives the board:** a run is its own process (in its own systemd scope where there is one), writing to a log in the runtime folder; the board reads it every 2 s. A board restarted meanwhile picks the run up again; one whose process is gone (the computer restarted, it was killed) is closed as failed. Runs are the `runs` table, the code is `dispatch.ts` and `ui/dispatch.js`.
-- **From a terminal:** `wb run <ref>`, `wb runs` (also closes runs that ended while the board was off; each with where it ran, `wb continue` for it and its Desktop link), `wb continue <run> "message"`, `wb stop <run>`. `wb show` and `get_item` show the item's latest run. Agents can't continue agents either: `wb continue` refuses inside one, and there's no MCP tool for it.
+### Starting one
+
+- **Run**, on an agent's to-do (on its card and in the item): the board starts `claude -p` headless in the project's folder, told to read the item with `get_item`, `start_item` it, do it by the project's own rules, and `finish_item` it or file what it needs from you and wait. Nobody watches it, so it puts questions on the board.
+- **Answer & send:** in an item that asks you something, tick **resume the agent** next to the answer (or the objection). Your answer, by a choice, ticks or your own words, then also starts the agent. When the agent can't start (off, a limit, no folder) nothing is answered, and you get the reason.
+- **Merge it** is below.
+- **When an agent's work is unblocked** (Settings → Agents): **Tell me** (the default) is the notification "An agent can carry on" and Run on its card. **Send it** starts the agent by itself, whoever answered, within the limits. What a limit holds back goes when the limit allows, the same day.
+- **Limits:** at most 1 at once and 5 a day unless changed, and optionally a day's usage: no new agent once today's runs come to that much at API prices, counted from their sessions as the Usage page does. A run already going isn't stopped. A day starts at the hour set in Settings → About.
+- **Only this computer starts agents.** A paired phone can answer, but starting needs "From a paired phone too" in Settings → Agents. Agents never start agents: there's no MCP tool for it, and `wb run` and `wb continue` refuse inside one.
+
+### The agent session in the reader
+
+While a run goes, its card says "agent running · 4 min", and the item's agent session (at the top of the reader while it runs, below the brief after) shows what it does as it comes:
+
+- what it says, and each tool call in a line (with a small sign for edit, run, read, search and the board's tools); errors in red with what was refused; the result at the end. The last 12 show, with Show all. It follows the bottom unless you scrolled up.
+- the header: running, finished, failed or stopped, how long, what it cost at API prices, and where it ran (its worktree). With several runs on the item, #7 · #6 · #5 look at an earlier one ("continues #6").
+- the item's history gets a line when it starts and when it ends.
+
+Its buttons:
+
+- **Stop:** the agent and everything it started.
+- **Open in Claude Desktop:** see below.
+- **Copy resume command:** `cd <folder> && claude --resume <session>`.
+- **Continue:** carry on in the same session with your message. See below.
+- **Restart:** a fresh session.
+
+**Continue** is in the reader's one reply box: on an item whose last run ended with a session, a **send to the agent** tick (Tell the agent… ticks it and puts you there). What you write goes to the agent, and it's in the history as yours. A new run resumes that run's Claude Code session with your message as the prompt, in the folder the session ran in (its worktree), so the agent carries on with what it knows.
+
+- Allowed on any item, a done one too (a follow-up), within the limits; refused while that session, or any run on the item, still runs. The new run's first event is what you sent. From a terminal: `wb continue <run> "message"`.
+- **The command** for it is made from the start command below, word by word as the shell splits it and never inside quotes: `--session-id <id>` becomes `--resume "$WB_RESUME"` (before `-p`), and `-w` / `--worktree` with its name (and `--tmux`) go, since the session has its worktree. A command with more than one plain command in it (a pipe, `&&`, `;`, a redirection, `$(…)`) gets none made. Then the setting `agents.continue-command` has to be set, and when set it's used anyway.
+- On the cloud board, a computer whose app is older than 0.5.0 can't continue a session: it says "Update the Workbench app on <computer> to continue sessions from the board."
+
+**Restart:** Run works again on an item whose last run failed or was stopped (doing, or waiting on nothing), or that has sat doing with no sign of life for a day. A fresh session, and the history says "Agent restarted (run #n): run #m had failed". Never while a run is on it.
+
+**Open in Claude Desktop:** a run is a headless Claude Code session, which Claude Desktop doesn't list by itself. Once a run has ended, its `claude://resume?session=<id>` link, opened on any computer with Claude Desktop (the cloud board's too), imports the session under the item's title and opens it, to read or carry on. An item whose `session` is a Claude Code session (a UUID) or a Desktop one (`local_<uuid>`, which `start_item` records) has the link too.
+
+**Tools it was refused:** a run counts the tool calls its permissions refused ("Edit ×4, Bash ×6"). The item, Settings → Agents → Recent runs and the run's end line in the history say so, and its card shows "agent refused tools" for two days.
+
+**Nothing left parked:** an item a run leaves doing, or waiting on nothing, goes back to to-do with a line saying so. One waiting on an item (a check, a decision for you) stays waiting and comes back when that's dealt with.
+
+### The start command
+
+A setting: `claude -p "$WB_PROMPT" --output-format stream-json --verbose --permission-mode auto --allowedTools mcp__wb -w --session-id "$WB_SESSION" --name "$WB_TITLE"`, run with bash and your shell's PATH.
+
+- `auto` lets the agent edit files and run commands, with Claude Code's own checks refusing what looks risky (nothing is asked: nobody watches). The board's tools are always allowed.
+- `-w` puts it in a git worktree of its own on a new branch (`.claude/worktrees/` in the project), so your checkout isn't touched. The prompt tells it to commit there, name the branch when it finishes, and merge only if the project's rules say so.
+- For less, `--permission-mode dontAsk` allows only what your Claude Code settings already allow (`permissions.allow` in `~/.claude/settings.json` and the project's `.claude/settings.json`). `--max-budget-usd 5` caps one run.
+- The cloud board's computer helper asks for an OK on the computer before it runs a new command ([cloud.md](cloud.md)).
+- **Test the command** asks the program for its version and its flags only: no agent starts. Settings → Agents shows what the agent is told.
+
+**It outlives the board:** a run is its own process, writing to a log the board reads every 2 s. A restarted board picks the run up again. A run whose process is gone (the computer restarted, it was killed) is closed as failed.
+
+**From a terminal:** `wb run <ref>`, `wb land <ref>` (Merge it), `wb runs` (also closes runs that ended while the board was off), `wb continue <run> "message"`, `wb stop <run>`. `wb show` and `get_item` show the item's latest run.
+
+## Merge it
+
+**Merge it**, on an item under Ready to land (`wb land <ref>`), starts a board run whose job is to land that item's branch. It's a run like Run's, with the same limits, command and computer helper, recorded on the item as a run of kind `land`, and the history says "Agent merging <branch> into <main> (run #n, from …)".
+
+- Allowed on a done agent item with a branch the board doesn't know to be merged already (an unknown git state goes ahead: the agent finds out), with no run on it.
+- The agent is told to read the item, merge the branch into the main branch the way the project's own rules say (its CLAUDE.md or AGENTS.md: some projects merge locally, some open a pull request), run the project's checks, never force-push, add a note saying what landed where, and, when it can't, file what it needs from you as its own item.
+- The item stays done. A merge run that fails or is stopped puts it under Stuck, with Merge it again.
+- **What counts as merged:** a merged pull request naming the item, or a branch that's no longer among the unmerged ones (merged, or deleted).
+- **Git state** is read per project (unmerged branches, worktrees, commits and pull requests that name items), at most every 30 s (90 s for the ones that ask `gh`). On the cloud board it's what the computer helper last sent, and the Agents place says when that's old or missing.

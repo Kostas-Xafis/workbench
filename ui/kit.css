@@ -1,0 +1,58 @@
+/* The kit (kit.js): kind glyphs, rows, chips, the empty state and the in-page confirm. Tokens only (base.css). */
+
+.kg { display: inline-flex; flex: none; color: var(--muted); }
+.kg .gl { width: 16px; height: 16px; vertical-align: 0; }
+.kg .gl > * { stroke-width: 1.4; }
+.res .kg .gl { width: 15px; height: 15px; }
+
+/* Rows: glyph · title and one meta line · right slot. */
+.k-row { display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; gap: var(--sp-3); align-items: start; padding: 10px var(--sp-4);
+	border-left: 2px solid transparent; cursor: pointer; outline: none; }
+.k-row + .k-row { border-top: 1px solid color-mix(in srgb, var(--line) 60%, transparent); }
+.k-row:hover { background: var(--hover); }
+.k-row:focus-visible { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--accent) 45%, transparent); }
+.k-row.is-sel { background: var(--accent-bg); border-left-color: var(--accent); }
+.k-row > .kg { margin-top: 1px; }
+.k-title { font-size: var(--fs-13); line-height: 1.4; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; }
+.k-meta { font-size: var(--fs-12); color: var(--muted); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.k-meta b { font-weight: 500; color: var(--ink); }
+.k-right { display: flex; align-items: center; gap: var(--sp-2); font-size: var(--fs-12); color: var(--faint); white-space: nowrap; padding-top: 1px; }
+
+/* Chips: a few words in a state's colour. */
+.chip { display: inline-flex; align-items: center; gap: var(--sp-1); font-size: var(--fs-11); font-weight: 600; line-height: 18px; padding: 0 6px; border-radius: var(--r-sm);
+	background: var(--sunk); color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.chip.st-yours { background: var(--st-yours-bg); color: var(--st-yours); }
+.chip.st-running { background: var(--st-running-bg); color: var(--st-running); }
+.chip.st-stuck { background: var(--st-stuck-bg); color: var(--st-stuck); }
+.chip.st-failed { background: var(--st-failed-bg); color: var(--st-failed); }
+.chip.st-done { background: var(--st-done-bg); color: var(--st-done); }
+
+/* The empty state. */
+.k-empty { padding: var(--sp-8) var(--sp-4); text-align: center; color: var(--muted); font-size: var(--fs-13); }
+.k-empty b { display: block; color: var(--ink); font-size: var(--fs-14); font-weight: 600; margin-bottom: var(--sp-1); }
+.k-empty p { margin: 0 auto; max-width: 44ch; }
+.k-empty-act { margin-top: var(--sp-4); display: flex; gap: var(--sp-2); justify-content: center; }
+
+/* confirmIn: a small box in the middle, or beside the button that asked. */
+dialog.k-confirm { width: min(360px, calc(100vw - 32px)); border-radius: var(--r-lg); box-shadow: var(--shadow); }
+dialog.k-confirm::backdrop { background: rgb(0 0 0 / .2); }
+dialog.k-confirm.k-anchored { position: fixed; margin: 0; }
+dialog.k-confirm.k-anchored::backdrop { background: transparent; }
+.k-confirm form { padding: var(--sp-4); display: flex; flex-direction: column; gap: var(--sp-4); }
+.k-confirm p { margin: 0; font-size: var(--fs-14); line-height: 1.45; overflow-wrap: anywhere; }
+.k-confirm-row { display: flex; justify-content: flex-end; gap: var(--sp-2); }
+.k-confirm .k-danger { background: var(--st-failed); color: var(--card); }
+
+/* Small shared marks (they were the board's): line glyphs, P1, a copyable ref, a quiet "nothing here", a warning badge. */
+/* Stroke widths go on an icon's shapes, never on its <svg>: WebKitGTK (2.52) applies the page zoom to an outer <svg>'s
+   stroke-width and its shapes inherit that zoomed width, so at 200% in the app the strokes come out twice as thick. */
+.gl { width: 13px; height: 13px; flex: none; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; vertical-align: -2px; }
+.gl > * { stroke-width: 1.6; }
+.p1 { color: var(--p1); font-weight: 700; }
+.ref { font: 600 11.5px ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--muted); background: var(--hover); border: 0; border-radius: 5px; padding: 1px 5px; cursor: copy; }
+.ref:hover { color: var(--accent); }
+.ref.copied { color: var(--check); }
+.empty { color: var(--muted); font-size: 13px; padding: 18px 2px; }
+.warn { background: var(--warn-bg); color: var(--warn-ink); border-radius: 6px; padding: 0 6px; margin-left: 4px; white-space: nowrap; font-size: 12px; font-weight: 500; }
+/* In a row's meta line: stalled, or waiting a week (stale.ts). */
+.k-meta .k-stale { color: var(--st-stuck); font-weight: 600; }

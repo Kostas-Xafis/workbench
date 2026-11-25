@@ -1,37 +1,71 @@
+/* The design system: every size, space, corner and colour the page uses, as tokens (docs/development.md, "The board's
+   page"). New and touched rules use these and nothing else; older files move over as they're changed.
+   - Type: --fs-11 … --fs-24, seven sizes and no others.
+   - Space: --sp-1 … --sp-8, a 4 px scale (4 8 12 16 20 24 28 32).
+   - Corners: --r-sm (chips, keys), --r-md (buttons, rows, fields), --r-lg (cards, dialogs, sheets).
+   - Colour: neutrals (--bg, --card, --sunk, --ink, --muted, --faint, --line, --hover), the accent, and state:
+     --st-yours (waits on Kostas), --st-running, --st-stuck, --st-failed, --st-done, each with a soft background
+     (--st-…-bg). A kind is never a colour: it's a neutral glyph (kindGlyph, kit.js). */
 :root {
-	--bg: #f6f5f2; --card: #ffffff; --ink: #1d1c1a; --muted: #6f6b64; --line: #e3e0da; --hover: #efede8;
-	--accent: #3d5afe; --accent-ink: #ffffff;
+	--fs-11: 11px; --fs-12: 12px; --fs-13: 13px; --fs-14: 14px; --fs-16: 16px; --fs-20: 20px; --fs-24: 24px;
+	--sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px; --sp-5: 20px; --sp-6: 24px; --sp-7: 28px; --sp-8: 32px;
+	--r-sm: 4px; --r-md: 8px; --r-lg: 12px;
+	--mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+	--nav-w: 208px;
+
+	--bg: #f6f5f2; --card: #ffffff; --sunk: #efede8; --ink: #1d1c1a; --muted: #6f6b64; --faint: #9a958c; --line: #e3e0da; --hover: #efede8;
+	--accent: #3d5afe; --accent-ink: #ffffff; --accent-bg: #e8ecff;
+	--st-yours: #3d5afe; --st-yours-bg: #e8ecff;
+	--st-running: #0f766e; --st-running-bg: #dff3f0;
+	--st-stuck: #8a5300; --st-stuck-bg: #fff4dc;
+	--st-failed: #c0262d; --st-failed-bg: #fde8e8;
+	--st-done: #15803d; --st-done-bg: #e3f4e8;
+	/* Older names, still read by files that haven't moved to the tokens above. */
 	--decision: #7c3aed; --setup: #2563eb; --check: #15803d; --review: #b45309; --bug: #dc2626; --task: #0b6b3a; --idea: #ca8a04;
 	--warn-bg: #fff4dc; --warn-ink: #8a5300; --p1: #c2410c;
-	--rail-bg: #edebe6; --shadow: 0 14px 36px rgb(0 0 0 / .16);
+	--shadow: 0 1px 2px rgb(0 0 0 / .05), 0 10px 30px rgb(0 0 0 / .12);
 	color-scheme: light;
 }
-/* Dark follows the system unless Settings → Appearance picks one (data-theme on <html>). */
+/* Dark follows the system unless Settings → About → Look picks one (data-theme on <html>). */
 @media (prefers-color-scheme: dark) {
 	:root:not([data-theme="light"]) {
-		--bg: #151514; --card: #1f1f1d; --ink: #ecebe8; --muted: #a29e96; --line: #33322f; --hover: #2a2a27;
-		--accent: #8c9eff; --accent-ink: #10132b;
+		--bg: #151514; --card: #1f1f1d; --sunk: #191918; --ink: #ecebe8; --muted: #a29e96; --faint: #75716a; --line: #33322f; --hover: #2a2a27;
+		--accent: #8c9eff; --accent-ink: #10132b; --accent-bg: #23284a;
+		--st-yours: #8c9eff; --st-yours-bg: #23284a;
+		--st-running: #4fd1c5; --st-running-bg: #12302c;
+		--st-stuck: #ffcf7a; --st-stuck-bg: #3a2c10;
+		--st-failed: #ff8a8a; --st-failed-bg: #3a1717;
+		--st-done: #5fcf86; --st-done-bg: #13301d;
 		--decision: #b794f6; --setup: #7aa7ff; --check: #5fcf86; --review: #f0b45a; --bug: #ff7b7b; --task: #2fa765; --idea: #facc15;
 		--warn-bg: #3a2c10; --warn-ink: #ffcf7a; --p1: #ff9a5c;
-		--rail-bg: #10100f; --shadow: 0 14px 36px rgb(0 0 0 / .5);
+		--shadow: 0 1px 2px rgb(0 0 0 / .3), 0 12px 32px rgb(0 0 0 / .45);
 		color-scheme: dark;
 	}
 }
 :root[data-theme="dark"] {
-	--bg: #151514; --card: #1f1f1d; --ink: #ecebe8; --muted: #a29e96; --line: #33322f; --hover: #2a2a27;
-	--accent: #8c9eff; --accent-ink: #10132b;
+	--bg: #151514; --card: #1f1f1d; --sunk: #191918; --ink: #ecebe8; --muted: #a29e96; --faint: #75716a; --line: #33322f; --hover: #2a2a27;
+	--accent: #8c9eff; --accent-ink: #10132b; --accent-bg: #23284a;
+	--st-yours: #8c9eff; --st-yours-bg: #23284a;
+	--st-running: #4fd1c5; --st-running-bg: #12302c;
+	--st-stuck: #ffcf7a; --st-stuck-bg: #3a2c10;
+	--st-failed: #ff8a8a; --st-failed-bg: #3a1717;
+	--st-done: #5fcf86; --st-done-bg: #13301d;
 	--decision: #b794f6; --setup: #7aa7ff; --check: #5fcf86; --review: #f0b45a; --bug: #ff7b7b; --task: #2fa765; --idea: #facc15;
 	--warn-bg: #3a2c10; --warn-ink: #ffcf7a; --p1: #ff9a5c;
-	--rail-bg: #10100f; --shadow: 0 14px 36px rgb(0 0 0 / .5);
+	--shadow: 0 1px 2px rgb(0 0 0 / .3), 0 12px 32px rgb(0 0 0 / .45);
 	color-scheme: dark;
 }
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
-body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-	height: 100dvh; overflow: hidden; display: grid; grid-template-columns: 64px var(--rail-w) minmax(0, 1fr); --rail-w: 244px; }
-body.rail-collapsed { --rail-w: 52px; }
+/* The frame: the nav on the left, the place on the right (#content: the top bar over the view). On a phone the nav
+   is a bar at the bottom instead (nav.css). */
+body { margin: 0; background: var(--bg); color: var(--ink); font: var(--fs-14)/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+	height: 100dvh; overflow: hidden; display: grid; grid-template-columns: var(--nav-w) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); }
+#nav { grid-column: 1; grid-row: 1; }
+#content { grid-column: 2; grid-row: 1; }
 body.solo { grid-template-columns: minmax(0, 1fr); }
-body.solo #prail, body.solo #rail, body.solo header.top { display: none; }
+body.solo #content { grid-column: 1; }
+body.solo #nav, body.solo #tabbar, body.solo header.top { display: none; }
 button, input, select, textarea { font: inherit; color: inherit; }
 /* Every field looks like the board, whatever the browser or system theme would draw. Number fields have no spin
    arrows (type the value, or use ↑ ↓), and focus is the board's accent, not the system's (orange on Ubuntu). */
@@ -40,19 +74,19 @@ input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer
 :where(input, select, textarea):focus-visible { outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent); outline-offset: -1px; }
 button { cursor: pointer; }
 a { color: var(--accent); }
-code { font: 12.5px ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--hover); padding: 1px 4px; border-radius: 4px; }
+code { font: var(--fs-12) var(--mono); background: var(--hover); padding: 1px var(--sp-1); border-radius: var(--r-sm); }
 summary { list-style: none; cursor: pointer; }
 summary::-webkit-details-marker { display: none; }
 .fold > summary::before { content: ""; flex: none; width: 0; height: 0; border-left: 4.5px solid currentColor; border-top: 4px solid transparent; border-bottom: 4px solid transparent;
 	opacity: .55; transition: transform .12s; }
 .fold[open] > summary::before { transform: rotate(90deg); }
-.primary { background: var(--accent); color: var(--accent-ink); border: 0; border-radius: 8px; padding: 6px 14px; font-weight: 600; }
-.ghost { background: transparent; border: 1px solid var(--line); border-radius: 8px; padding: 5px 12px; }
-.sm { font-size: 12.5px; padding: 3px 10px; text-decoration: none; color: var(--ink); white-space: nowrap; }
+.primary { background: var(--accent); color: var(--accent-ink); border: 0; border-radius: var(--r-md); padding: 6px var(--sp-4); font-weight: 600; }
+.ghost { background: transparent; border: 1px solid var(--line); border-radius: var(--r-md); padding: 5px var(--sp-3); }
+.sm { font-size: var(--fs-12); padding: 3px 10px; text-decoration: none; color: var(--ink); white-space: nowrap; }
 .ghost:hover { background: var(--hover); }
-.icon-btn { border: 0; background: transparent; border-radius: 7px; width: 28px; height: 28px; display: grid; place-items: center; color: var(--muted); padding: 0; flex: none; }
+.icon-btn { border: 0; background: transparent; border-radius: var(--r-md); width: 28px; height: 28px; display: grid; place-items: center; color: var(--muted); padding: 0; flex: none; }
 .icon-btn:hover, .icon-btn[aria-pressed="true"] { background: var(--hover); color: var(--ink); }
 .icon-btn[aria-pressed="true"] { color: var(--accent); }
 .icon-btn svg { width: 16px; height: 16px; }
-.hint { font-size: 11.5px; color: var(--muted); }
+.hint { font-size: var(--fs-12); color: var(--muted); }
 .spacer { flex: 1; }
