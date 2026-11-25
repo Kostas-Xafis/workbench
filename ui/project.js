@@ -125,8 +125,10 @@ function pjMeters() {
 
 function pjHeader() {
 	const p = pjProject();
-	const inbox = p?.mine ?? 0;
-	const line = [pjRepoLine(), inbox ? `<a href="#inbox/${encodeURIComponent(pv.slug)}">${inbox} in your inbox</a>` : ""].filter(Boolean).join(" · ");
+	const inbox = navMine(pv.slug), look = typeof inboxAsks === "function" ? inboxAsks(pv.slug).look : 0;
+	// Reviews and notices go ahead by themselves: said quietly, not counted.
+	const quiet = look ? `<span title="They go ahead by themselves; look when you like">${look} to look at</span>` : "";
+	const line = [pjRepoLine(), inbox ? `<a href="#inbox/${encodeURIComponent(pv.slug)}">${inbox} in your inbox</a>` : "", quiet].filter(Boolean).join(" · ");
 	return `<div class="pj-id">${logo(p)}<div class="pj-name"><h1>${esc(p.name)}</h1>${line ? `<div class="pj-line">${line}</div>` : ""}</div></div>
 		<div class="pj-side">${pjGoalHtml()}${pjMeters()}</div>`;
 }
@@ -217,7 +219,7 @@ function pjRow(i, kind) {
 	if (kind === "waiting") {
 		const w = pv.waits.get(i.id);
 		const on = w?.on?.length ? `waits on ${w.on.map((b) => `<b>${esc(b.title)}</b>`).join(", ")}` : "";
-		const meta = [w?.why ? esc(w.why) : "", on, i.area ? esc(i.area) : ""].filter(Boolean).join(" · ") || esc(rowMeta(i, { project: false }));
+		const meta = [w?.why ? esc(w.why) : "", on, i.area ? esc(i.area) : ""].filter(Boolean).join(" · ") || rowMeta(i, { project: false });
 		return row(i, { meta, right: pjAge(w?.since ?? i.updated_at), selected: sel });
 	}
 	if (kind === "idea") return row(i, { meta: pjMeta(i), right: `<button type="button" class="ghost sm" data-task="${i.id}">Make it a task</button>`, selected: sel });
@@ -237,7 +239,7 @@ function pjWorkLists() {
 	const waiting = agent.filter((i) => i.status === "waiting");
 	const ideas = all.filter((i) => i.kind === "idea" && i.status !== "doing");
 	// The Inbox's own count (asks that wait on Kostas), or under a goal the ones on it.
-	const mine = g ? all.filter(needsYou).length : pjProject()?.mine ?? 0;
+	const mine = g ? all.filter((i) => needsYou(i) && i.kind !== "review" && !(i.deferred_until && parseTime(i.deferred_until) > Date.now())).length : navMine(pv.slug);
 	return { g, doing, next, waiting, ideas, mine };
 }
 

@@ -22,6 +22,14 @@ function navCount(name, n, st) {
 	navCounts.set(name, { n, st });
 	renderNav();
 }
+// Several at once ([[name, n, state], …]), drawn once.
+function navCountMany(list) {
+	for (const [name, n, st] of list) navCounts.set(name, { n, st });
+	renderNav();
+}
+// What waits on you in a project (the Inbox's count, inbox.js): the same number in the nav's row, the phone's Projects
+// sheet and the project's page.
+const navMine = (slug) => navCounts.get(`project:${slug}`)?.n || 0;
 const navN = (c) => (c && c.n ? `<i class="nav-n${c.st ? ` st-${c.st}` : ""}">${esc(c.n)}</i>` : "");
 const navEntries = () => VIEWS.filter((v) => v.entry).sort((a, b) => (a.entry.order ?? 50) - (b.entry.order ?? 50));
 const entryHref = (v) => v.entry.href ?? (v.default ? "#" : `#${v.name}`);
@@ -33,8 +41,8 @@ function navEntryRow(v, on) {
 }
 function navProjectRow(p, on) {
 	const key = `project:${p.slug}`;
-	const c = navCounts.get(key) ?? (p.mine ? { n: p.mine, st: "yours" } : null);
-	return `<a class="nav-row" href="#project/${encodeURIComponent(p.slug)}" data-nav="${esc(key)}" title="${esc(p.name)}${p.mine ? ` · ${p.mine} waiting on you` : ""}"${on === key ? ' aria-current="page"' : ""}>
+	const c = navCounts.get(key);
+	return `<a class="nav-row" href="#project/${encodeURIComponent(p.slug)}" data-nav="${esc(key)}" title="${esc(p.name)}${c?.n ? ` · ${c.n} waiting on you` : ""}"${on === key ? ' aria-current="page"' : ""}>
 		<span class="nav-ic">${logo(p)}</span><span class="nav-t">${esc(p.name)}</span>${navN(c)}</a>`;
 }
 // Trackers at warn or worse, worst first: "Isokratis · Uploads 10/10". One for every project links to the board.
@@ -62,7 +70,7 @@ function renderNav() {
 	const foot = ["settings", "vault", "usage"].includes(on);
 	const tab = (attrs, icon, label, current, n = "") => `<${attrs.startsWith("href") ? "a" : "button type=\"button\""} class="tab" ${attrs}${current ? ' aria-current="page"' : ""}>
 		<span class="nav-ic">${icon}</span><span class="nav-t">${esc(label)}</span>${n}</${attrs.startsWith("href") ? "a" : "button"}>`;
-	const mine = state.projects.reduce((n, p) => n + p.mine, 0);
+	const mine = state.projects.reduce((n, p) => n + navMine(p.slug), 0);
 	paint($("#tabbar"), navEntries().map((v) => tab(`href="${esc(entryHref(v))}"`, navSvg(v.entry.icon ?? ""), v.entry.label, on === v.name, navN(navCounts.get(v.name)))).join("")
 		+ tab('data-sheet="projects"', navSvg(NAV_IC.projects), "Projects", on?.startsWith("project:"), navN(mine ? { n: mine, st: "yours" } : null))
 		+ tab('data-sheet="more"', navSvg(NAV_IC.more), "More", foot));
