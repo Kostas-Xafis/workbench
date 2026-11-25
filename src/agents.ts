@@ -11,12 +11,13 @@
  *   that have had no sign of life for a day while doing (stale.ts); and done ones whose merge run failed.
  * - **Finished**: agent items done since `since` (24 hours unless asked).
  *
- * Git comes through `agentGit.read`: on a computer it's read here (at most every 30 s for the state, 90 s for commits
- * and pull requests, which ask `gh`); the cloud board hands it to its computer helper's cache (worker/src/helper.ts),
+ * Git comes through `agentGit.read`, only for the projects with finished work on a branch: on a computer it's read here
+ * (at most every 30 s for the state, 90 s for commits and pull requests, which ask `gh`, sharing what GET /api/git and
+ * /api/code read); the cloud board hands it to its computer helper's cache (worker/src/helper.ts),
  * and says in `limits` what it couldn't know.
  */
 import { getItem, listItems, projects, type Db, type Item, type Note, type Project } from "./db";
-import { codeLinks, repoState, type CodeLinks, type PullRequest, type RepoState } from "./git";
+import { codeLinksOf, forgetGitReads, repoStateOf, type CodeLinks, type PullRequest, type RepoState } from "./git";
 import { blockersOf } from "./links";
 import { getRun, itemRefusal, landRefusal, liveRuns, startLand, startRefusal, type From, type Run } from "./dispatch";
 
@@ -28,29 +29,17 @@ const OPEN = ["todo", "doing", "waiting"];
 
 export type GitRead = { repos: RepoState[]; code: CodeLinks; limits: string[] };
 
-const repoCache = new Map<string, { at: number; value: Promise<RepoState> }>();
-const codeCache = new Map<string, { at: number; value: Promise<CodeLinks> }>();
-function memo<T>(cache: Map<string, { at: number; value: Promise<T> }>, key: string, maxAge: number, read: () => Promise<T>) {
-	const hit = cache.get(key);
-	if (hit && Date.now() - hit.at < maxAge) return hit.value;
-	const value = read();
-	cache.set(key, { at: Date.now(), value });
-	return value;
-}
-
-/** Reads the git state of `list` (`only`: the one slug asked for, or null for every project). The cloud board
- * replaces it (worker/src/helper.ts). */
+/** Reads the git state of `list`, the projects whose finished work has a branch (`only`: the one slug asked for, or
+ * null for every project). What GET /api/git and /api/code read lately is used again (git.ts repoStateOf,
+ * codeLinksOf). The cloud board replaces it (worker/src/helper.ts). */
 export const agentGit = {
 	read: async (list: Project[], _only: string | null): Promise<GitRead> => {
-		const [repos, code] = await Promise.all([
-			Promise.all(list.map((p) => memo(repoCache, `${p.slug}:${p.path}`, 30e3, () => repoState(p)))),
-			Promise.all(list.map((p) => memo(codeCache, `${p.slug}:${p.path}`, 90e3, () => codeLinks(p)))),
-		]);
+		const [repos, code] = await Promise.all([Promise.all(list.map((p) => repoStateOf(p, 30e3))), Promise.all(list.map((p) => codeLinksOf(p, 90e3)))]);
 		return { repos, code: Object.assign({}, ...code), limits: [] };
 	},
 };
 /** Forgets what was read (tests). */
-export const forgetGit = () => (repoCache.clear(), codeCache.clear());
+export const forgetGit = forgetGitReads;
 
 /**
  * Where an item's branch stands: merged into the main branch or not, or unknown (`known: false`, with why). `missing`:
@@ -217,7 +206,9 @@ export async function agentsView(db: Db, q: { project?: string; since?: string }
 		sinceMs = Date.parse(q.since);
 		if (!Number.isFinite(sinceMs)) throw new Error(`since must be a date and time (ISO 8601), not "${q.since}"`);
 	}
-	const since = sqlTime(sinceMs);
+	// To the minute: a page that asks "since a day ago" on every poll asks the same thing for a minute, so its answer can be
+	// the same, and the ETag says 304 (fresh.ts) rather than sending it all again.
+	const since = sqlTime(Math.floor(sinceMs / 60e3) * 60e3);
 	const readyFrom = sqlTime(now - READY_DAYS * 86400e3);
 	const limits: string[] = [];
 
@@ -249,7 +240,7 @@ export async function agentsView(db: Db, q: { project?: string; since?: string }
 	const gitProjects = list.filter((p) => withBranch.has(p.slug));
 	if (gitProjects.length) {
 		try {
-			git = await agentGit.read(project === "*" ? list : gitProjects, project === "*" ? null : project);
+			git = await agentGit.read(gitProjects, project === "*" ? null : project);
 		} catch (e) {
 			limits.push(`The board couldn't read git: ${(e as Error).message}`);
 		}

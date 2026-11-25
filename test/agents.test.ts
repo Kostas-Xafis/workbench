@@ -413,6 +413,56 @@ describe("GET /api/agents", () => {
 	});
 });
 
+describe("what polling /api/agents costs", () => {
+	test("since is taken to the minute, so polls within a minute get the same answer (and a 304)", async () => {
+		const db = freshDb();
+		const id = addItem(db, { title: "Done", project: "demo", owner: "agent" });
+		updateItem(db, id, { status: "done" }, "agent", "did it");
+		const t = Date.parse("2026-11-25T10:00:05Z");
+		const now = Date.now();
+		const a = await agentsView(db, { since: new Date(t).toISOString() }, null, now);
+		const b = await agentsView(db, { since: new Date(t + 40e3).toISOString() }, null, now + 40e3);
+		expect(a.since).toBe("2026-11-25 10:00:00");
+		expect(JSON.stringify(b)).toBe(JSON.stringify(a));
+		// No since: a day back, to the minute as well.
+		const m = Math.floor(now / 60e3) * 60e3;
+		expect(JSON.stringify(await agentsView(db, {}, null, m + 1e3))).toBe(JSON.stringify(await agentsView(db, {}, null, m + 50e3)));
+		// Through the ETag: the second poll is a 304.
+		const { withEtag } = await import("../src/fresh");
+		const first = await withEtag(new Request("http://x/api/agents"), Response.json(a));
+		const tag = first.headers.get("etag")!;
+		expect((await withEtag(new Request("http://x/api/agents", { headers: { "if-none-match": tag } }), Response.json(b))).status).toBe(304);
+	});
+
+	test("git is read only for the projects with finished work on a branch, and shares what /api/git read", async () => {
+		const db = freshDb();
+		addProject(db, { slug: "quiet", name: "Quiet", path: "/tmp/quiet" });
+		addProject(db, { slug: "busy", name: "Busy", path: "/tmp/busy" });
+		addItem(db, { title: "Open", project: "quiet", owner: "agent", branch: "q" });
+		const d = addItem(db, { title: "Done", project: "busy", owner: "agent", branch: "b" });
+		updateItem(db, d, { status: "done" }, "agent");
+		const asked: string[][] = [];
+		agentGit.read = async (list) => {
+			asked.push(list.map((p) => p.slug));
+			return { repos: [], code: {}, limits: [] };
+		};
+		try {
+			await agentsView(db, { project: "*" }, null);
+			expect(asked).toEqual([["busy"]]);
+		} finally {
+			agentGit.read = realGit;
+		}
+		// The git state GET /api/git reads now is what the Agents place takes for 30 s.
+		const { repoStateOf } = await import("../src/git");
+		const p = { slug: "g2", name: "G", path: join(dir, "git-repo"), icon: "", sort: 0, archived_at: null, report_order: "[]" };
+		forgetGit();
+		const fresh = repoStateOf(p, 0);
+		expect(repoStateOf(p, 30e3)).toBe(fresh);
+		expect(repoStateOf(p, 0)).not.toBe(fresh);
+		await fresh;
+	});
+});
+
 describe("Merge it: a run that lands a done item's branch", () => {
 	const db = freshDb();
 	addProject(db, { slug: "repo", name: "Repo", path: folder });

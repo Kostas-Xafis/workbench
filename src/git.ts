@@ -132,6 +132,26 @@ export async function repoState(p: Project): Promise<RepoState> {
 	}
 }
 
+/* ---------- Read once, used by every place that asks ---------- */
+
+const repoCache = new Map<string, { at: number; value: Promise<RepoState> }>();
+const codeCache = new Map<string, { at: number; value: Promise<CodeLinks> }>();
+function memo<T>(cache: Map<string, { at: number; value: Promise<T> }>, p: Project, maxAge: number, read: (p: Project) => Promise<T>) {
+	const key = `${p.slug}:${p.path}`;
+	const hit = cache.get(key);
+	if (hit && Date.now() - hit.at < maxAge) return hit.value;
+	const value = read(p);
+	cache.set(key, { at: Date.now(), value });
+	return value;
+}
+/** A project's git state, read again when what was read is older than `maxAge` (0: now). GET /api/git reads it now,
+ * the Agents place (agents.ts) takes what that read when it's under 30 s old. */
+export const repoStateOf = (p: Project, maxAge: number) => memo(repoCache, p, maxAge, repoState);
+/** A project's commits and pull requests (gh is slow and rate-limited), shared by GET /api/code and the Agents place. */
+export const codeLinksOf = (p: Project, maxAge: number) => memo(codeCache, p, maxAge, codeLinks);
+/** Forgets what was read (tests). */
+export const forgetGitReads = () => (repoCache.clear(), codeCache.clear());
+
 export type Commit = { hash: string; short: string; date: string; subject: string; url: string };
 export type PullRequest = {
 	number: number;
