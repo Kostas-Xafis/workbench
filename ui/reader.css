@@ -191,8 +191,6 @@ dialog.rd-sheet::backdrop { background: rgb(0 0 0 / .28); }
 	.rd-props-toggle::before { content: ""; width: 0; height: 0; border-left: 4.5px solid currentColor; border-top: 4px solid transparent; border-bottom: 4px solid transparent; opacity: .6; transition: transform .12s; }
 	.rd-props-open .rd-props-toggle::before { transform: rotate(90deg); }
 	.rd-bar { top: 0; right: 0; left: 0; justify-content: flex-end; padding: 8px 10px; background: var(--card); border-bottom: 1px solid var(--line); }
-	/* Clear of the bar above it (the bar is 40 px buttons and their padding, taller than the page's top padding). */
-	.rd-doc > [data-part="ctx"] { margin-top: 16px; }
 	.rd-title { font-size: var(--fs-18); }
 	/* Every property a thumb tall, the boxes as well as the menus (phone.css sizes the menus). */
 	.rd-val { min-height: 40px; }

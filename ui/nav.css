@@ -15,6 +15,9 @@
 .nav-ic svg { width: 16px; height: 16px; }
 .nav-row[aria-current="page"] .nav-ic { color: var(--ink); }
 .nav-ic .plogo { width: 18px; height: 18px; border-radius: var(--r-sm); padding: 0; border: 0; background: transparent; font-size: var(--fs-11); }
+/* In the dark, a logo drawn dark on a clear background would vanish into the nav: a faint light rim keeps its shape. */
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .nav-ic .plogo:not(.letter) { filter: drop-shadow(0 0 .6px rgb(255 255 255 / .75)); } }
+:root[data-theme="dark"] .nav-ic .plogo:not(.letter) { filter: drop-shadow(0 0 .6px rgb(255 255 255 / .75)); }
 .nav-ic .plogo.letter { background: hsl(var(--hue, 220) 42% 46%); }
 .nav-t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .nav-n { font-style: normal; flex: none; font-size: var(--fs-11); font-weight: 600; font-variant-numeric: tabular-nums; color: var(--muted); }

@@ -97,7 +97,9 @@ dialog.k-confirm.ib-confirm { width: min(560px, calc(100vw - 16px)); }
 /* A phone: the list full width, the hint gone, the projects in one line that scrolls sideways. */
 @media (max-width: 760px) {
 	.ib-head { padding: var(--sp-2) var(--sp-3) var(--sp-1); }
-	.ib-chips { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; margin-inline: calc(-1 * var(--sp-3)); padding-inline: var(--sp-3); }
+	.ib-chips { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; margin-inline: calc(-1 * var(--sp-3)); padding-inline: var(--sp-3);
+		/* It scrolls sideways: fade the right edge so a cut-off chip reads as "more", not as a mistake. */
+		mask-image: linear-gradient(to right, #000 calc(100% - var(--sp-6)), transparent); }
 	.ib-tabs { padding: var(--sp-1) var(--sp-3) var(--sp-2); }
 	.ib-tab { flex: 1; padding: 6px var(--sp-2); }
 	.ib-tools { padding: var(--sp-2) var(--sp-3) 0; }
