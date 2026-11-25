@@ -121,6 +121,13 @@ function createReader(host, opts = {}) {
 		<input type="file" class="rd-file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden>`;
 	const scroller = $(".rd-scroll", host);
 	const fileInput = $(".rd-file", host);
+	// On a phone an ask's choices dock at the bottom (inbox.css). A list of them taller than half the screen would
+	// cover the brief, so it stays where it is (rd-act-tall). Measured by its sections, which the docking doesn't size.
+	const actionBox = $('[data-slot="action"]', host);
+	new ResizeObserver(() => {
+		const h = [...actionBox.children].reduce((n, c) => n + c.offsetHeight, 0);
+		host.classList.toggle("rd-act-tall", h > scroller.clientHeight / 2);
+	}).observe(actionBox);
 
 	/* Drawing. Each part is redrawn only when its markup changed, and never while you type in it, so a refresh
 	   from the server doesn't take your cursor or your words. */
@@ -192,7 +199,7 @@ function createReader(host, opts = {}) {
 		if (r.compose || r.briefEdit) {
 			const hint = r.compose ? "Markdown. Paste or drop pictures anywhere here." : `${rdKey("Ctrl")} ${rdKey("Enter")} or click away to save · ${rdKey("Esc")} to put it back`;
 			return `<textarea class="rd-brief-edit" data-rd-brief data-keep="brief-${i.id ?? "new"}" placeholder="Steps, context, links (markdown)" aria-label="Details">${esc(i.body ?? "")}</textarea>
-				<div class="rd-tools"><span class="rd-muted">${hint}</span><span class="spacer"></span><button type="button" class="rd-link" data-rd-add-image>Add image</button></div>`;
+				<div class="rd-tools"><span class="rd-muted${r.compose ? "" : " rd-keyhint"}">${hint}</span><span class="spacer"></span><button type="button" class="rd-link" data-rd-add-image>Add image</button></div>`;
 		}
 		if (i.body === undefined) return `<div class="rd-brief rd-muted">Loading the details…</div>`;
 		const body = i.body.trim() ? `<div class="rd-brief rd-md">${md(i.body)}</div>` : `<div class="rd-brief rd-muted">No details.</div>`;
@@ -206,7 +213,7 @@ function createReader(host, opts = {}) {
 		return saved.length || pending.length ? `<div class="rd-images">${[...saved, ...pending].join("")}</div>` : "";
 	}
 	function quietHtml(i) {
-		if (r.compose) return `<div class="rd-quiet rd-create"><button type="button" class="primary" data-rd-create>Create</button><button type="button" class="rd-link" data-rd-cancel>Cancel</button><span class="rd-muted">${rdKey("Ctrl")} ${rdKey("Enter")} creates it</span></div>`;
+		if (r.compose) return `<div class="rd-quiet rd-create"><button type="button" class="primary" data-rd-create>Create</button><button type="button" class="rd-link" data-rd-cancel>Cancel</button><span class="rd-muted rd-keyhint">${rdKey("Ctrl")} ${rdKey("Enter")} creates it</span></div>`;
 		if (!i.id || !OPEN.includes(i.status)) return "";
 		const b = (what, label, key, title) => `<button type="button" class="rd-q" data-rd-act="${what}" title="${esc(title)}">${label} ${rdKey(key)}</button>`;
 		if (r.later) return `<div class="rd-quiet rd-later"><span class="rd-muted">Out of the queue until</span>
@@ -245,8 +252,9 @@ function createReader(host, opts = {}) {
 		if (t) { t.placeholder = m.ph; t.setAttribute("aria-label", m.send); }
 		const swap = mode === "giveback" ? `<button type="button" class="rd-link" data-rd-mode="">Cancel</button>`
 			: def !== "note" ? `<button type="button" class="rd-link" data-rd-mode="${mode === "note" ? "" : "note"}">${mode === "note" ? (def === "answer" ? "Answer instead" : "Object instead") : "Add a note instead"}</button>` : "";
-		return `<div class="rd-reply-foot"><span class="rd-muted">${rdKey("Enter")} ${esc(m.send.toLowerCase())} · ${rdKey("Shift")} ${rdKey("Enter")} new line</span>${swap}<span class="spacer"></span>
-			${mode === "answer" || mode === "object" ? resumeHtml(i) : mode === "note" ? agentTickHtml(i) : ""}<button type="button" class="${toAgent ? "primary" : "ghost"} sm" data-rd-reply-send>${esc(m.send)}</button></div>`;
+		// The tick and the button go together, on the right, even when the line wraps.
+		return `<div class="rd-reply-foot"><span class="rd-muted rd-keyhint">${rdKey("Enter")} ${esc(m.send.toLowerCase())} · ${rdKey("Shift")} ${rdKey("Enter")} new line</span>${swap}
+			<span class="rd-reply-go">${mode === "answer" || mode === "object" ? resumeHtml(i) : mode === "note" ? agentTickHtml(i) : ""}<button type="button" class="${toAgent ? "primary" : "ghost"} sm" data-rd-reply-send>${esc(m.send)}</button></span></div>`;
 	}
 	// "Send to the agent": on an item whose agent's last run ended with a session it can carry on in, a note goes to
 	// that agent (a new run resumes the session with it) instead of only into the history.
