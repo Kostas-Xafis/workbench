@@ -129,7 +129,8 @@ function agPr(pr) {
 function agReadyCard(x) {
 	const i = x.item;
 	const busy = ag.busy.has(`land:${i.id}`);
-	const ahead = x.ahead == null ? "not merged" : `${x.ahead} commit${x.ahead === 1 ? "" : "s"} ahead`;
+	// A branch git can't find on this computer is "not known", never merged (agents.ts: unknown).
+	const ahead = x.unknown ? x.unknown : x.ahead == null ? "not merged" : `${x.ahead} commit${x.ahead === 1 ? "" : "s"} ahead`;
 	return agCard(x, "is-ready", `${agTitle(i)}
 		${agMeta(esc(projectName(i.project)), agBranch(x.branch), esc(ahead), agPr(x.pr))}
 		${x.note ? `<div class="ag-said" title="${esc(x.note)}">${esc(x.note)}</div>` : ""}
@@ -149,7 +150,7 @@ function agStuckCard(x) {
 }
 function agLogRow(x) {
 	const i = x.item;
-	const merged = x.merged === true ? chip("merged", "done") : x.merged === false ? chip("not merged") : "";
+	const merged = x.merged === true ? chip("merged", "done") : x.merged === false ? chip("not merged") : x.branch ? chip("not known") : "";
 	return `<div class="ag-logrow" role="option" tabindex="0" aria-selected="false" data-id="${i.id}" data-ref="${esc(i.ref)}">
 		<span class="ag-when" title="${esc(when(x.done_at))}">${esc(when(x.done_at))}</span><span class="ag-proj">${esc(projectName(i.project))}</span>
 		<span class="ag-what"><span class="ag-t">${esc(i.title)}</span>${x.note ? `<span class="ag-note">${esc(x.note)}</span>` : ""}</span><span class="ag-m">${merged}</span></div>`;
