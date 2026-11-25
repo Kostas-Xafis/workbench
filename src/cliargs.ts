@@ -73,6 +73,10 @@ export const OPTION_SPEC = {
 	code: { type: "string" },
 	replace: { type: "boolean" },
 	"keep-local": { type: "boolean" },
+	// wb run: what this one run starts with (dispatch.ts Choices)
+	model: { type: "string" },
+	effort: { type: "string" },
+	mode: { type: "string" },
 	// wb tidy (cli.ts)
 	"day-pages": { type: "boolean" },
 	help: { type: "boolean", short: "h" },
@@ -80,6 +84,14 @@ export const OPTION_SPEC = {
 
 export const parseWb = (argv: string[]) => parseArgs({ args: argv, allowPositionals: true, options: OPTION_SPEC });
 export type Opts = ReturnType<typeof parseWb>["values"];
+
+/** `wb run`'s --model, --effort and --mode, for that run only ("default" for Claude Code's own model or effort). */
+export function runChoicesOf(o: Opts): { model?: string; effort?: string; mode?: string } {
+	const v = (s: string | undefined) => (s === undefined ? undefined : s === "default" ? "" : s);
+	return Object.fromEntries(
+		Object.entries({ model: v(o.model), effort: v(o.effort), mode: o.mode }).filter(([, x]) => x !== undefined),
+	);
+}
 
 /**
  * The commands that need this computer: its folders, its git, its processes, its files and its server. While the

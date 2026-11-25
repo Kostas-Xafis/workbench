@@ -199,6 +199,9 @@ Items are named wb-xxxx (e.g. wb-k3f9); commands take that, the bare k3f9, or an
                                    phones paired in Settings → Data (plain http: a trusted network only)
   wb run <ref>                     start a Claude Code agent on an agent's to-do, in its project's folder, as the
                                    board's Run does (Settings → Agents: off until turned on there, with its limits)
+    --model fable|opus|sonnet|haiku|default   for this run only (the item's choice and Settings' are the others)
+    --effort low|medium|high|xhigh|max|default
+    --mode auto|acceptEdits|plan|dontAsk|bypassPermissions
   wb land <ref>                    start an agent that merges a done agent item's branch into the main branch, by the
                                    project's own rules (Merge it on the board), with Run's limits
   wb runs [--all]                  agents the board started: running ones and the latest (--all: the last 100),

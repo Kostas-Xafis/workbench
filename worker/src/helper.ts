@@ -19,6 +19,7 @@
  */
 import { getItem, logVaultAccess, projects, resolveItem, type Db, type VaultAccess } from "../../src/db";
 import {
+	checkChoices,
 	cleanEvents,
 	continueRun,
 	costs,
@@ -27,6 +28,7 @@ import {
 	getRun,
 	helperContinues,
 	launcher,
+	markMoved,
 	places,
 	runsInfo,
 	save,
@@ -359,13 +361,14 @@ export class Helpers {
 				if (!c.boardOnly) return refuse("agents start only from the board's own page or a tool with this board's token");
 				if (!this.online().length) return refuse(NO_COMPUTER_AGENTS, 503);
 				try {
-					const { item, answer, object, from } = (await req.json()) as { item?: unknown; answer?: unknown; object?: unknown; from?: unknown };
+					const { item, answer, object, from, choices } = (await req.json()) as { item?: unknown; answer?: unknown; object?: unknown; from?: unknown; choices?: unknown };
 					const id = resolveItem(db, String(item));
 					if (id === undefined) throw new Error(`no item ${item}`);
 					const how = answer !== undefined ? { answer: Array.isArray(answer) ? answer.map(String) : String(answer) } : object !== undefined ? { object: String(object) } : {};
 					const name = c.device?.name || "the cloud board";
 					const who: From = from === "cli" ? { where: "cli", label: `wb run on ${name}` } : { where: "local", label: name };
-					const run = await startRun(db, id, who, how);
+					// A model, effort or mode for this run only (wb run --model …); the computer still checks the command.
+					const run = await startRun(db, id, who, { ...how, choices: checkChoices(choices) });
 					return json({ run, item: getItem(db, run.item_id) }, 201);
 				} catch (e) {
 					return json({ error: (e as Error).message }, 400);
@@ -415,6 +418,18 @@ export class Helpers {
 			case "/api/runs/:id/stop": {
 				if (!post) return null;
 				if (!c.boardOnly) return refuse("runs stop only from the board's own page or a tool with this board's token");
+				return this.stop(Number(url.pathname.split("/")[3]));
+			}
+			// Move to Claude Desktop: marked moved here, then stopped on its computer as Stop does. The page opens the
+			// session's link on the device it's on.
+			case "/api/runs/:id/move": {
+				if (!post) return null;
+				if (!c.boardOnly) return refuse("runs stop only from the board's own page or a tool with this board's token");
+				try {
+					markMoved(db, Number(url.pathname.split("/")[3]));
+				} catch (e) {
+					return json({ error: (e as Error).message }, 400);
+				}
 				return this.stop(Number(url.pathname.split("/")[3]));
 			}
 			case "/api/runs/test": {

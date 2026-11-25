@@ -296,7 +296,8 @@ export async function agentsView(db: Db, q: { project?: string; since?: string }
 			return { kind: "run" as const, allowed: !why, why };
 		};
 		const add = (why: string, reason: Stuck["reason"], at: string) => stuck.push({ item: brief(i), why, reason, since: at, run: runBrief(last), again: again() });
-		if (last?.ended_at && (last.status === "failed" || last.status === "stopped")) {
+		// A run moved to Claude Desktop goes on there: not stuck.
+		if (last?.ended_at && !last.moved && (last.status === "failed" || last.status === "stopped")) {
 			const what = last.kind === "land" ? "its merge run" : "its run";
 			if (last.status === "failed") add(`${what} failed${last.error ? `: ${last.error}` : ""}`, "failed", last.ended_at);
 			else add(`${what} was stopped`, "stopped", last.ended_at);
@@ -329,7 +330,7 @@ export async function agentsView(db: Db, q: { project?: string; since?: string }
 		if (s.merged) continue;
 		const last = latestRun(i.id);
 		const why = landWhy(i, s) || start?.why || "";
-		if (last?.kind === "land" && last.ended_at && (last.status === "failed" || last.status === "stopped")) {
+		if (last?.kind === "land" && last.ended_at && !last.moved && (last.status === "failed" || last.status === "stopped")) {
 			stuck.push({
 				item: brief(i),
 				why: last.status === "failed" ? `its merge run failed${last.error ? `: ${last.error}` : ""}` : "its merge run was stopped",

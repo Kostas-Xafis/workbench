@@ -22,7 +22,7 @@ import { addNote, getItem, getProject, updateItem, type Db, type Item } from "./
 import { blockersOf } from "./links";
 import { resolveAsk } from "./asks";
 import { staleOf } from "./stale";
-import { AGENT_COMMAND, dayStartHour, getSetting, yourName } from "./settings";
+import { AGENT_COMMAND, AGENT_EFFORTS, AGENT_MODELS, AGENT_MODES, dayStartHour, getSetting, yourName } from "./settings";
 import { runShell, shellPath } from "./trackers";
 import { sessionsCost } from "./usage";
 
@@ -66,6 +66,13 @@ export type Run = {
 	/** "this computer", "phone (Pixel 8)", "wb run", "unblocked". */
 	started_from: string;
 	command: string;
+	/** What its command started it with, as JSON of Choices ({"model":"opus","mode":"auto"}): read from the command it
+	 * ran (commandChoices); '' for runs from before. */
+	choices: string;
+	/** "Opus · high · Auto": `choices` in words. Not a column: getRun and listRuns add it. */
+	uses: string;
+	/** 1: stopped here to carry on in Claude Desktop (Move to Claude Desktop): not a failure, nothing to restart. */
+	moved: number;
 	pid: number;
 	unit: string;
 	tag: string;
@@ -99,13 +106,17 @@ export function createRunTables(db: Db) {
 		refused TEXT NOT NULL DEFAULT '',
 		cwd TEXT NOT NULL DEFAULT '',
 		continues INTEGER,
-		kind TEXT NOT NULL DEFAULT 'run'
+		kind TEXT NOT NULL DEFAULT 'run',
+		choices TEXT NOT NULL DEFAULT '',
+		moved INTEGER NOT NULL DEFAULT 0
 	)`);
 	const cols = (db.query("PRAGMA table_info(runs)").all() as { name: string }[]).map((c) => c.name);
 	if (!cols.includes("refused")) db.run("ALTER TABLE runs ADD COLUMN refused TEXT NOT NULL DEFAULT ''");
 	if (!cols.includes("cwd")) db.run("ALTER TABLE runs ADD COLUMN cwd TEXT NOT NULL DEFAULT ''");
 	if (!cols.includes("continues")) db.run("ALTER TABLE runs ADD COLUMN continues INTEGER");
 	if (!cols.includes("kind")) db.run("ALTER TABLE runs ADD COLUMN kind TEXT NOT NULL DEFAULT 'run'");
+	if (!cols.includes("choices")) db.run("ALTER TABLE runs ADD COLUMN choices TEXT NOT NULL DEFAULT ''");
+	if (!cols.includes("moved")) db.run("ALTER TABLE runs ADD COLUMN moved INTEGER NOT NULL DEFAULT 0");
 	db.run("CREATE INDEX IF NOT EXISTS runs_item ON runs(item_id, id)");
 	db.run("CREATE INDEX IF NOT EXISTS runs_started ON runs(started_at)");
 	db.run("CREATE INDEX IF NOT EXISTS runs_session ON runs(session)");
@@ -128,7 +139,7 @@ export function createRunTables(db: Db) {
 const COLS = "r.*, i.ref, i.title";
 const FROM = "runs r JOIN items i ON i.id = r.item_id";
 /** A row as the API gives it: with its Claude Desktop link once it has ended. */
-const withLink = (r: Run): Run => ({ ...r, desktop: r.ended_at ? desktopLink(r.session) : "" });
+const withLink = (r: Run): Run => ({ ...r, desktop: r.ended_at ? desktopLink(r.session) : "", uses: choiceLabel(parseChoices(r.choices)) });
 export const getRun = (db: Db, id: number) => {
 	const r = db.query(`SELECT ${COLS} FROM ${FROM} WHERE r.id = ?`).get(id) as Run | null;
 	return r ? withLink(r) : undefined;
@@ -288,6 +299,177 @@ export function shellWords(command: string): Word[] | undefined {
  * command; '' when none can be made (resumeCommand). */
 export const continueCommand = (db: Db) => getSetting<string>(db, "agents.continue-command") || resumeCommand(getSetting<string>(db, "agents.command"));
 
+/* ---------- What a run starts with: model, effort, mode ---------- */
+
+/**
+ * A run's model, effort and permission mode, each Claude Code's flag value: `undefined` leaves the command as it is,
+ * '' (model and effort only) takes the flag out (Claude Code's own default), a value puts it in. Where they come from
+ * (runChoices): `wb run --model …` for one run, else the item's own choice, else Settings → Agents, else the command.
+ */
+export type Choices = { model?: string; effort?: string; mode?: string };
+const CHOICE_FLAGS = { model: "--model", effort: "--effort", mode: "--permission-mode" } as const;
+type ChoiceKey = keyof typeof CHOICE_FLAGS;
+const CHOICE_KEYS = Object.keys(CHOICE_FLAGS) as ChoiceKey[];
+const CHOICE_VALUES: Record<ChoiceKey, readonly string[]> = { model: ["", ...AGENT_MODELS], effort: ["", ...AGENT_EFFORTS], mode: AGENT_MODES };
+/** The modes the computer helper runs a command in without a new OK, when its command is otherwise one it allowed
+ * (madeFrom). Bypass permissions lets the agent do anything at all: that command text needs its own yes there. */
+export const SAFE_MODES = ["auto", "acceptEdits", "plan", "dontAsk"];
+
+/** Choices as given (an API body, a helper's job, a column), checked: only the known keys and values. Throws. */
+export function checkChoices(c: unknown): Choices {
+	if (c === undefined || c === null) return {};
+	if (typeof c !== "object" || Array.isArray(c)) throw new Error("choices: { model, effort, mode }");
+	const o = c as Record<string, unknown>;
+	const out: Choices = {};
+	for (const k of CHOICE_KEYS) {
+		const v = o[k];
+		if (v === undefined || v === null) continue;
+		if (typeof v !== "string" || !CHOICE_VALUES[k].includes(v))
+			throw new Error(`${k === "mode" ? "the mode" : `the ${k}`} is one of ${CHOICE_VALUES[k].filter(Boolean).join(", ")}${k === "mode" ? "" : ", or '' for Claude Code's default"}`);
+		out[k] = v;
+	}
+	return out;
+}
+const hasChoices = (c: Choices) => CHOICE_KEYS.some((k) => c[k] !== undefined);
+const plainWord = (s: string): Word => ({ raw: s, text: s, plain: true });
+
+/**
+ * The command with `choices` in it, as whole shell words and never inside quotes: each flag's value replaced where
+ * the command has the flag (`--model x` or `--model=x`), the flag added right after the program when it hasn't, or
+ * taken out for ''. The command as it is when there's nothing to change; undefined when it has to change but can't
+ * be split safely (shellWords: a pipe, `;`, a redirection, …). Deterministic: the board and the computer helper
+ * (madeFrom) make the very same text from the same command.
+ */
+export function withChoices(command: string, choices: Choices = {}): string | undefined {
+	const c = checkChoices(choices);
+	if (!hasChoices(c)) return command;
+	let out = shellWords(command);
+	if (!out?.length) return undefined;
+	const adds: Word[] = [];
+	for (const k of CHOICE_KEYS) {
+		const value = c[k];
+		if (value === undefined) continue;
+		const flag = CHOICE_FLAGS[k];
+		const next: Word[] = [];
+		let found = false;
+		for (let n = 0; n < out.length; n++) {
+			const w = out[n];
+			if (w.plain && w.text === flag) {
+				found = true;
+				if (n + 1 < out.length) n++; // its value
+				if (value) next.push(w, plainWord(value));
+				continue;
+			}
+			// --model=x: the flag as written, unquoted (its value may be quoted).
+			if (w.raw.startsWith(`${flag}=`)) {
+				found = true;
+				if (value) next.push(plainWord(`${flag}=${value}`));
+				continue;
+			}
+			next.push(w);
+		}
+		out = next;
+		if (!found && value) adds.push(plainWord(flag), plainWord(value));
+	}
+	if (adds.length) {
+		// After the program (and any VAR=value before it).
+		const at = out.findIndex((w) => !(w.plain && /^\w+=/.test(w.raw))) + 1;
+		if (at <= 0) return undefined;
+		out.splice(at, 0, ...adds);
+	}
+	return out.map((w) => w.raw).join(" ");
+}
+
+/** What a command starts a run with: its --model, --effort and --permission-mode values (the last of each), as
+ * Claude Code reads them. {} for one that can't be split. */
+export function commandChoices(command: string): Choices {
+	const words = shellWords(command) ?? [];
+	const out: Choices = {};
+	for (let n = 0; n < words.length; n++) {
+		const w = words[n];
+		for (const k of CHOICE_KEYS) {
+			const flag = CHOICE_FLAGS[k];
+			if (w.plain && w.text === flag && n + 1 < words.length) out[k] = words[n + 1].text;
+			else if (w.raw.startsWith(`${flag}=`)) out[k] = w.text.slice(flag.length + 1);
+		}
+	}
+	return out;
+}
+const parseChoices = (s: string): Choices => {
+	try {
+		const o = s ? JSON.parse(s) : {};
+		return o && typeof o === "object" ? (o as Choices) : {};
+	} catch {
+		return {};
+	}
+};
+
+const MODEL_WORD: Record<string, string> = { fable: "Fable", opus: "Opus", sonnet: "Sonnet", haiku: "Haiku" };
+const EFFORT_WORD: Record<string, string> = { low: "low", medium: "medium", high: "high", xhigh: "extra high", max: "max" };
+export const MODE_WORD: Record<string, string> = { auto: "Auto", acceptEdits: "Accept edits", plan: "Plan only", dontAsk: "Don't ask", bypassPermissions: "Bypass permissions", default: "Manual", manual: "Manual" };
+/** "Opus · high · Auto": what's set of a run's choices, in words ('' when none is). */
+export const choiceLabel = (c: Choices) =>
+	[c.model && (MODEL_WORD[c.model] ?? c.model), c.effort && (EFFORT_WORD[c.effort] ?? c.effort), c.mode && (MODE_WORD[c.mode] ?? c.mode)].filter(Boolean).join(" · ");
+
+/** What a run on item `i` starts with: `once` (wb run --model …, for that run), else the item's own choice (NULL is
+ * none), else Settings → Agents ('' is none there: the command says). Only what changes the command is in it. */
+export function runChoices(db: Db, i: Pick<Item, "agent_model" | "agent_effort" | "agent_mode">, once: Choices = {}): Choices {
+	const own = { model: i.agent_model, effort: i.agent_effort, mode: i.agent_mode };
+	const out: Choices = {};
+	for (const k of CHOICE_KEYS) {
+		const board = getSetting<string>(db, `agents.${k}`);
+		const v = once[k] !== undefined ? once[k] : own[k] != null ? own[k]! : board || undefined;
+		if (v !== undefined && CHOICE_VALUES[k].includes(v)) out[k] = v;
+	}
+	return out;
+}
+
+/** The command a run really starts with: `command` with `choices` in it (withChoices), or the reason it can't be. */
+export function commandWith(command: string, choices: Choices): string {
+	const out = withChoices(command, choices);
+	if (out === undefined)
+		throw new Error(
+			"The command in Settings → Agents can't take a model, effort or mode from the board (it has more than one plain command in it): set them in the command itself, and put Agents start with (and the item's choice) back to as the command says.",
+		);
+	return out;
+}
+
+/**
+ * Whether the computer helper may run `command` as `base`, a command it allowed: it is exactly base (or the continue
+ * command made from it, resumeCommand) with `choices` in it, and none of them is Bypass permissions (SAFE_MODES).
+ * So a model, an effort or a safe mode chosen on the cloud board needs no new OK on the computer, and nothing else does.
+ */
+export function madeFrom(base: string, command: string, choices: unknown = {}): boolean {
+	let c: Choices;
+	try {
+		c = checkChoices(choices);
+	} catch {
+		return false;
+	}
+	if (c.mode !== undefined && !SAFE_MODES.includes(c.mode)) return false;
+	return [base, resumeCommand(base)].some((b) => !!b && withChoices(b, c) === command);
+}
+
+/** An item's own choice for its runs (the reader's choice line): each of model, effort, mode as a value, '' (model
+ * and effort: Claude Code's default) or null (the board's default). Only the keys given change. Returns the item. */
+export function setItemChoice(db: Db, id: number, patch: Record<string, unknown>) {
+	const i = getItem(db, id);
+	if (!i) throw new Error(`no item #${id}`);
+	if (!patch || typeof patch !== "object" || Array.isArray(patch)) throw new Error("choices: { model, effort, mode }");
+	const sets: string[] = [];
+	const args: (string | null)[] = [];
+	for (const k of CHOICE_KEYS) {
+		if (!(k in patch)) continue;
+		const v = patch[k];
+		if (v !== null && (typeof v !== "string" || !CHOICE_VALUES[k].includes(v)))
+			throw new Error(`${k === "mode" ? "the mode" : `the ${k}`} is one of ${CHOICE_VALUES[k].filter(Boolean).join(", ")}, or null for the board's default`);
+		sets.push(`agent_${k} = ?`);
+		args.push(v as string | null);
+	}
+	if (sets.length) db.query(`UPDATE items SET ${sets.join(", ")} WHERE id = ?`).run(...args, id);
+	return getItem(db, id)!;
+}
+
 /** "#12 done · started 2026-11-12 09:14 UTC from this computer · 14 min · $0.42 · claude --resume <id>", for agents and wb. */
 export function runLine(r: Run): string {
 	const end = r.ended_at ? fromSql(r.ended_at).getTime() : Date.now();
@@ -297,6 +479,8 @@ export function runLine(r: Run): string {
 		r.kind === "land" && "merging the branch",
 		`started ${r.started_at.slice(0, 16)} UTC from ${r.started_from}`,
 		`${r.ended_at ? "" : "for "}${minutes(end - fromSql(r.started_at).getTime())}`,
+		r.uses,
+		r.moved && "moved to Claude Desktop",
 		r.cost != null && apiValue(r.cost),
 		r.error,
 		r.refused && `refused ${r.refused}`,
@@ -360,7 +544,8 @@ export function itemRefusal(db: Db, i: Item, answering = false): string | undefi
  * only when it waits on no item), or it's doing and stalled (stale.ts). Never while a run is on it: itemRefusal. */
 export function restartable(db: Db, i: Item): boolean {
 	const last = latestRun(db, i.id);
-	const broke = !!last?.ended_at && (last.status === "failed" || last.status === "stopped");
+	// A run moved to Claude Desktop goes on there: nothing broke.
+	const broke = !!last?.ended_at && !last.moved && (last.status === "failed" || last.status === "stopped");
 	if (i.status === "doing") return broke || (i.stale === undefined ? staleOf(i) : i.stale)?.why === "stalled";
 	if (i.status === "waiting") return broke && !blockersOf(db, i.id).length;
 	return true;
@@ -464,37 +649,54 @@ export async function startRun(
 	db: Db,
 	itemId: number,
 	from: From,
-	how: { answer?: string | string[]; object?: string } = {},
+	how: { answer?: string | string[]; object?: string; choices?: Choices } = {},
 ): Promise<Run> {
 	let i = getItem(db, itemId);
 	if (!i) throw new Error(`no item #${itemId}`);
 	const answering = how.answer !== undefined || how.object !== undefined;
+	const once = checkChoices(how.choices);
 	const no = await startRefusal(db, from);
 	if (no) throw new Error(no.why);
 	// Checked again with nothing awaited from here to the insert, so two clicks at once can't both get through.
 	i = getItem(db, itemId)!;
 	const now = countRefusal(db, from)?.why ?? itemRefusal(db, i, answering);
 	if (now) throw new Error(now);
+	const base = limits(db).command;
+	// Before the ask is answered: a command that can't take the choices refuses the run, and answers nothing.
+	const command = commandWith(base, runChoices(db, i, once));
 	if (how.answer !== undefined) i = resolveAsk(db, itemId, { answer: how.answer }, from.by ?? "kostas")!;
 	else if (how.object !== undefined) {
 		if (i.kind === "decision") throw new Error("answer a decision instead");
 		i = resolveAsk(db, itemId, { object: how.object }, from.by ?? "kostas")!;
 	}
 	const folder = folderOf(db, i.project);
-	const command = limits(db).command;
 	const session = crypto.randomUUID();
 	// A restart: the last run on it broke (itemRefusal let it through for that), and this one starts a fresh session.
 	const last = latestRun(db, i.id);
-	const again = last?.ended_at && (last.status === "failed" || last.status === "stopped") ? last : undefined;
+	const again = last?.ended_at && !last.moved && (last.status === "failed" || last.status === "stopped") ? last : undefined;
 	const id = await launchNew(db, i, from, {
 		// The session is known now only when the command passes it on; else it comes from the output, if at all.
 		session: command.includes("WB_SESSION") ? session : "",
 		command,
 		cwd: folder,
+		...madeOf(base, command, runChoices(db, i, once)),
 		vars: { WB_PROMPT: runPrompt(db, i, command), WB_SESSION: session },
 	});
-	addNote(db, i.id, again ? `Agent restarted (run #${id}, from ${from.label}): run #${again.id} had ${again.status === "failed" ? "failed" : "been stopped"}` : `Agent started (run #${id}, from ${from.label})`, "workbench");
+	const uses = chosen(base, command);
+	const how2 = `run #${id}, from ${from.label}${uses ? `, with ${uses}` : ""}`;
+	addNote(db, i.id, again ? `Agent restarted (${how2}): run #${again.id} had ${again.status === "failed" ? "failed" : "been stopped"}` : `Agent started (${how2})`, "workbench");
 	return getRun(db, id)!;
+}
+
+/** What a run's Launch carries when its command isn't the configured one as it is: that one (`base`) and the
+ * choices put in it, so the computer helper can tell it's a command it allowed (madeFrom). Nothing otherwise. */
+const madeOf = (base: string, command: string, choices: Choices): Pick<Launch, "base" | "choices"> =>
+	command === base ? {} : { base, choices };
+/** The choices a run's command has that the configured one didn't, in words, for the item's history ('' for none). */
+function chosen(base: string, command: string) {
+	if (command === base) return "";
+	const was = commandChoices(base), now = commandChoices(command);
+	return choiceLabel(Object.fromEntries(CHOICE_KEYS.filter((k) => now[k] !== was[k] && now[k]).map((k) => [k, now[k]])));
 }
 
 /** Inserts a run and starts its process (launcher), or marks it failed and throws. Returns its id. Nothing awaited
@@ -503,11 +705,12 @@ async function launchNew(
 	db: Db,
 	i: Item,
 	from: From,
-	o: { session: string; command: string; cwd: string; vars: Record<string, string>; continues?: number; folder?: string; base?: string; resume?: string; kind?: RunKind },
+	o: { session: string; command: string; cwd: string; vars: Record<string, string>; continues?: number; folder?: string; base?: string; choices?: Choices; resume?: string; kind?: RunKind },
 ): Promise<number> {
+	const uses = commandChoices(o.command);
 	const { id } = db
-		.query("INSERT INTO runs (item_id, project, session, started_by, started_from, command, cwd, continues, kind) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id")
-		.get(i.id, i.project, o.session, from.by ?? (from.where === "auto" ? "board" : "kostas"), from.label, o.command, o.cwd, o.continues ?? null, o.kind ?? "run") as { id: number };
+		.query("INSERT INTO runs (item_id, project, session, started_by, started_from, command, cwd, continues, kind, choices) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id")
+		.get(i.id, i.project, o.session, from.by ?? (from.where === "auto" ? "board" : "kostas"), from.label, o.command, o.cwd, o.continues ?? null, o.kind ?? "run", hasChoices(uses) ? JSON.stringify(uses) : "") as { id: number };
 	const tag = tagOf(db, id);
 	db.query("UPDATE runs SET tag = ? WHERE id = ?").run(tag, id);
 	const spec: Launch = {
@@ -518,6 +721,7 @@ async function launchNew(
 		vars: { WB_ITEM: `wb-${i.ref}`, WB_TITLE: i.title, WB_PROJECT: i.project, WB_RUN: String(id), ...o.vars },
 		...(o.folder ? { folder: o.folder } : {}),
 		...(o.base ? { base: o.base } : {}),
+		...(o.base && o.choices && hasChoices(o.choices) ? { choices: o.choices } : {}),
 		...(o.resume ? { resume: o.resume } : {}),
 	};
 	try {
@@ -581,12 +785,15 @@ export async function startLand(db: Db, itemId: number, from: From, branch: (i: 
 	const i = getItem(db, itemId)!;
 	const now = countRefusal(db, from)?.why ?? landRefusal(db, i);
 	if (now) throw new Error(now);
-	const command = limits(db).command;
+	const base = limits(db).command;
+	const choices = runChoices(db, i);
+	const command = commandWith(base, choices);
 	const session = crypto.randomUUID();
 	const id = await launchNew(db, i, from, {
 		session: command.includes("WB_SESSION") ? session : "",
 		command,
 		cwd: folderOf(db, i.project),
+		...madeOf(base, command, choices),
 		kind: "land",
 		vars: { WB_PROMPT: landPrompt(db, i, git.base, command), WB_SESSION: session },
 	});
@@ -622,8 +829,9 @@ export async function continueRun(db: Db, runId: number, message: string, from: 
 	const i = getItem(db, r.item_id)!;
 	const folder = folderOf(db, i.project);
 	const l = limits(db);
-	const command = l.continueCommand;
-	if (!command) throw new Error("set the continue command in Settings → Agents");
+	if (!l.continueCommand) throw new Error("set the continue command in Settings → Agents");
+	const choices = runChoices(db, i);
+	const command = commandWith(l.continueCommand, choices);
 	const derived = !getSetting<string>(db, "agents.continue-command");
 	const id = await launchNew(db, i, from, {
 		session: r.session,
@@ -632,8 +840,9 @@ export async function continueRun(db: Db, runId: number, message: string, from: 
 		folder,
 		resume: r.session,
 		continues: r.id,
-		// A continue command made from the start command: the computer helper allows it as that one (helper.ts).
-		...(derived ? { base: l.command } : {}),
+		// A continue command made from the start command: the computer helper allows it as that one (helper.ts); with
+		// choices in it, as the command they were put in (madeFrom).
+		...(derived ? { base: l.command, choices } : command !== l.continueCommand ? { base: l.continueCommand, choices } : {}),
 		vars: { WB_PROMPT: continuePrompt(db, i, text), WB_RESUME: r.session, WB_SESSION: r.session },
 	});
 	db.query("INSERT OR REPLACE INTO run_events (run_id, n, at, kind, text, data) VALUES (?, 0, datetime('now'), 'message', ?, ?)").run(
@@ -676,8 +885,9 @@ export function helperContinues(version: string, caps: string[] = []): boolean {
 
 /** What starting a run's process takes: everything but the database, so a computer helper can do it for the cloud board.
  * A continuation also has `resume` (the session), `folder` (the project's, for when the session's folder is gone) and,
- * when its command was made from the start command, `base` (that command). */
-export type Launch = { id: number; tag: string; command: string; cwd: string; vars: Record<string, string>; folder?: string; base?: string; resume?: string };
+ * when its command was made from the start command, `base` (that command). A run whose command has a model, effort
+ * or mode put in (withChoices) has `base` (the command they were put in) and `choices` (what was put in): madeFrom. */
+export type Launch = { id: number; tag: string; command: string; cwd: string; vars: Record<string, string>; folder?: string; base?: string; choices?: Choices; resume?: string };
 /** `cwd`: the folder it started in (a continuation's may differ from the spec's: launchCwd). */
 export type Launched = { pid: number; unit: string; cwd?: string };
 
@@ -1127,7 +1337,10 @@ export function forgetLog(r: Pick<Run, "id" | "tag">) {
 /** Writes how a run ended (`l`: its whole log as read) and the line in its item's history. The cloud board calls
  * this with what its computer helper read. */
 export function endRun(db: Db, r: Pick<Run, "id" | "item_id" | "status" | "error">, code: number | null, l: ReadLog) {
-	if (getRun(db, r.id)?.ended_at) return;
+	const was = getRun(db, r.id);
+	if (was?.ended_at) return;
+	// Moved to Claude Desktop: stopped here, and it carries on there.
+	const moved = !!was?.moved;
 	const status: RunStatus = r.status === "stopped" ? "stopped" : code === 0 && !l.isError ? "done" : "failed";
 	const error =
 		status === "stopped" ? "" : code === null
@@ -1140,16 +1353,17 @@ export function endRun(db: Db, r: Pick<Run, "id" | "item_id" | "status" | "error
 	if (!changed) return;
 	const done = getRun(db, r.id)!;
 	const took = minutes(fromSql(done.ended_at!).getTime() - fromSql(done.started_at).getTime());
-	const word = { done: "finished", failed: "failed", stopped: "was stopped", running: "" }[status];
+	const word = moved && status === "stopped" ? "moved to Claude Desktop" : { done: "finished", failed: "failed", stopped: "was stopped", running: "" }[status];
 	addNote(
 		db,
 		r.item_id,
 		`Agent run #${r.id} ${word} after ${took}${done.cost != null ? ` · ${apiValue(done.cost)}` : ""}${error ? ` · ${error}` : ""}${
 			done.refused ? ` · Its permissions refused ${done.refused} (Settings → Agents → The command)` : ""
-		}`,
+		}${moved && status === "stopped" ? ": it carries on there" : ""}`,
 		"workbench",
 	);
-	unpark(db, r.item_id, r.id);
+	// Moved: the work goes on in Claude Desktop, so the item stays as the agent left it.
+	if (!moved) unpark(db, r.item_id, r.id);
 }
 
 /** After a run: an item it left doing, or waiting on nothing, would sit there with nobody to bring it back (nobody
@@ -1191,6 +1405,31 @@ export async function stopRun(db: Db, id: number, by = "kostas"): Promise<Run> {
 	finish(db, { ...r, status: "stopped" }, exitCode(r));
 	if (by !== "kostas") addNote(db, r.item_id, `Stopped by ${by}`, "workbench");
 	return getRun(db, id)!;
+}
+
+/** Why run `r` can't move to Claude Desktop now, or undefined: it has to be going, with a Claude Code session. */
+export function moveRefusal(r: Run | undefined): string | undefined {
+	if (!r) return "no such run";
+	if (r.ended_at) return `run #${r.id} has ended: open it in Claude Desktop with its link`;
+	if (!UUID.test(r.session)) return `run #${r.id} has no Claude Code session yet: wait a moment, or stop it`;
+}
+/** Marks a run that's going as moved to Claude Desktop (and stopping): how it ends is then "moved", not "stopped".
+ * Its process is ended by whoever runs it (stopRun here, the computer helper for the cloud board). */
+export function markMoved(db: Db, id: number): Run {
+	const r = getRun(db, id);
+	const why = moveRefusal(r);
+	if (why) throw new Error(why);
+	db.query("UPDATE runs SET moved = 1, status = 'stopped' WHERE id = ? AND ended_at IS NULL").run(id);
+	return getRun(db, id)!;
+}
+/**
+ * Move to Claude Desktop: stops a run that's going the way Stop does (SIGTERM to its process group: Claude Code ends
+ * the turn, and its transcript has every message so far), as "moved to Claude Desktop" rather than stopped, and leaves
+ * the item as it is. The page then opens the run's `desktop` link, which imports the session into Claude Desktop.
+ */
+export async function moveRun(db: Db, id: number): Promise<Run> {
+	markMoved(db, id);
+	return stopRun(db, id);
 }
 
 /** Ends a run's process: its whole process group (and scope), politely, then for sure after 3 s. */
@@ -1320,6 +1559,13 @@ export async function runsInfo(db: Db, from: From | null) {
 		folders,
 		// What an agent is told, for an item wb-xxxx titled "…" (Settings → Agents shows it).
 		prompt: runPrompt(db, { ref: "xxxx", title: "the item's title" }),
+		// What runs start with: Settings → Agents' own ('' = as the command says), what the command says, and whether
+		// the board can put a choice in it (the reader's choice line).
+		starts: {
+			board: Object.fromEntries(CHOICE_KEYS.map((k) => [k, getSetting<string>(db, `agents.${k}`)])) as Record<ChoiceKey, string>,
+			command: commandChoices(l.command),
+			splits: !!shellWords(l.command)?.length,
+		},
 		active: active.map(strip),
 		runs: listRuns(db, { limit: 30 }).map(strip),
 	};

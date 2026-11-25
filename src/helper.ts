@@ -17,7 +17,7 @@ import { chmodSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { hostname } from "node:os";
 import pkg from "../package.json";
 import { DB_PATH, type Project } from "./db";
-import { alive, exitCode, flushLog, forgetLog, launchCwd, launchRun, readLog, resumeCommand, terminate, testCommand, type Launch, type Live } from "./dispatch";
+import { alive, exitCode, flushLog, forgetLog, launchCwd, launchRun, madeFrom, readLog, terminate, testCommand, type Launch, type Live } from "./dispatch";
 import { codeLinks, repoState } from "./git";
 import { candidatesNear, folderState } from "./health";
 import { agentFiles, integratePrompt } from "./integrate";
@@ -192,9 +192,12 @@ export function startHelper(cfg: SyncConfig, o: HelperOptions = {}) {
 	/* What it does for the cloud board, by job. */
 	const JOBS: Record<string, (p: any) => Promise<unknown> | unknown> = {
 		run: async (l: Launch) => {
-			// A continue command made from the start command (dispatch.ts resumeCommand) is allowed as that one.
-			if (l.base && resumeCommand(l.base) === l.command) await allowed(agentText(l.base), "the command that starts agents (Settings → Agents)");
-			else await allowed(agentText(l.command), l.resume ? "the command that continues agents (Settings → Agents)" : "the command that starts agents (Settings → Agents)");
+			// A continue command made from the start command (dispatch.ts resumeCommand), or a command with a model, an
+			// effort or a safe mode put in (withChoices), is allowed as the command it was made from: madeFrom checks
+			// it's exactly that. Bypass permissions, or anything else, is its own command text, which waits for an OK.
+			const what = l.resume ? "the command that continues agents (Settings → Agents)" : "the command that starts agents (Settings → Agents)";
+			if (l.base && madeFrom(l.base, l.command, l.choices)) await allowed(agentText(l.base), what);
+			else await allowed(agentText(l.command), l.choices?.mode === "bypassPermissions" ? `${what}, in Bypass permissions mode (chosen on the board)` : what);
 			if (!launchCwd(l)) throw new Error(`there's no folder ${l.cwd || l.folder} on ${name}`);
 			const out = await launchRun(l, (e) => log(`run #${l.id} couldn't start: ${e}`));
 			mine.set(l.id, { id: l.id, tag: l.tag, pid: out.pid, unit: out.unit, sent: -1 });

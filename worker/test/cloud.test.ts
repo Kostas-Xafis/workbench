@@ -422,6 +422,45 @@ echo '{"type":"result","subtype":"success","is_error":false,"num_turns":1,"total
 		await api("/api/settings", { method: "PATCH", body: JSON.stringify({ "agents.command": command }) });
 	}, 60e3);
 
+	test("an item's model, effort and safe mode need no new OK on the computer; Bypass permissions does", async () => {
+		const id = (await json<{ id: number }>(post("/api/items", { project: "repo", title: "Choose", owner: "agent" }))).id;
+		const put = (body: unknown) => api(`/api/items/${id}/agent`, { method: "PUT", body: JSON.stringify(body) });
+		expect((await put({ model: "opus", effort: "high", mode: "plan" })).status).toBe(200);
+		const res = await post("/api/runs", { item: String(id) });
+		expect(res.status).toBe(201);
+		const { run } = (await res.json()) as { run: RunRow & { command: string; uses: string } };
+		expect(run.uses).toBe("Opus · high · Plan only");
+		const done = await until("the run's end", async () => {
+			const r = await get<RunRow>(`/api/runs/${run.id}`);
+			return r.ended_at ? r : null;
+		});
+		expect(done.status).toBe("done");
+		// Bypass permissions: its own command, which waits for a yes on the computer.
+		expect((await put({ mode: "bypassPermissions" })).status).toBe(200);
+		const no = await post("/api/runs", { item: String(id) });
+		expect(no.status).toBe(400);
+		expect(((await no.json()) as { error: string }).error).toContain("waits for an OK on Computer A");
+		expect(readFileSync(join(dir, "computer-Computer-A", "workbench.db.helper.json"), "utf8")).toContain("--permission-mode bypassPermissions");
+		expect((await put({ model: null, effort: null, mode: null })).status).toBe(200);
+	}, 60e3);
+
+	test("Move to Claude Desktop: the run stops on its computer, marked moved, with its link", async () => {
+		const id = (await json<{ id: number }>(post("/api/items", { project: "repo", title: "Another slow one", owner: "agent" }))).id;
+		const { run } = (await (await post("/api/runs", { item: String(id) })).json()) as { run: RunRow };
+		await until("output while it runs", async () => {
+			const r = await get<RunRow & { session: string }>(`/api/runs/${run.id}`);
+			return r.tail.includes("Reading") && r.session ? r : null;
+		});
+		const moved = await json<RunRow & { moved: number; desktop: string; session: string }>(post(`/api/runs/${run.id}/move`));
+		expect(moved).toMatchObject({ status: "stopped", moved: 1 });
+		expect(moved.ended_at).not.toBeNull();
+		expect(moved.desktop).toBe(`claude://resume?session=${moved.session}`);
+		expect(() => process.kill(run.pid, 0)).toThrow();
+		const notes = (await get<{ notes: { text: string }[] }>(`/api/items/${id}`)).notes.map((n) => n.text);
+		expect(notes.some((n) => n.startsWith(`Agent run #${run.id} moved to Claude Desktop`))).toBe(true);
+		expect((await post(`/api/runs/${run.id}/move`)).status).toBe(400);
+	}, 60e3);
+
 	test("with two computers online, each job goes to one of them", async () => {
 		const b = await startHelper("Computer B");
 		expect((await get<{ computers: string[] }>("/api/runs")).computers.sort()).toEqual(["Computer A", "Computer B"]);
