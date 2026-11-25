@@ -11,6 +11,8 @@
 .pj-name h1 { margin: 0; font-size: var(--fs-20); font-weight: 650; line-height: 1.2; }
 .pj-line { font-size: var(--fs-12); color: var(--muted); margin-top: 2px; overflow-wrap: anywhere; }
 .pj-line a { color: var(--st-yours); text-decoration: none; font-weight: 500; }
+/* The line wraps between its parts (the repository's parts too), never inside "22 in your inbox". */
+.pj-line > a, .pj-line > span:not(.pj-git) { white-space: nowrap; }
 .pj-line a:hover { text-decoration: underline; }
 .pj-side { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: var(--sp-2); min-width: 0; flex: 0 1 auto; }
 
@@ -64,6 +66,8 @@
 .pj-kinds button[aria-checked="true"] { background: var(--sunk); color: var(--ink); font-weight: 600; }
 .pj-kinds .kg .gl { width: 13px; height: 13px; }
 .pj-hint { flex: 1; min-width: 0; font-size: var(--fs-11); color: var(--faint); }
+/* More… keeps the right edge, with the key hint hidden too. */
+#pj-full { margin-left: auto; }
 .pj-send { display: none; }
 .pj-hint kbd, .pj-filter kbd { font: inherit; font-size: var(--fs-11); color: var(--muted); background: var(--sunk); border-radius: var(--r-sm); padding: 0 4px; }
 
@@ -84,14 +88,16 @@
 .pj-item.is-drag .pj-grip { cursor: grabbing; }
 .pj-run { display: inline-flex; align-items: center; gap: 4px; }
 .pj-run .gl { width: 13px; height: 13px; }
+/* A long Next up stays calm: with a mouse, Run shows on the row under it or in focus (a touch screen always shows it). */
+@media (hover: hover) {
+	.pj-item:not(:hover):not(:focus-within) .pj-run { opacity: 0; }
+}
 .pj-live { width: 8px; height: 8px; border-radius: 50%; background: var(--st-running); box-shadow: 0 0 0 3px var(--st-running-bg); animation: pj-pulse 2s ease-in-out infinite; }
 @keyframes pj-pulse { 50% { opacity: .45; } }
 @media (prefers-reduced-motion: reduce) { .pj-live { animation: none; } }
 .pj-fold { margin-top: var(--sp-5); }
-.pj-fold > summary { display: flex; align-items: baseline; gap: var(--sp-2); margin-bottom: var(--sp-2); color: var(--muted); cursor: pointer; list-style: none; }
-.pj-fold > summary::-webkit-details-marker { display: none; }
-.pj-fold > summary::before { content: "▸"; font-size: var(--fs-11); color: var(--faint); }
-.pj-fold[open] > summary::before { content: "▾"; }
+/* Its triangle is base.css's .fold, as on every fold. */
+.pj-fold > summary { display: flex; align-items: center; gap: var(--sp-2); margin-bottom: var(--sp-2); color: var(--muted); }
 .pj-fold > summary:hover h2 { color: var(--ink); }
 .pj-mine { display: block; font-size: var(--fs-12); color: var(--st-yours); text-decoration: none; margin: 0 0 var(--sp-4); }
 .pj-mine:hover { text-decoration: underline; }
@@ -105,6 +111,9 @@
 /* Pages: reports on the left, links and data sources on the right; pages.js draws their lines. */
 .pj-pages { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: var(--sp-6); align-items: start; }
 .pj-col .pj-h:first-child { margin-top: 0; }
+/* Headings with tools and without line up across the two columns: each is as tall as an icon button. */
+.pj-col > .pj-h { align-items: center; min-height: var(--sp-7); }
+.pj-plain > .pj-none { margin: var(--sp-2); }
 .pj-plain { margin: 0 calc(-1 * var(--sp-2)); }
 .pj-plain .glabel { padding-left: var(--sp-2); }
 .pj-plain .lgroup > summary { padding-left: var(--sp-2); }
@@ -119,14 +128,19 @@
 	.pj-head { gap: var(--sp-3); }
 	.pj-side { justify-content: flex-start; width: 100%; }
 	.pj-goal-main { width: 100%; }
-	.pj-goal { width: 100%; }
-	.pj-meters { justify-content: flex-start; flex: 1 1 100%; }
+	.pj-goal { flex: 1 1 0; min-width: 0; }
+	/* The meters take a line of their own; with none, Add a tracker stays beside the goal. */
+	.pj-meters { justify-content: flex-start; flex: none; }
+	.pj-meters:has(.pj-meter) { flex: 1 1 100%; }
+	.pj-goal-add { margin-right: auto; }
 	.pj-meter { flex: 1 1 140px; max-width: none; }
 	/* The tabs stay at the top while the page scrolls. */
 	.pj-tabs { position: sticky; top: 0; z-index: 2; background: var(--bg); margin: 0 calc(-1 * var(--sp-4)) var(--sp-4); padding: 0 var(--sp-4); gap: var(--sp-4); }
 	/* No keys to tell about on a phone: its own button files it. */
 	.pj-hint { display: none; }
-	.pj-send { display: inline-block; margin-left: auto; }
-	.pj-pages { grid-template-columns: minmax(0, 1fr); gap: var(--sp-4); }
+	.pj-send { display: inline-block; }
+	/* Small marks keep their look, with a 40 px hit area (as phone.css gives the others). */
+	.pj-kinds button, .pj-mine { position: relative; }
+	.pj-kinds button::after, .pj-mine::after { content: ""; position: absolute; top: calc(50% - 20px); bottom: calc(50% - 20px); left: 0; right: 0; }	.pj-pages { grid-template-columns: minmax(0, 1fr); gap: var(--sp-4); }
 	.pj-list .k-right .pj-run { padding: 3px 8px; }
 }
