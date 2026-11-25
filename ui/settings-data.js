@@ -91,7 +91,7 @@ function setDataRender() {
 	const exp = optGroup("Export", [
 		optRow({
 			label: "Export everything",
-			hint: "One JSON file with your projects, items with their notes and images, links, reports with every version, saved report inputs, trackers and their history, and board settings. Left out: the vault and its secrets, data sources' header values (only their names), and link icons. <code>wb export &gt; file.json</code> does the same.",
+			hint: "One file with everything on the board, a row per line: projects, items with their notes and pictures, links, reports with every version, trackers and their history, goals, rulings, settings, and the vault, still encrypted. <code>wb export &gt; file.jsonl</code> does the same; <code>wb import</code> puts it on an empty board.",
 			control: `<a class="ghost sm dt-dl" href="/api/data/export" download>${svg16(DT_IC.down, 1.4)}Download</a>`,
 		}),
 	]);

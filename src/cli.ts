@@ -35,7 +35,7 @@ import {
 	type ItemPatch,
 	type Status,
 } from "./db";
-import { exportAll, type Db } from "./db";
+import { DAY_PAGE_VERSIONS, dayPageCounts, pruneDayVersions, type Db } from "./db";
 import { agentOrder, moveInOrder } from "./order";
 import {
 	addGoal,
@@ -138,7 +138,7 @@ Items are named wb-xxxx (e.g. wb-k3f9); commands take that, the bare k3f9, or an
   wb image add <ref> <file> "caption"   put a screenshot on an item, or --image <file> --caption "…" on wb add
   wb image save <id> <file>         write one to a file, to look at it (wb show lists them)
   wb image rm <id>                  take one off
-  wb import <file.json> [--project P]   bulk add (array of items)
+  wb import <items.json> [--project P] bulk add (a JSON array of items); for an export, see wb import <export>
   wb rulings [--project P | --all] [-q text] [--retired]
                                    ${name}'s standing answers in this project: read them before asking anything
   wb rule "text" [--item <ref>] [--project P]   write one down, one line (--item: where it was decided);
@@ -183,7 +183,12 @@ Items are named wb-xxxx (e.g. wb-k3f9); commands take that, the bare k3f9, or an
   wb backup                        copy the database now (also done nightly by the board); keeps the newest 14,
                                    or as many as Settings → Data says
   wb backups                       list them
-  wb export > file.json            everything on the board as JSON (not the vault, nor data sources' header values)
+  wb export > file.jsonl           everything on the board, a row per line (JSON Lines), however big; the vault
+                                   stays encrypted. From the cloud board too, while this computer syncs
+  wb import <export> [--replace]   put an export (or an old one-JSON export) in place of an empty board;
+                                   --replace: in place of one that has items (everything on it goes)
+  wb tidy --day-pages              remove day pages' older versions now, keeping the newest ${DAY_PAGE_VERSIONS} of each
+                                   (the cloud board never does it by itself: wb export first)
   wb vault                         whether the vault is set up, and how many secrets it holds
   wb vault reset --yes             forgot the password: delete the vault and every secret in it
   wb projects                      list projects
@@ -749,9 +754,17 @@ export async function runCli(ctx: CliCtx): Promise<number> {
 				out(row(getItem(db, id)!, true));
 				break;
 			}
-			case "export": {
-				if (ctx.tty) die("wb export writes JSON: send it to a file, e.g. wb export > workbench-export.json");
-				out(JSON.stringify(exportAll(db), null, 1));
+			case "export":
+				// wb streams it (export.ts): on a computer by itself, from the cloud board through GET /api/data/export.
+				// Only a wb older than the cloud board gets here, and its buffered answer couldn't hold a whole board.
+				die("wb export streams the board now: update wb on this computer to this version");
+			case "tidy": {
+				if (!o["day-pages"]) die("usage: wb tidy --day-pages");
+				// Never by itself on the cloud board, which has no backup: run it once an export has kept a copy.
+				const removed = pruneDayVersions(db);
+				const { pages, versions } = dayPageCounts(db);
+				out(`day pages: removed ${removed} older version${removed === 1 ? "" : "s"}, kept ${versions} (the newest ${DAY_PAGE_VERSIONS} of each of ${pages} day page${pages === 1 ? "" : "s"})`);
+				if (removed) out("The database gives the room back after Settings → Data → Compact (the cloud board compacts by itself).");
 				break;
 			}
 			case "note": {

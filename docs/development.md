@@ -65,7 +65,7 @@ What the Inbox, Agents and Projects screens are built on. Three places share one
 
 ## HTTP endpoints behind the places
 
-The page and `wb` are clients of one API (`routes.ts`). The ones the places lean on: `GET /api/agents?project=<slug|*>&since=<ISO time>` (the Agents place: `running`, `ready`, `stuck`, `finished`, `counts`, `start`, `limits`; `agents.ts`), `GET /api/queue` (the Inbox's order; `queue.ts`), `POST /api/items/:id/defer {until}` and `/give-back {text}`, `PUT /api/projects/:slug/order {refs}`, `GET /api/runs/<n>/events?after=<k>` (a run's numbered events; the last 500 are kept), `POST /api/runs/<n>/continue {message}`, `POST /api/items/<ref>/land` (Merge it), and `GET|PATCH /api/settings` (this computer only).
+The page and `wb` are clients of one API (`routes.ts`). The ones the places lean on: `GET /api/agents?project=<slug|*>&since=<ISO time>` (the Agents place: `running`, `ready`, `stuck`, `finished`, `counts`, `start`, `limits`; `agents.ts`), `GET /api/queue` (the Inbox's order; `queue.ts`), `POST /api/items/:id/defer {until}` and `/give-back {text}`, `PUT /api/projects/:slug/order {refs}`, `GET /api/runs/<n>/events?after=<k>` (a run's numbered events; the last 500 are kept), `POST /api/runs/<n>/continue {message}`, `POST /api/items/<ref>/land` (Merge it), and `GET|PATCH /api/settings` (this computer only), and `GET /api/data/export` (the whole board as JSON Lines, streamed a page of rows at a time: `src/export.ts`; its format is in [board.md](board.md#your-data)).
 
 ## Tests
 

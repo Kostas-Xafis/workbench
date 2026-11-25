@@ -7,7 +7,7 @@ import { staleOf, type Stale } from "./stale";
 import { liveRunItems, recent } from "./alive";
 import { blockersOf, clearLinks, createLinkTable, LINK_COUNTS, resumeWaiting, waitersOf, type LinkRef } from "./links";
 import { checkItemGoal, createGoalTables, goalTitle, searchGoals } from "./goals";
-import { createSettingsTable, getSetting, getSettings, ownerFor } from "./settings";
+import { createSettingsTable, getSetting, ownerFor } from "./settings";
 import { createTables as createTrackerTables } from "./trackers";
 import { backfillRulings, createTables as createRulingTables, draftRuling, listRulings } from "./rulings";
 import { createDeviceTables } from "./devices";
@@ -298,8 +298,8 @@ export function createSchema(db: Db) {
 		PRIMARY KEY (version_id, i)
 	)`);
 	// Day pages keep their last DAY_PAGE_VERSIONS versions only: pruned after the startup backup (server.ts) and on each
-	// day page's write (day.ts), never here, before a backup could keep them. The cloud board prunes on writes only
-	// (worker/src/board.ts says why).
+	// day page's write (day.ts), never here, before a backup could keep them. The cloud board prunes on writes only, and
+	// the rest with `wb tidy --day-pages` when asked (worker/src/board.ts says why).
 }
 
 export type Db = ReturnType<typeof open>;
@@ -956,6 +956,16 @@ export function pruneDayVersions(db: Db, reportId?: number): number {
 	})();
 }
 
+/** The day pages pruneDayVersions looks after, and how many of their versions there are: what `wb tidy --day-pages` keeps. */
+export function dayPageCounts(db: Db): { pages: number; versions: number } {
+	return db
+		.query(
+			`SELECT COUNT(DISTINCT r.id) AS pages, COUNT(v.id) AS versions FROM report_versions v JOIN reports r ON r.id = v.report_id
+			WHERE r.grp = 'Days' AND r.name GLOB 'day-[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]' AND instr(v.html, $mark) > 0`,
+		)
+		.get({ mark: DAY_PAGE_MARK }) as { pages: number; versions: number };
+}
+
 export function removeReport(db: Db, id: number) {
 	db.transaction(() => {
 		db.query("DELETE FROM report_state WHERE (project, name) IN (SELECT project, name FROM reports WHERE id = ?)").run(id);
@@ -1222,7 +1232,7 @@ export function backupFile(name: string, dir = BACKUP_DIR): string | undefined {
 	}
 }
 
-/* ---------- Settings → Data: size, compacting, tidying, export ---------- */
+/* ---------- Settings → Data: size, compacting, tidying (the export is export.ts) ---------- */
 
 const fileSize = (f: string) => {
 	try {
@@ -1324,70 +1334,21 @@ export function tidy(db: Db): TidyCounts {
 	return out;
 }
 
-export const EXPORT_FORMAT = 1;
-
 /**
- * Everything on the board as plain JSON, to keep or to take elsewhere. Left out: the vault and its secrets
- * (ciphertext only your password opens), data sources' header values, and link icons (fetched again by themselves).
+ * A second, read-only connection to the board's file, inside one read transaction: what it reads is the board at one
+ * moment, while the board goes on writing (WAL). Close it when done. Null for a board with no file of its own (in
+ * memory, the cloud board's Durable Object).
  */
-export function exportAll(db: Db) {
-	const all = (sql: string) => db.query(sql).all() as Record<string, unknown>[];
-	const parse = (s: unknown) => {
-		try {
-			return typeof s === "string" ? JSON.parse(s) : s;
-		} catch {
-			return s;
-		}
-	};
-	const byParent = (rows: Record<string, unknown>[], key: string) => {
-		const m = new Map<unknown, Record<string, unknown>[]>();
-		for (const { [key]: parent, ...rest } of rows) m.set(parent, [...(m.get(parent) ?? []), rest]);
-		return m;
-	};
-	const notes = byParent(all("SELECT item_id, at, author, text FROM notes ORDER BY at, id"), "item_id");
-	const images = byParent(
-		all("SELECT item_id, caption, type, author, at, data FROM images ORDER BY id").map((m) => ({ ...m, data: Buffer.from(m.data as Uint8Array).toString("base64") })),
-		"item_id",
-	);
-	// Which items each waits on (wb-refs), see links.ts.
-	const waits = new Map<unknown, string[]>();
-	for (const l of all("SELECT l.item_id, b.ref FROM item_links l JOIN items b ON b.id = l.blocker_id ORDER BY l.created_at"))
-		waits.set(l.item_id, [...(waits.get(l.item_id) ?? []), `wb-${l.ref}`]);
-	const versions = byParent(
-		all("SELECT id, report_id, n, at, author, html FROM report_versions ORDER BY report_id, n").map(({ id, ...v }) => ({
-			...v,
-			html: String(v.html) + partsOf(db, id as number),
-		})),
-		"report_id",
-	);
-	const history = byParent(
-		all("SELECT tracker_id, at, reading, author FROM tracker_history ORDER BY tracker_id, id").map((h) => ({ ...h, reading: parse(h.reading) })),
-		"tracker_id",
-	);
-	return {
-		format: EXPORT_FORMAT,
-		exported_at: new Date().toISOString(),
-		projects: all("SELECT * FROM projects ORDER BY sort, name"),
-		items: all("SELECT * FROM items ORDER BY id").map((i) => ({ ...i, notes: notes.get(i.id) ?? [], images: images.get(i.id) ?? [], waits_on: waits.get(i.id) ?? [] })),
-		links: all("SELECT id, project, grp, label, url, icon_url, sort FROM links ORDER BY project, grp, sort, id"),
-		goals: all("SELECT * FROM goals ORDER BY project, sort, id"),
-		reports: all("SELECT * FROM reports ORDER BY project, name").map((r) => ({ ...r, versions: versions.get(r.id) ?? [] })),
-		report_state: all("SELECT project, name, json, updated_at FROM report_state ORDER BY project, name").map(({ json, ...r }) => ({
-			...r,
-			state: parse(json),
-		})),
-		trackers: all("SELECT * FROM trackers ORDER BY project, sort, name").map(({ running_since: _, rev: __, ...t }) => ({
-			...t,
-			options: parse(t.options),
-			reading: parse(t.reading),
-			history: history.get(t.id) ?? [],
-		})),
-		settings: getSettings(db),
-		rulings: all("SELECT * FROM rulings ORDER BY project, id"),
-		sources: all("SELECT project, name, base_url, write, header_names, created_at, updated_at FROM sources ORDER BY project, name").map(
-			(s) => ({ ...s, write: !!s.write, header_names: String(s.header_names || "").split("\n").filter(Boolean) }),
-		),
-	};
+export function snapshotOf(db: Db): Db | null {
+	const file = db.filename;
+	if (!file || file.startsWith(":")) return null;
+	try {
+		const snap = new Database(file, { readonly: true, strict: true });
+		snap.run("BEGIN");
+		return snap as Db;
+	} catch {
+		return null;
+	}
 }
 
 /** A word for the shell, quoted when it needs to be. */

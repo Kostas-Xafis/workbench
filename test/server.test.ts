@@ -58,6 +58,18 @@ describe("server", () => {
 		expect(items.map((i) => i.title)).toEqual(["From a test"]);
 	});
 
+	test("Export downloads the board as JSON Lines, streamed, not held for an ETag", async () => {
+		const res = await fetch(`${BASE}/api/data/export`);
+		expect(res.status).toBe(200);
+		expect(res.headers.get("content-type")).toBe("application/x-ndjson; charset=utf-8");
+		expect(res.headers.get("content-disposition")).toMatch(/^attachment; filename="workbench-export-\d{4}-\d\d-\d\d\.jsonl"$/);
+		expect(res.headers.get("etag")).toBeNull();
+		const lines = (await res.text()).trimEnd().split("\n");
+		expect(JSON.parse(lines[0])).toMatchObject({ workbench: "export", format: 2 });
+		expect(lines.some((l) => l.startsWith('{"t":"items"') && l.includes("From a test"))).toBe(true);
+		expect(JSON.parse(lines.at(-1)!).end.rows.items).toBe(1);
+	});
+
 	test("a poll that finds nothing new gets 304 and no body; a change gets the new answer", async () => {
 		const first = await fetch(`${BASE}/api/items?project=demo`);
 		const tag = first.headers.get("etag")!;

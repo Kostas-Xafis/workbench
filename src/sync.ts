@@ -23,6 +23,9 @@ export const SYNC_FORMAT = 1;
 export const NOT_MOVED = new Set(["devices", "pairing_code", "login_tickets"]);
 // Push notifications (worker/src/push.ts): the cloud board's own keys, and subscriptions that belong to its devices.
 for (const t of ["push_keys", "push_subscriptions"]) NOT_MOVED.add(t);
+// The cloud side of the computer helper (worker/src/helper.ts): its job queue, which computer ran what, what it has
+// cached from them. A computer has none of these, so a move never carried them; nor does an export (export.ts).
+for (const t of ["helper_jobs", "helper_seen", "helper_runs", "helper_ran", "helper_cache"]) NOT_MOVED.add(t);
 
 /** A batch of rows to or from the cloud board stays under this much JSON: well inside a Worker's 100 MB request. */
 export const BATCH_BYTES = 8 * 1024 * 1024;
@@ -37,9 +40,9 @@ export const cellBytes = (c: Cell) => (c === null ? 4 : typeof c === "object" ? 
 
 export type TableInfo = { name: string; columns: string[]; rows: number };
 
-/** The board's tables that move: not SQLite's own, nor a Durable Object's (_cf_…), nor NOT_MOVED. */
+/** The board's tables that move: not SQLite's own, nor a Durable Object's (_cf_…, and __… in a local Worker), nor NOT_MOVED. */
 export const tableNames = (db: Db) =>
-	(db.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\' AND name NOT LIKE '\\_cf\\_%' ESCAPE '\\' ORDER BY name").all() as { name: string }[])
+	(db.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\' AND name NOT LIKE '\\_cf\\_%' ESCAPE '\\' AND name NOT LIKE '\\_\\_%' ESCAPE '\\' ORDER BY name").all() as { name: string }[])
 		.map((t) => t.name)
 		.filter((t) => !NOT_MOVED.has(t));
 
