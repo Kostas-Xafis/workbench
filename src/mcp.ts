@@ -1467,18 +1467,30 @@ function toolDef(t: Tool, era: Era): Json {
 	return d;
 }
 
+/** The tools whose call about an item is a sign of life on it (alive.ts); with `image`, whose item is the image's. */
+const ACTS_ON_ITEM = new Set(["start_item", "add_note", "update_item", "finish_item", "wait_item", "attach_image", "answer_decision", "drop_item"]);
+
 async function callTool(params: Json, c: Conn, era: Era): Promise<Json> {
 	const name = params.name;
 	const alias = typeof name === "string" && Object.hasOwn(ALIASES, name) ? ALIASES[name] : undefined;
 	const tool = typeof name === "string" ? TOOL.get(alias?.tool ?? name) : undefined;
 	if (!tool) throw new RpcError(-32602, `Unknown tool: ${String(name)}`);
-	const args = { ...alias?.args, ...((params.arguments ?? {}) as Json) };
+	// The alias's own fields win: list_trackers {"action": "remove"} is still a list.
+	const args = { ...((params.arguments ?? {}) as Json), ...alias?.args };
 	const fail = (text: string) => ({ content: [{ type: "text", text }], isError: true });
 	const bad = check(args, tool.input, "");
 	if (bad) return fail(bad);
-	// A sign of life (alive.ts): a call naming an item, or from the session an item records. After the call, so
-	// start_item's own session counts, and whether the call worked or not.
-	const alive = () => noteAlive(c.db, { ids: [typeof args.ref === "string" ? resolveItem(c.db, args.ref) : undefined], session: c.session });
+	// A sign of life (alive.ts): a call that acts on an item (reads don't count), or from the session an item was
+	// started in. After the call, so start_item's own session counts, and whether the call worked or not. The image's
+	// item is looked up first: remove takes the image away.
+	const acted = ACTS_ON_ITEM.has(tool.name)
+		? typeof args.ref === "string"
+			? resolveItem(c.db, args.ref)
+			: undefined
+		: tool.name === "image" && typeof args.id === "number"
+			? (imageInfo(c.db, args.id)?.item_id ?? undefined)
+			: undefined;
+	const alive = () => noteAlive(c.db, { ids: [acted], session: c.session });
 	try {
 		// Defaults whose deadline passed go ahead first, so what the tool reads or changes is current (asks.ts).
 		applyDue(c.db);

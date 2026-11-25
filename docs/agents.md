@@ -44,7 +44,9 @@ Up to 0.5.0 these were tools of their own. The old names still work, unlisted an
 The board tells a live agent from an item someone left in doing. An agent counts as **alive** on an item while:
 
 - **a run the board started** is going on it, or
-- **it called the board about it in the last 5 minutes:** an MCP tool call naming the item's ref, any MCP call from the session the item records (`start_item` records the desktop-app session the server runs in), or a `wb` command an agent ran on it (`wb show`, `wb start`, `wb note`, `wb done`, `wb wait`, `wb edit`, `wb image add`, …). Your own `wb` commands and the board's page don't count.
+- **it acted on it in the last 5 minutes:** an MCP call that changes the item (`start_item`, `add_note`, `update_item`, `finish_item`, `wait_item`, `attach_image`, the `image` tool, `answer_decision`, `drop_item`), any MCP call from the session that started the item (`start_item` records the desktop-app session the server runs in) while it's doing, or the same from an agent's `wb` (`wb start`, `wb note`, `wb done`, `wb wait`, `wb edit`, `wb drop`, `wb answer`, `wb image add`/`rm`). Reading doesn't count (`get_item`, `list_items`, `search`, `wb show`), nor do your own `wb` commands and the board's page.
+
+**Running now** on the Agents place lists the runs the board started that are going, and the agents' items that are alive and in doing.
 
 The cloud board works the same way.
 

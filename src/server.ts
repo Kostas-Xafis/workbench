@@ -12,7 +12,7 @@ import maskable192Path from "../ui/icons/maskable-192.png" with { type: "file" }
 import maskable512Path from "../ui/icons/maskable-512.png" with { type: "file" };
 import badge96Path from "../ui/icons/badge-96.png" with { type: "file" };
 import pkg from "../package.json";
-import { backup, DB_PATH, listBackups, open, tidy } from "./db";
+import { backup, DB_PATH, listBackups, open, pruneDayVersions, tidy } from "./db";
 import { deviceCookie, Pairing, phoneGate } from "./devices";
 import { checkUi, uiFile, uiVersions } from "./ui";
 import { publishDays } from "./day";
@@ -80,6 +80,14 @@ export function serve({ lan = false } = {}) {
 	};
 	nightly();
 	setInterval(nightly, 3600e3);
+	// Day pages keep their last few versions (db.ts pruneDayVersions): settled once at start, after the backup above,
+	// so the backup still has what goes. Each day page's own write prunes it after that (day.ts).
+	try {
+		const n = pruneDayVersions(db);
+		if (n) console.log(`day pages: ${n} older version${n === 1 ? "" : "s"} removed`);
+	} catch (e) {
+		console.error(`day pages: ${(e as Error).message}`);
+	}
 
 	// Every project's day pages ("Days" in its sidebar): today's kept current every 30 min, and the last week's
 	// finished once their day is over (also after the board or the computer was off).

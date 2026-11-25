@@ -72,7 +72,7 @@ import { buildQueue, deferItem, giveBack } from "./queue";
 import { resolveAsk } from "./asks";
 import { fileItem } from "./filing";
 import { setOrder } from "./order";
-import { codeLinks, repoState, type CodeLinks } from "./git";
+import { codeLinksOf, repoStateOf } from "./git";
 import { candidateFolders, checkFolder, folderState, health } from "./health";
 import { addGoal, goalsWithStats, itemGoals, moveGoal, updateGoal, type GoalPatch } from "./goals";
 import { getSettings, settingDefs, updateSettings } from "./settings";
@@ -196,15 +196,9 @@ export function boardRoutes(h: BoardHost) {
 		}
 		return null;
 	};
-	// Commits and pull requests per project; gh is slow and rate-limited, so each project is asked at most every 90 s.
-	const codeCache = new Map<string, { at: number; links: Promise<CodeLinks> }>();
-	const projectCode = (p: Project) => {
-		const hit = codeCache.get(p.slug);
-		if (hit && Date.now() - hit.at < 90e3) return hit.links;
-		const links = codeLinks(p);
-		codeCache.set(p.slug, { at: Date.now(), links });
-		return links;
-	};
+	// Commits and pull requests per project; gh is slow and rate-limited, so each project is asked at most every 90 s
+	// (git.ts codeLinksOf, shared with the Agents place; a changed folder is a read of its own).
+	const projectCode = (p: Project) => codeLinksOf(p, 90e3);
 	// A new or changed tracker is read right away rather than at the next tick.
 	const readSoon = (id: number) => {
 		const t = getTracker(db, id);
@@ -404,7 +398,6 @@ export function boardRoutes(h: BoardHost) {
 					const before = getProject(db, req.params.slug);
 					if (before && body?.path !== undefined && body.path !== before.path) body.path = h.cloud ? String(body.path ?? "").trim() : checkFolder(body.path);
 					const p = updateProject(db, req.params.slug, body ?? {});
-					codeCache.delete(p.slug);
 					forgetLogo(p.slug);
 					return json(p);
 				} catch (e) {
@@ -1026,7 +1019,7 @@ export function boardRoutes(h: BoardHost) {
 		},
 		"/api/git": async (req) => {
 			const only = new URL(req.url).searchParams.get("project");
-			return json(await Promise.all(projects(db).filter((p) => (only ? p.slug === only : !p.archived_at)).map(repoState)));
+			return json(await Promise.all(projects(db).filter((p) => (only ? p.slug === only : !p.archived_at)).map((p) => repoStateOf(p, 0))));
 		},
 		"/api/items": {
 			GET: (req) => {

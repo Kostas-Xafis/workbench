@@ -119,7 +119,7 @@ export class Helpers {
 			}
 		};
 		costs.of = (sessions, since = 0) => this.costs(sessions, since);
-		agentGit.read = (_list, only) => this.gitForAgents(only);
+		agentGit.read = (list) => this.gitForAgents(list);
 		desktop.here = false;
 		reader.read = (t, folder) =>
 			this.ask<Reading>("tracker", { tracker: { id: t.id, kind: t.kind, command: t.command, options: t.options, name: t.name, project: t.project }, folder }, { prefer: folder, timeout: RUN_TIMEOUT_MS + 15e3 });
@@ -289,20 +289,41 @@ export class Helpers {
 	}
 
 	/**
-	 * The Agents place's git (agents.ts): what the page's own git and code polls keep (the same cache keys), with what
-	 * isn't known said in words.
+	 * The Agents place's git (agents.ts), for the projects it names (those with finished work on a branch): what the
+	 * page's own git and code polls keep, when that covers them (the board-wide answer, key "", or the one project's),
+	 * else these projects alone, asked under a key of their own. With what isn't known said in words.
 	 */
-	private async gitForAgents(only: string | null): Promise<GitRead> {
-		const key = only ?? "";
-		const list = projects(this.db)
-			.filter((p) => (only ? p.slug === only : !p.archived_at))
-			.map((p) => ({ slug: p.slug, path: p.path }));
-		const [repos, code] = await Promise.all([
-			this.cached<RepoState[]>(`git:${key}`, 30e3, "git", { projects: list }, []),
-			this.cached<CodeLinks>(`code:${key}`, 90e3, "code", { projects: list }, {}),
-		]);
+	private async gitForAgents(wanted: { slug: string; path: string }[]): Promise<GitRead> {
+		const list = wanted.map((p) => ({ slug: p.slug, path: p.path }));
+		const slugs = list.map((p) => p.slug).sort();
+		const live = new Set(
+			projects(this.db)
+				.filter((p) => !p.archived_at)
+				.map((p) => p.slug),
+		);
+		const read = async <T>(kind: "git" | "code", maxAge: number, fallback: T): Promise<{ value: T; at: number | null }> => {
+			const own = slugs.length === 1 ? `${kind}:${slugs[0]}` : `${kind}:agents:${slugs.join(",")}`;
+			const keys = slugs.every((s) => live.has(s)) ? [own, `${kind}:`] : [own];
+			const rows = keys
+				.map((k) => this.db.query("SELECT value, at FROM helper_cache WHERE key = ?").get(k) as { value: string; at: number } | null)
+				.filter((r): r is { value: string; at: number } => !!r)
+				.sort((a, b) => b.at - a.at);
+			const newest = rows[0];
+			if (newest && Date.now() - newest.at < maxAge) return { value: JSON.parse(newest.value) as T, at: newest.at };
+			// Old: shown meanwhile, and these projects asked again behind it (only ever under their own key).
+			if (newest) {
+				void this.cached<T>(own, maxAge, kind, { projects: list }, fallback).catch(() => {});
+				return { value: JSON.parse(newest.value) as T, at: newest.at };
+			}
+			const value = await this.cached<T>(own, maxAge, kind, { projects: list }, fallback);
+			const at = (this.db.query("SELECT at FROM helper_cache WHERE key = ?").get(own) as { at: number } | null)?.at ?? null;
+			return { value, at };
+		};
+		const [g, c] = await Promise.all([read<RepoState[]>("git", 30e3, []), read<CodeLinks>("code", 90e3, {})]);
+		const repos = (g.value ?? []).filter((r) => slugs.includes(r.project));
+		const code = c.value;
 		const limits: string[] = [];
-		const row = this.db.query("SELECT at FROM helper_cache WHERE key = ?").get(`git:${key}`) as { at: number } | null;
+		const row = g.at === null ? null : { at: g.at };
 		const online = this.online();
 		if (!online.length)
 			limits.push(

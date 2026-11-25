@@ -73,10 +73,49 @@ describe("the order of agent work", () => {
 	test("items left out of a new list keep their relative order after it", () => {
 		const db = freshDb();
 		const [a, b, c] = ["a", "b", "c"].map((t) => add(db, t));
-		setOrder(db, "demo", [ref(db, a), ref(db, b), ref(db, c)]);
+		setOrder(db, "demo", [ref(db, b)]);
+		// c isn't ordered yet, so the list goes first
 		setOrder(db, "demo", [ref(db, c)]);
-		expect(titles(db)).toEqual(["c", "a", "b"]);
-		expect([c, a, b].map((x) => getItem(db, x)!.rank)).toEqual([1, 2, 3]);
+		expect(titles(db)).toEqual(["c", "b", "a"]);
+		expect([c, b, a].map((x) => getItem(db, x)!.rank)).toEqual([1, 2, null]);
+	});
+
+	test("a list of ordered items only (a goal's to-dos) is reordered in place, among the places it holds", () => {
+		const db = freshDb();
+		const [a, b, c, d, e] = ["a", "b", "c", "d", "e"].map((t) => add(db, t));
+		setOrder(db, "demo", [a, b, c, d, e].map((x) => ref(db, x)));
+		// b and d belong to the goal: swapped in their own places, a, c and e don't move
+		setOrder(db, "demo", [ref(db, d), ref(db, b)]);
+		expect(titles(db)).toEqual(["a", "d", "c", "b", "e"]);
+		// one item alone: nothing moves
+		setOrder(db, "demo", [ref(db, e)]);
+		expect(titles(db)).toEqual(["a", "d", "c", "b", "e"]);
+		// the full list keeps its meaning
+		setOrder(db, "demo", [e, d, c, b, a].map((x) => ref(db, x)));
+		expect(titles(db)).toEqual(["e", "d", "c", "b", "a"]);
+		expect([e, d, c, b, a].map((x) => getItem(db, x)!.rank)).toEqual([1, 2, 3, 4, 5]);
+	});
+
+	test("a priority-1 item goes ahead of the ordered work that isn't priority 1, after the priority-1 work", () => {
+		const db = freshDb();
+		const p1 = add(db, "old p1", { priority: 1 });
+		const [b, c] = ["b p3", "c p2"].map((t, n) => add(db, t, { priority: n ? 2 : 3 }));
+		setOrder(db, "demo", [p1, b, c].map((x) => ref(db, x)));
+		add(db, "new bug", { priority: 1, kind: "bug" });
+		expect(titles(db)).toEqual(["old p1", "new bug", "b p3", "c p2"]);
+		// P2 and P3 still go to the end
+		add(db, "later p3", { priority: 3 });
+		expect(titles(db).at(-1)).toBe("later p3");
+		// made priority 1 later: the same place
+		const later = listItems(db, { project: "demo", q: "later p3" })[0].id;
+		updateItem(db, later, { priority: 1 }, "agent");
+		expect(titles(db)).toEqual(["old p1", "new bug", "later p3", "b p3", "c p2"]);
+		// a full-order setOrder with no priority-1 items ahead: it goes first
+		const db2 = freshDb();
+		const [x, y] = ["x", "y"].map((t) => add(db2, t));
+		setOrder(db2, "demo", [ref(db2, x), ref(db2, y)]);
+		add(db2, "z urgent", { priority: 1 });
+		expect(titles(db2)).toEqual(["z urgent", "x", "y"]);
 	});
 
 	test("doing stays above todo; Kostas's items have no place in it", () => {
@@ -110,10 +149,10 @@ describe("the order of agent work", () => {
 		const b = add(db, "b");
 		add(db, "c");
 		setOrder(db, "demo", [ref(db, b)]);
-		add(db, "urgent new", { priority: 1 });
-		expect(titles(db)).toEqual(["b", "a", "c", "urgent new"]);
 		add(db, "newer");
-		expect(titles(db)).toEqual(["b", "a", "c", "urgent new", "newer"]);
+		expect(titles(db)).toEqual(["b", "a", "c", "newer"]);
+		add(db, "urgent new", { priority: 1 });
+		expect(titles(db)).toEqual(["urgent new", "b", "a", "c", "newer"]);
 		expect(getItem(db, a)!.rank).not.toBeNull();
 	});
 

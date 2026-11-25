@@ -52,7 +52,12 @@ async function ended(db: Db, id: number): Promise<Run> {
 const realGit = agentGit.read;
 function fakeGit(repos: Partial<RepoState>[], code: GitRead["code"] = {}, limits: string[] = []) {
 	agentGit.read = async () => ({
-		repos: repos.map((r) => ({ project: "repo", ok: true, branch: "master", base: "master", dirty: [], ahead: 0, behind: 0, unmerged: [], worktrees: [], lastCommit: "", ...r })),
+		// The branches git has: the unmerged ones and the merged ones the tests name.
+		repos: repos.map((r) => ({
+			project: "repo", ok: true, branch: "master", base: "master", dirty: [], ahead: 0, behind: 0, unmerged: [], worktrees: [], lastCommit: "",
+			branches: ["master", "feature-m", "feature-merged", ...(r.unmerged ?? []).map((b) => b.name)],
+			...r,
+		})),
 		code,
 		limits,
 	});
@@ -112,7 +117,11 @@ describe("signs of life", () => {
 			});
 			return ((await (await mcpHttp(req, db, { loopback: true })).json()) as any).result;
 		};
+		// Reading it isn't a sign of life; acting on it is.
 		await call("get_item", { ref: `wb-${getItem(db, named)!.ref}` });
+		await call("search", { q: "Named" });
+		expect(getItem(db, named)!.alive).toBe(false);
+		await call("add_note", { ref: `wb-${getItem(db, named)!.ref}`, text: "on it" });
 		expect(getItem(db, named)!.alive).toBe(true);
 		expect(getItem(db, bySession)!.alive).toBe(false);
 		await call("list_items", {}, { "x-wb-session": "abc-session-1" });
@@ -133,6 +142,9 @@ describe("signs of life", () => {
 			return runCli({ db, args, o: { ...o, project: "demo" }, cwd: "/tmp/demo", author, tty: false, base: "", port: 0, out: () => {}, err: () => {}, read: async () => { throw new Error("no files"); }, write: async () => {} });
 		};
 		expect(await wb(["show", ref], "kostas")).toBe(0);
+		expect(getItem(db, id)!.alive).toBe(false);
+		// An agent reading it isn't one either
+		expect(await wb(["show", ref], "agent")).toBe(0);
 		expect(getItem(db, id)!.alive).toBe(false);
 		expect(await wb(["note", ref, "on it"], "agent")).toBe(0);
 		expect(getItem(db, id)!.alive).toBe(true);
@@ -230,6 +242,82 @@ describe("git: the main branch and how far each branch is ahead", () => {
 		expect(o.branch).toBe("overnight");
 		expect(branchState({ ref: "k3f9", branch: "feature", project: "g" }, o, {})).toMatchObject({ known: true, merged: true, into: "overnight" });
 		expect(branchState({ ref: "k3f9", branch: "later", project: "g" }, o, {})).toMatchObject({ known: true, merged: false, ahead: 1 });
+		// ...unless an agent item calls the checked-out branch its own: then it's a feature branch, nothing landed there.
+		expect(branchState({ ref: "k3f9", branch: "feature", project: "g" }, o, {}, new Set(["overnight"]))).toMatchObject({ known: true, merged: false, ahead: 2 });
+	});
+
+	test("a branch git doesn't have is not known, never merged; one only on origin is found there", async () => {
+		const run = (cwd: string, ...args: string[]) => {
+			const p = Bun.spawnSync(["git", "-c", "user.name=t", "-c", "user.email=t@t", "-c", "init.defaultBranch=master", "-c", "commit.gpgsign=false", ...args], { cwd });
+			if (p.exitCode !== 0) throw new Error(p.stderr.toString());
+		};
+		const origin = join(dir, "origin-repo");
+		mkdirSync(origin);
+		run(origin, "init", "-q");
+		writeFileSync(join(origin, "a"), "1");
+		run(origin, "add", "a");
+		run(origin, "commit", "-qm", "one");
+		run(dir, "clone", "-q", origin, "clone-repo");
+		const clone = join(dir, "clone-repo");
+		// Pushed to origin from elsewhere, fetched here but never checked out: unmerged, from the remote-tracking ref.
+		run(origin, "checkout", "-qb", "pushed");
+		writeFileSync(join(origin, "a"), "2");
+		run(origin, "commit", "-qam", "pushed work");
+		run(origin, "checkout", "-qb", "pushed-merged", "master");
+		run(origin, "checkout", "-q", "master");
+		run(clone, "fetch", "-q");
+		const p = { slug: "c", name: "C", path: clone, icon: "", sort: 0, archived_at: null, report_order: "[]" };
+		const s = await repoState(p);
+		expect(s.remoteUnmerged).toEqual([expect.objectContaining({ name: "pushed", ahead: 1 })]);
+		expect(branchState({ ref: "k3f9", branch: "pushed", project: "c" }, s, {})).toMatchObject({ known: true, merged: false, ahead: 1 });
+		expect(branchState({ ref: "k3f9", branch: "pushed-merged", project: "c" }, s, {})).toMatchObject({ known: true, merged: true });
+		expect(branchState({ ref: "k3f9", branch: "never-was", project: "c" }, s, {})).toMatchObject({ known: false, missing: true, why: "branch not found on this computer" });
+		// An older helper's git state, without the branch lists: not known either.
+		const { branches: _, remoteBranches: __, remoteUnmerged: ___, ...older } = s;
+		expect(branchState({ ref: "k3f9", branch: "pushed", project: "c" }, older, {}).known).toBe(false);
+
+		// In the Agents place: finished says "not known" (null), and ready to land shows it with why.
+		const db = freshDb();
+		addProject(db, { slug: "c", name: "C", path: clone });
+		const gone = addItem(db, { title: "Gone", project: "c", owner: "agent", branch: "never-was" });
+		updateItem(db, gone, { status: "done" }, "agent", "done on never-was");
+		const pushed = addItem(db, { title: "Pushed", project: "c", owner: "agent", branch: "pushed" });
+		updateItem(db, pushed, { status: "done" }, "agent", "done on pushed");
+		agentGit.read = realGit;
+		forgetGit();
+		const v = await agentsView(db, { project: "c" }, here);
+		const fin = Object.fromEntries(v.finished.map((f) => [f.item.id, f]));
+		expect(fin[gone].merged).toBeNull();
+		expect(fin[pushed].merged).toBe(false);
+		const ready = Object.fromEntries(v.ready.map((r) => [r.item.id, r]));
+		expect(ready[gone]).toMatchObject({ merged: null, unknown: "branch not found on this computer", ahead: null });
+		expect(ready[pushed]).toMatchObject({ merged: false, unknown: "", ahead: 1 });
+	});
+});
+
+describe("Running now", () => {
+	test("lists what's alive and in doing; a waiting item an agent touched is stuck, not running", async () => {
+		const db = freshDb();
+		addProject(db, { slug: "run", name: "Run", path: "" });
+		const doing = addItem(db, { title: "Doing", project: "run", owner: "agent", status: "doing" });
+		const waits = addItem(db, { title: "Waits", project: "run", owner: "agent" });
+		const ask = addItem(db, { title: "Pick one", project: "run", kind: "decision", owner: "kostas", options: ["A", "B"] });
+		waitOn(db, waits, [ask], "agent");
+		noteAlive(db, { ids: [doing, waits] });
+		expect(getItem(db, waits)!.alive).toBe(true);
+		const v = await agentsView(db, { project: "run" }, here);
+		expect(v.running.map((r) => r.item.id)).toEqual([doing]);
+		expect(v.stuck.map((s) => s.item.id)).toContain(waits);
+	});
+
+	test("a session's calls count only for a doing item it started", () => {
+		const db = freshDb();
+		const s = "local_0d6e5b8a-1111-4222-8333-777788889999";
+		const doing = addItem(db, { title: "Doing", project: "demo", owner: "agent", status: "doing", session: s });
+		const waiting = addItem(db, { title: "Waiting", project: "demo", owner: "agent", status: "waiting", session: s });
+		noteAlive(db, { session: s });
+		expect(getItem(db, doing)!.alive).toBe(true);
+		expect(getItem(db, waiting)!.alive).toBe(false);
 	});
 });
 
@@ -322,6 +410,56 @@ describe("GET /api/agents", () => {
 		expect(v.limits[0]).toContain("No computer is online");
 		expect(v.limits.some((l) => l.includes("can't tell which branches are merged (not a git repository)"))).toBe(true);
 		expect(v.finished.every((f) => f.merged === null || !f.branch)).toBe(true);
+	});
+});
+
+describe("what polling /api/agents costs", () => {
+	test("since is taken to the minute, so polls within a minute get the same answer (and a 304)", async () => {
+		const db = freshDb();
+		const id = addItem(db, { title: "Done", project: "demo", owner: "agent" });
+		updateItem(db, id, { status: "done" }, "agent", "did it");
+		const t = Date.parse("2026-11-25T10:00:05Z");
+		const now = Date.now();
+		const a = await agentsView(db, { since: new Date(t).toISOString() }, null, now);
+		const b = await agentsView(db, { since: new Date(t + 40e3).toISOString() }, null, now + 40e3);
+		expect(a.since).toBe("2026-11-25 10:00:00");
+		expect(JSON.stringify(b)).toBe(JSON.stringify(a));
+		// No since: a day back, to the minute as well.
+		const m = Math.floor(now / 60e3) * 60e3;
+		expect(JSON.stringify(await agentsView(db, {}, null, m + 1e3))).toBe(JSON.stringify(await agentsView(db, {}, null, m + 50e3)));
+		// Through the ETag: the second poll is a 304.
+		const { withEtag } = await import("../src/fresh");
+		const first = await withEtag(new Request("http://x/api/agents"), Response.json(a));
+		const tag = first.headers.get("etag")!;
+		expect((await withEtag(new Request("http://x/api/agents", { headers: { "if-none-match": tag } }), Response.json(b))).status).toBe(304);
+	});
+
+	test("git is read only for the projects with finished work on a branch, and shares what /api/git read", async () => {
+		const db = freshDb();
+		addProject(db, { slug: "quiet", name: "Quiet", path: "/tmp/quiet" });
+		addProject(db, { slug: "busy", name: "Busy", path: "/tmp/busy" });
+		addItem(db, { title: "Open", project: "quiet", owner: "agent", branch: "q" });
+		const d = addItem(db, { title: "Done", project: "busy", owner: "agent", branch: "b" });
+		updateItem(db, d, { status: "done" }, "agent");
+		const asked: string[][] = [];
+		agentGit.read = async (list) => {
+			asked.push(list.map((p) => p.slug));
+			return { repos: [], code: {}, limits: [] };
+		};
+		try {
+			await agentsView(db, { project: "*" }, null);
+			expect(asked).toEqual([["busy"]]);
+		} finally {
+			agentGit.read = realGit;
+		}
+		// The git state GET /api/git reads now is what the Agents place takes for 30 s.
+		const { repoStateOf } = await import("../src/git");
+		const p = { slug: "g2", name: "G", path: join(dir, "git-repo"), icon: "", sort: 0, archived_at: null, report_order: "[]" };
+		forgetGit();
+		const fresh = repoStateOf(p, 0);
+		expect(repoStateOf(p, 30e3)).toBe(fresh);
+		expect(repoStateOf(p, 0)).not.toBe(fresh);
+		await fresh;
 	});
 });
 

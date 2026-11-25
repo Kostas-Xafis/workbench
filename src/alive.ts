@@ -2,9 +2,10 @@
  * Whether an agent is alive on an item (docs/agents.md, "Is it running?"). Two signs:
  *
  * - **A live run** the board started on it (dispatch.ts: a `runs` row with no `ended_at`).
- * - **A call about it** in the last few minutes: an MCP tool call naming its ref (get_item, start_item, add_note,
- *   update_item, finish_item, wait_item, attach_image, …), any MCP call from the session the item records
- *   (start_item records `session`), or a `wb` command an agent ran on it. Both transports and `wb` land here, on a
+ * - **A call that acts on it** in the last few minutes: an MCP tool call that changes it (start_item, add_note,
+ *   update_item, finish_item, wait_item, attach_image, image, answer_decision, drop_item: mcp.ts ACTS_ON_ITEM; reads
+ *   such as get_item don't count), any MCP call from the session that started it while it's doing (start_item records
+ *   `session`), or the same `wb` commands an agent ran on it (cli.ts ITEM_ARG). Both transports and `wb` land here, on a
  *   computer and on the cloud board alike: there `wb mcp` relays each call to the cloud board's /mcp with the
  *   session it runs in (relay.ts), and `wb` runs its commands there (cli.ts), so the same code sees them.
  *
@@ -40,7 +41,7 @@ export function noteAlive(db: Db, { ids = [], session }: { ids?: (number | undef
 		}
 		if (session && SESSION.test(session)) {
 			if (now - (sessions.get(session) ?? 0) >= TOUCH_EVERY) {
-				db.query(`UPDATE items SET alive_at = datetime('now') WHERE session = ? AND status IN ('doing', 'waiting') AND ${fresh}`).run(session);
+				db.query(`UPDATE items SET alive_at = datetime('now') WHERE session = ? AND status = 'doing' AND ${fresh}`).run(session);
 				sessions.set(session, now);
 			}
 		}

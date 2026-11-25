@@ -3,7 +3,7 @@
  * isn't merged, what's stuck and what finished, in one answer (GET /api/agents), and Merge it (POST
  * /api/items/:id/land, `wb land`), which starts a run that lands a done item's branch (dispatch.ts startLand).
  *
- * - **Running**: the runs the board started that are still going, and the open agent items that are alive (alive.ts).
+ * - **Running**: the runs the board started that are still going, and the agent items in doing that are alive (alive.ts).
  * - **Ready to land**: agent items done in the last READY_DAYS whose branch isn't merged into the project's main
  *   branch, from the git state the board already reads (git.ts repoState and codeLinks; a merged pull request that
  *   names the item counts as merged).
@@ -11,12 +11,13 @@
  *   that have had no sign of life for a day while doing (stale.ts); and done ones whose merge run failed.
  * - **Finished**: agent items done since `since` (24 hours unless asked).
  *
- * Git comes through `agentGit.read`: on a computer it's read here (at most every 30 s for the state, 90 s for commits
- * and pull requests, which ask `gh`); the cloud board hands it to its computer helper's cache (worker/src/helper.ts),
+ * Git comes through `agentGit.read`, only for the projects with finished work on a branch: on a computer it's read here
+ * (at most every 30 s for the state, 90 s for commits and pull requests, which ask `gh`, sharing what GET /api/git and
+ * /api/code read); the cloud board hands it to its computer helper's cache (worker/src/helper.ts),
  * and says in `limits` what it couldn't know.
  */
 import { getItem, listItems, projects, type Db, type Item, type Note, type Project } from "./db";
-import { codeLinks, repoState, type CodeLinks, type PullRequest, type RepoState } from "./git";
+import { codeLinksOf, forgetGitReads, repoStateOf, type CodeLinks, type PullRequest, type RepoState } from "./git";
 import { blockersOf } from "./links";
 import { getRun, itemRefusal, landRefusal, liveRuns, startLand, startRefusal, type From, type Run } from "./dispatch";
 
@@ -28,34 +29,32 @@ const OPEN = ["todo", "doing", "waiting"];
 
 export type GitRead = { repos: RepoState[]; code: CodeLinks; limits: string[] };
 
-const repoCache = new Map<string, { at: number; value: Promise<RepoState> }>();
-const codeCache = new Map<string, { at: number; value: Promise<CodeLinks> }>();
-function memo<T>(cache: Map<string, { at: number; value: Promise<T> }>, key: string, maxAge: number, read: () => Promise<T>) {
-	const hit = cache.get(key);
-	if (hit && Date.now() - hit.at < maxAge) return hit.value;
-	const value = read();
-	cache.set(key, { at: Date.now(), value });
-	return value;
-}
-
-/** Reads the git state of `list` (`only`: the one slug asked for, or null for every project). The cloud board
- * replaces it (worker/src/helper.ts). */
+/** Reads the git state of `list`, the projects whose finished work has a branch (`only`: the one slug asked for, or
+ * null for every project). What GET /api/git and /api/code read lately is used again (git.ts repoStateOf,
+ * codeLinksOf). The cloud board replaces it (worker/src/helper.ts). */
 export const agentGit = {
 	read: async (list: Project[], _only: string | null): Promise<GitRead> => {
-		const [repos, code] = await Promise.all([
-			Promise.all(list.map((p) => memo(repoCache, `${p.slug}:${p.path}`, 30e3, () => repoState(p)))),
-			Promise.all(list.map((p) => memo(codeCache, `${p.slug}:${p.path}`, 90e3, () => codeLinks(p)))),
-		]);
+		const [repos, code] = await Promise.all([Promise.all(list.map((p) => repoStateOf(p, 30e3))), Promise.all(list.map((p) => codeLinksOf(p, 90e3)))]);
 		return { repos, code: Object.assign({}, ...code), limits: [] };
 	},
 };
 /** Forgets what was read (tests). */
-export const forgetGit = () => (repoCache.clear(), codeCache.clear());
+export const forgetGit = forgetGitReads;
 
-/** Where an item's branch stands: merged into the main branch or not, or unknown (`known: false`, with why). */
-export type BranchState = { known: boolean; merged: boolean; base: string; ahead: number | null; worktree: string; why?: string; into?: string };
+/**
+ * Where an item's branch stands: merged into the main branch or not, or unknown (`known: false`, with why). `missing`:
+ * neither the local branches nor origin's remote-tracking ones have it ("branch not found on this computer"), so it may
+ * be merged and deleted, or pushed from elsewhere and never fetched: not known, never taken as merged.
+ *
+ * `own`: the branches agent items name as their own (open or recently done). The branch the project's checkout is on
+ * counts as an integration branch (what's merged there has landed) only when it isn't one of them: a feature branch
+ * checked out in the main folder doesn't make everything landed.
+ */
+export type BranchState = { known: boolean; merged: boolean; base: string; ahead: number | null; worktree: string; why?: string; into?: string; missing?: boolean };
 
-export function branchState(i: Pick<Item, "ref" | "branch" | "project">, repo: RepoState | undefined, code: CodeLinks): BranchState {
+export const NOT_FOUND = "branch not found on this computer";
+
+export function branchState(i: Pick<Item, "ref" | "branch" | "project">, repo: RepoState | undefined, code: CodeLinks, own: ReadonlySet<string> = new Set()): BranchState {
 	const base = repo?.base ?? "";
 	const worktree = repo?.worktrees.find((w) => w.branch === i.branch)?.path ?? "";
 	const none = { known: false, merged: false, base, ahead: null, worktree };
@@ -64,12 +63,30 @@ export function branchState(i: Pick<Item, "ref" | "branch" | "project">, repo: R
 	if (!repo?.ok) return { ...none, why: repo?.error || "no git state" };
 	if (i.branch === base || (!base && ["main", "master"].includes(i.branch))) return { known: true, merged: true, base, ahead: 0, worktree };
 	const open = repo.unmerged.find((b) => b.name === i.branch);
-	// Merged into the branch the project's checkout is on (an integration branch, when that isn't the main one): landed.
-	if (open && repo.unmergedHead && repo.branch && !repo.unmergedHead.includes(i.branch))
+	// Merged into the branch the project's checkout is on (an integration branch, when that isn't the main one and no
+	// agent item calls it its own): landed.
+	const integration = !!repo.branch && repo.branch !== base && !own.has(repo.branch);
+	if (open && integration && repo.unmergedHead && !repo.unmergedHead.includes(i.branch))
 		return { known: true, merged: true, base, ahead: 0, worktree, into: repo.branch };
 	if (open) return { known: true, merged: false, base, ahead: open.ahead ?? null, worktree };
-	// Not among the unmerged branches: merged (or deleted, which git can't tell apart from here).
-	return { known: true, merged: true, base, ahead: 0, worktree };
+	// Pushed to origin and not merged there, though not (or no longer) a branch here.
+	const pushed = repo.remoteUnmerged?.find((b) => b.name === i.branch);
+	if (pushed) return { known: true, merged: false, base, ahead: pushed.ahead ?? null, worktree };
+	// An older helper doesn't list the branches: a branch not among the unmerged ones can't be told from a missing one.
+	if (!repo.branches) return { ...none, why: "the computer that sends git state has an older Workbench app" };
+	// A branch git has, not among the unmerged ones: merged.
+	if (repo.branches.includes(i.branch) || repo.remoteBranches?.includes(i.branch)) return { known: true, merged: true, base, ahead: 0, worktree };
+	return { ...none, why: NOT_FOUND, missing: true };
+}
+
+/** The branches agent items name as their own: open ones, and those done in the last READY_DAYS (branchState's `own`). */
+export function itemBranches(db: Db, project: string, now = Date.now()): Set<string> {
+	const rows = db
+		.query(
+			"SELECT DISTINCT branch FROM items WHERE project = ? AND owner = 'agent' AND branch != '' AND (status IN ('todo', 'doing', 'waiting') OR (status = 'done' AND done_at >= ?))",
+		)
+		.all(project, sqlTime(now - READY_DAYS * 86400e3)) as { branch: string }[];
+	return new Set(rows.map((r) => r.branch));
 }
 
 /** The pull request to show for an item: an open one first, else the newest. */
@@ -142,6 +159,9 @@ export type Ready = {
 	note: string;
 	land: { allowed: boolean; why: string };
 	last_land: AgentRun | null;
+	/** false: known not to be merged. null: not known, with why in `unknown` ("branch not found on this computer"). */
+	merged: false | null;
+	unknown: string;
 };
 export type Stuck = {
 	item: AgentItem;
@@ -186,7 +206,9 @@ export async function agentsView(db: Db, q: { project?: string; since?: string }
 		sinceMs = Date.parse(q.since);
 		if (!Number.isFinite(sinceMs)) throw new Error(`since must be a date and time (ISO 8601), not "${q.since}"`);
 	}
-	const since = sqlTime(sinceMs);
+	// To the minute: a page that asks "since a day ago" on every poll asks the same thing for a minute, so its answer can be
+	// the same, and the ETag says 304 (fresh.ts) rather than sending it all again.
+	const since = sqlTime(Math.floor(sinceMs / 60e3) * 60e3);
 	const readyFrom = sqlTime(now - READY_DAYS * 86400e3);
 	const limits: string[] = [];
 
@@ -218,14 +240,17 @@ export async function agentsView(db: Db, q: { project?: string; since?: string }
 	const gitProjects = list.filter((p) => withBranch.has(p.slug));
 	if (gitProjects.length) {
 		try {
-			git = await agentGit.read(project === "*" ? list : gitProjects, project === "*" ? null : project);
+			git = await agentGit.read(gitProjects, project === "*" ? null : project);
 		} catch (e) {
 			limits.push(`The board couldn't read git: ${(e as Error).message}`);
 		}
 	}
 	limits.push(...git.limits);
 	const repoOf = new Map(git.repos.map((r) => [r.project, r]));
-	const stateOf = (i: Item) => branchState(i, repoOf.get(i.project), git.code);
+	const own = new Map<string, Set<string>>();
+	for (const i of [...open, ...done])
+		if (i.branch && (i.status !== "done" || (i.done_at ?? "") >= readyFrom)) (own.get(i.project) ?? own.set(i.project, new Set()).get(i.project)!).add(i.branch);
+	const stateOf = (i: Item) => branchState(i, repoOf.get(i.project), git.code, own.get(i.project));
 	const unknown = new Map<string, { n: number; why: string }>();
 
 	const start = from ? await startRefusal(db, from) : { why: "Agents start only from the board on this computer, or a phone paired with it." };
@@ -252,8 +277,9 @@ export async function agentsView(db: Db, q: { project?: string; since?: string }
 			event: ev ? { ...ev, tool: ev.tool ?? "", text: firstLine(ev.text) } : null,
 		});
 	}
+	// Alive and in doing: a waiting or to-do item an agent touched isn't running (it may still be stuck below).
 	for (const i of open) {
-		if (taken.has(i.id) || !i.alive) continue;
+		if (taken.has(i.id) || !i.alive || i.status !== "doing") continue;
 		taken.add(i.id);
 		const notes = notesOf(i.id);
 		const began = [...notes].reverse().find((n) => /(^|· )status: \w+ → doing/.test(n.text))?.at;
@@ -293,7 +319,8 @@ export async function agentsView(db: Db, q: { project?: string; since?: string }
 	for (const i of done) {
 		if (taken.has(i.id) || !i.branch || (i.done_at ?? "") < readyFrom) continue;
 		const s = stateOf(i);
-		if (!s.known) {
+		// A branch git has nowhere here is shown, as not known: it may be on a computer that hasn't fetched it.
+		if (!s.known && !s.missing) {
 			const u = unknown.get(i.project) ?? { n: 0, why: s.why ?? "" };
 			u.n++;
 			unknown.set(i.project, u);
@@ -324,6 +351,8 @@ export async function agentsView(db: Db, q: { project?: string; since?: string }
 			note: firstLine(doneWords(i.notes, i.done_at)?.text ?? ""),
 			land: { allowed: !why, why },
 			last_land: runBrief(last?.kind === "land" ? last : undefined),
+			merged: s.known ? false : null,
+			unknown: s.known ? "" : (s.why ?? ""),
 		});
 	}
 	for (const [slug, u] of unknown)
@@ -371,7 +400,7 @@ async function branchCheck(db: Db, i: Item): Promise<{ why?: string; base?: stri
 	} catch {
 		return {};
 	}
-	const s = branchState(i, git.repos.find((r) => r.project === p.slug), git.code);
+	const s = branchState(i, git.repos.find((r) => r.project === p.slug), git.code, itemBranches(db, p.slug));
 	if (s.known && s.merged) return { why: `${i.branch} is merged into ${s.base || "the main branch"} already` };
 	return { base: s.base };
 }
