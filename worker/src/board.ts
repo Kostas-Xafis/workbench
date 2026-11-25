@@ -26,7 +26,7 @@ import maskable192 from "../../ui/icons/maskable-192.png";
 import maskable512 from "../../ui/icons/maskable-512.png";
 import badge96 from "../../ui/icons/badge-96.png";
 import pkg from "../../package.json";
-import { createSchema, pruneDayVersions, tidy, type Db } from "../../src/db";
+import { createSchema, tidy, type Db } from "../../src/db";
 import { applyDue } from "../../src/asks";
 import { createHash } from "node:crypto";
 import { addDevice, deviceName, Pairing, phoneGate, type OpenCode } from "../../src/devices";
@@ -104,11 +104,9 @@ export class Board extends DurableObject<Env> {
 		useKeyring(cloudKeyring(env.WB_SOURCES_KEY || env.WB_OWNER_KEY));
 		createSchema(this.db);
 		const db = this.db;
-		// Day pages keep their last few versions (db.ts pruneDayVersions): settled once as this object starts; each day
-		// page's write prunes it after that (day.ts).
-		try {
-			pruneDayVersions(db);
-		} catch {}
+		// Day pages keep their last few versions from each day page's own write on (day.ts). The cloud board doesn't prune
+		// its older history in one go as it starts: it has no backup of its own, and `wb export` can't yet write a board
+		// this size, so nothing would keep what goes. pruneDayVersions(db) here once an export can hold it.
 		// The open pairing code, kept in the database: this object may be restarted while a phone types it.
 		db.run("CREATE TABLE IF NOT EXISTS pairing_code (id INTEGER PRIMARY KEY CHECK (id = 1), value TEXT NOT NULL, expires INTEGER NOT NULL, wrong INTEGER NOT NULL)");
 		// One-time login tickets (login()), by hash: a ticket is as good as a pairing code for its minute.

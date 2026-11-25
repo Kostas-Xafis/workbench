@@ -297,9 +297,9 @@ export function createSchema(db: Db) {
 		html TEXT NOT NULL,
 		PRIMARY KEY (version_id, i)
 	)`);
-	// Day pages keep their last DAY_PAGE_VERSIONS versions only: pruned after the startup backup (server.ts), when the
-	// cloud board's Durable Object starts (worker/src/board.ts) and on each day page's write (day.ts), never here,
-	// before a backup could keep them.
+	// Day pages keep their last DAY_PAGE_VERSIONS versions only: pruned after the startup backup (server.ts) and on each
+	// day page's write (day.ts), never here, before a backup could keep them. The cloud board prunes on writes only
+	// (worker/src/board.ts says why).
 }
 
 export type Db = ReturnType<typeof open>;
