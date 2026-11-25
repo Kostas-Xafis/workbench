@@ -16,8 +16,11 @@ export function agentOrder(db: Db, project: string): Item[] {
 }
 
 /**
- * Puts these items first, in this order (ranks 1..n); the project's other ordered items follow in the order they had,
- * and unordered ones stay unordered. Each must be an open agent item of the project. Returns the order that results.
+ * Puts these items in this order. A list of items that are all ordered already (ranked) is reordered in place: they
+ * swap among the places they hold in the project's order and everything else stays where it is, so the Projects page
+ * filtered to a goal reorders that goal's work without moving it ahead of the rest. Otherwise (the full list, or one
+ * with items not ordered yet) they go first (ranks 1..n); the project's other ordered items follow in the order they
+ * had, and unordered ones stay unordered. Each must be an open agent item of the project. Returns the order that results.
  */
 export function setOrder(db: Db, project: string, refs: unknown): string[] {
 	if (!Array.isArray(refs)) throw new Error('refs is a list of items, e.g. ["wb-k3f9", "wb-m2x7"]');
@@ -31,18 +34,36 @@ export function setOrder(db: Db, project: string, refs: unknown): string[] {
 			throw new Error(`wb-${item.ref} is not open agent work, so it has no place in the order`);
 		if (!ids.includes(item.id)) ids.push(item.id);
 	}
-	const rest = (
+	const ranked = (
 		db.query(`SELECT id FROM items WHERE project = ? AND owner = 'agent' AND ${OPEN_SQL} AND rank IS NOT NULL ORDER BY rank, id`).all(project) as { id: number }[]
-	)
-		.map((r) => r.id)
-		.filter((id) => !ids.includes(id));
-	const set = db.query("UPDATE items SET rank = ? WHERE id = ?");
-	db.transaction(() => [...ids, ...rest].forEach((id, n) => set.run(n + 1, id)))();
+	).map((r) => r.id);
+	let order: number[];
+	if (ids.length && ids.every((id) => ranked.includes(id))) {
+		// In place: the slots these items hold, filled in the new order.
+		const mine = new Set(ids);
+		let n = 0;
+		order = ranked.map((id) => (mine.has(id) ? ids[n++] : id));
+	} else order = [...ids, ...ranked.filter((id) => !ids.includes(id))];
+	writeRanks(db, order);
 	return agentOrder(db, project).map((i) => `wb-${i.ref}`);
 }
 
-/** A newly filed agent item goes to the end. Only matters once the project has an order; until then it takes its usual place. */
+function writeRanks(db: Db, ids: number[]) {
+	const set = db.query("UPDATE items SET rank = ? WHERE id = ?");
+	db.transaction(() => ids.forEach((id, n) => set.run(n + 1, id)))();
+}
+
+/**
+ * A newly filed agent item takes its place in the order: a priority-1 one goes before every item that isn't priority 1
+ * (after the priority-1 ones ahead of them), anything else to the end. Only matters once the project has an order; until
+ * then it takes its usual place. `placeInOrder` does the same for an item that becomes priority 1 (updateItem).
+ */
 export function appendToOrder(db: Db, id: number) {
+	placeInOrder(db, id, getItem(db, id)?.priority === 1 ? "p1" : "end");
+}
+
+/** Puts an open agent item where a priority-1 item goes (`p1`), or at the end, when its project has an order. */
+export function placeInOrder(db: Db, id: number, where: "p1" | "end") {
 	const item = getItem(db, id);
 	if (!item || item.owner !== "agent" || !(OPEN as readonly string[]).includes(item.status)) return;
 	const ordered = db
@@ -50,11 +71,15 @@ export function appendToOrder(db: Db, id: number) {
 		.get(item.project, id);
 	if (!ordered) return;
 	// The unordered ones are ranked in their usual order first, or the new item would land ahead of them.
-	const ids = agentOrder(db, item.project)
-		.map((i) => i.id)
-		.filter((x) => x !== id);
-	const set = db.query("UPDATE items SET rank = ? WHERE id = ?");
-	db.transaction(() => [...ids, id].forEach((x, n) => set.run(n + 1, x)))();
+	const others = agentOrder(db, item.project).filter((x) => x.id !== id);
+	let at = others.length;
+	if (where === "p1") {
+		const first = others.findIndex((x) => x.priority !== 1);
+		if (first >= 0) at = first;
+	}
+	const ids = others.map((x) => x.id);
+	ids.splice(at, 0, id);
+	writeRanks(db, ids);
 }
 
 /** Moves one item: to the top or bottom, or before or after another, in the order agents pick in. Returns the new order. */
@@ -75,5 +100,6 @@ export function moveInOrder(db: Db, id: number, to: { top: true } | { bottom: tr
 		if ("after" in to) at++;
 	}
 	rest.splice(at, 0, id);
-	return setOrder(db, item.project, rest.map((x) => getItem(db, x)!.ref));
+	writeRanks(db, rest);
+	return agentOrder(db, item.project).map((i) => `wb-${i.ref}`);
 }

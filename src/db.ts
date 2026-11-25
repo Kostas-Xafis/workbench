@@ -14,7 +14,7 @@ import { createDeviceTables } from "./devices";
 import { createRunTables, desktopLink } from "./dispatch";
 import { askChanges, cleanAsk, resolveAsk } from "./asks";
 import { createCheckRunTables } from "./checkruns";
-import { appendToOrder } from "./order";
+import { appendToOrder, placeInOrder } from "./order";
 
 export const KINDS = ["task", "check", "review", "decision", "setup", "bug", "idea", "notice"] as const;
 export const STATUSES = ["todo", "doing", "waiting", "done", "dropped"] as const;
@@ -638,6 +638,8 @@ export function updateItem(db: Db, id: number, patch: ItemPatch, author = "", no
 	// Closed, handed to Kostas or moved away: out of the project's order.
 	if (before.rank != null && (["done", "dropped"].includes(patch.status ?? "") || patch.owner === "kostas" || fields.includes("project")))
 		db.query("UPDATE items SET rank = NULL WHERE id = ?").run(id);
+	// Made priority 1: where a new priority-1 item goes in the order (order.ts).
+	else if (fields.includes("priority") && Number(patch.priority) === 1) placeInOrder(db, id, "p1");
 	if (fields.includes("status") && (patch.status === "done" || patch.status === "dropped")) resumeWaiting(db, id);
 	else if (fields.includes("answer") && patch.answer?.trim()) resumeWaiting(db, id, "answered");
 }
