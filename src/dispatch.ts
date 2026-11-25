@@ -430,8 +430,28 @@ function canScope() {
 }
 
 // What a run's process mustn't inherit from a board started inside a Claude Code session: the agent would think
-// it's nested in that one.
-const NESTED = ["CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_SSE_PORT"];
+// it's nested in that one. From a Claude Desktop session also its session id (the agent's start_item recorded the
+// Desktop session that started the board, so the item's Open in Claude Desktop opened that one), its messaging
+// socket and token (to talk to that session's app), and its own way of running (simple mode, no cron, effort).
+// Settings of your own (CLAUDE_CONFIG_DIR, CLAUDE_CODE_USE_BEDROCK, …) stay.
+const NESTED = [
+	"CLAUDECODE",
+	"CLAUDE_CODE_ENTRYPOINT",
+	"CLAUDE_CODE_SSE_PORT",
+	"CLAUDE_CODE_HOST_SESSION_ID",
+	"CLAUDE_CODE_SESSION_ID",
+	"CLAUDE_CODE_CHILD_SESSION",
+	"CLAUDE_CODE_CHILD_NOTES_DIR",
+	"CLAUDE_CODE_SESSION_ATTENDED",
+	"CLAUDE_CODE_MESSAGING_SOCKET",
+	"CLAUDE_CODE_MESSAGING_TOKEN",
+	"CLAUDE_CODE_SIMPLE",
+	"CLAUDE_CODE_DISABLE_CRON",
+	"CLAUDE_PID",
+	"CLAUDE_EFFORT",
+];
+/** Whether a run's process may inherit the board's variable `name` (launchRun). */
+export const inherits = (name: string) => !NESTED.includes(name) && !/^CLAUDE_(AGENT_SDK|DESKTOP)_/.test(name);
 /** The variables a run's command gets from its Launch spec; any other name in it is dropped (launchRun). */
 export const RUN_VARS = ["WB_PROMPT", "WB_ITEM", "WB_TITLE", "WB_PROJECT", "WB_SESSION", "WB_RESUME", "WB_RUN"];
 
@@ -724,7 +744,7 @@ export async function launchRun(l: Launch, onError: (message: string) => void = 
 	const scoped = await canScope();
 	const full = scoped ? ["systemd-run", "--user", "--scope", "--quiet", `--unit=${l.tag}`, ...argv] : argv;
 	const env: Record<string, string> = {};
-	for (const [k, v] of Object.entries(process.env)) if (v !== undefined && !NESTED.includes(k)) env[k] = v;
+	for (const [k, v] of Object.entries(process.env)) if (v !== undefined && inherits(k)) env[k] = v;
 	Object.assign(env, { PATH: await shellPath(), NO_COLOR: "1" });
 	// The run's own variables, set last so nothing inherited shadows them, and only those: a spec comes from the cloud
 	// board too, and PATH, BASH_ENV or LD_PRELOAD from it would change what the command the helper allowed runs.

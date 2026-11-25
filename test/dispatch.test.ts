@@ -621,6 +621,28 @@ describe("watching a run: what the agent said and did", () => {
 		}
 	});
 
+	test("a board started in a Claude Desktop session doesn't hand that session to its runs", async () => {
+		const out = join(dir, "env-host.txt");
+		const set = { CLAUDE_CODE_HOST_SESSION_ID: "local_host", CLAUDE_CODE_MESSAGING_TOKEN: "t", CLAUDE_AGENT_SDK_VERSION: "1", CLAUDE_CONFIG_DIR: process.env.CLAUDE_CONFIG_DIR ?? "/tmp/conf" };
+		const before = Object.fromEntries(Object.keys(set).map((k) => [k, process.env[k]]));
+		Object.assign(process.env, set);
+		try {
+			await launchRun({
+				id: 999002,
+				tag: "wb-run-env-host-test",
+				command: `printf '%s|%s|%s|%s' "$CLAUDE_CODE_HOST_SESSION_ID" "$CLAUDE_CODE_MESSAGING_TOKEN" "$CLAUDE_AGENT_SDK_VERSION" "$CLAUDE_CONFIG_DIR" > ${out}`,
+				cwd: folder,
+				vars: {},
+			});
+			for (let n = 0; n < 50 && !existsSync(out); n++) await Bun.sleep(50);
+			await Bun.sleep(100);
+			expect(readFileSync(out, "utf8")).toBe(`|||${set.CLAUDE_CONFIG_DIR}`);
+		} finally {
+			for (const [k, v] of Object.entries(before)) if (v === undefined) delete process.env[k];
+			else process.env[k] = v;
+		}
+	});
+
 	test("the last 500 are kept, each one's text capped", () => {
 		const l = newLive();
 		for (let n = 0; n < 620; n++) readLine(l, `{"type":"assistant","message":{"content":[{"type":"text","text":"${n === 619 ? "x".repeat(9000) : `step ${n}`}"}]}}`);
