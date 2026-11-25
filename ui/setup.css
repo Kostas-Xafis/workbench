@@ -78,9 +78,10 @@
 	.wl-row { grid-template-columns: auto minmax(0, 1fr); }
 	.wl-row .so-ctl { grid-column: 1 / -1; justify-content: flex-start; }
 }
-/* The checklist at the top of the board, until every step is done or skipped, or it's dismissed. */
-.setup-card { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "ring title tools" "ring chips tools"; align-items: center; gap: 5px 14px;
-	background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 10px 10px 10px 14px; margin: 4px 0 10px; }
+/* The checklist at the top of the Inbox's list, until every step is done or skipped, or it's dismissed. The list is
+   narrow, so the steps take the card's whole width under the title, and the card sits in from the list's edges. */
+.setup-card { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "ring title tools" "chips chips chips"; align-items: center; gap: var(--sp-2) var(--sp-3);
+	background: var(--card); border: 1px solid var(--line); border-radius: var(--r-lg); padding: var(--sp-3); margin: var(--sp-3) var(--sp-4) 0; }
 .setup-card .setup-ring { grid-area: ring; }
 .setup-card > b { grid-area: title; font-size: 13.5px; }
 .setup-ring { flex: none; width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; font-size: 11px; font-weight: 700; color: var(--accent);
@@ -99,7 +100,7 @@
 .setup-chips a.skipped { border-style: dashed; }
 .setup-chips a.skipped::before { background: var(--line); }
 .setup-card .tools { grid-area: tools; display: flex; align-items: center; gap: 4px; }
-@media (max-width: 760px) { .setup-card { grid-template-areas: "ring title tools" "chips chips chips"; padding: 10px; gap: 8px 10px; } }
+@media (max-width: 760px) { .setup-card { margin: var(--sp-2) var(--sp-3) 0; } }
 .empty-card { max-width: 560px; margin: 6vh auto 0; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 0 8px; }
 .empty-card .vault-ic { margin: 0; }
 .empty-card h3 { margin: 4px 0 0; font-size: 17px; }

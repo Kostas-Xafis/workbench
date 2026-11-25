@@ -13,8 +13,11 @@
 <meta name="apple-mobile-web-app-title" content="Workbench">
 <meta name="theme-color" content="#f6f5f2" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#151514" media="(prefers-color-scheme: dark)">
-<!-- Settings → About → Look: the theme picked in this browser, set before the first paint so a reload doesn't flash. -->
-<script>try { const t = JSON.parse(localStorage.getItem("wb.pref.look.theme")); if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; } catch {}</script>
+<!-- Settings → About → Look: the theme picked in this browser, and whether key hints show (not unless picked there),
+     set before the first paint so a reload doesn't flash. -->
+<script>{ const r = document.documentElement, get = (k) => { try { return JSON.parse(localStorage.getItem(`wb.pref.look.${k}`)); } catch { return null; } };
+	const t = get("theme"); if (t === "light" || t === "dark") r.dataset.theme = t;
+	if (get("keys") !== true) r.classList.add("no-keys"); }</script>
 <!-- The board's styles and scripts are in ui/ (docs/development.md, "The board's page"); the server sends each file listed in ui.ts. -->
 <link rel="stylesheet" href="/ui/base.css">
 <link rel="stylesheet" href="/ui/kit.css">

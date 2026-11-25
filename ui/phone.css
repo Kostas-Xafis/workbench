@@ -6,7 +6,8 @@
 	#content { padding-left: env(safe-area-inset-left, 0px); padding-right: env(safe-area-inset-right, 0px); }
 	#tabbar { padding-left: env(safe-area-inset-left, 0px); padding-right: env(safe-area-inset-right, 0px); }
 	dialog.rd-sheet .rd-bar { padding-top: calc(8px + env(safe-area-inset-top, 0px)); }
-	dialog.rd-sheet .rd-doc { padding-top: calc(52px + env(safe-area-inset-top, 0px)); }
+	/* Under the reader's bar (57 px: 8 + a 40 px button + 8 + its line), with room to breathe. */
+	dialog.rd-sheet .rd-doc { padding-top: calc(68px + env(safe-area-inset-top, 0px)); }
 	dialog.rd-sheet { padding-left: env(safe-area-inset-left, 0px); padding-right: env(safe-area-inset-right, 0px); }
 	body dialog.rd-sheet .rd-doc > [data-slot="action"]:has(.rd-act) { padding-bottom: calc(var(--sp-3) + env(safe-area-inset-bottom, 0px)); }
 	dialog.rd-sheet .rd-side { padding-bottom: calc(40px + env(safe-area-inset-bottom, 0px)); }
@@ -19,11 +20,13 @@
 	   their look and get a taller hit area instead (an empty ::after, centred, 40 px high and at least 40 wide). */
 	#search, header.top .primary, button.primary:not(.sm), .ghost:not(.sm), .ib-tab, .pj-tabs [role="tab"], .set-tabs a,
 	select, input[type="text"], input[type="number"], input[type="time"], input[type="date"], input[type="password"], input[type="search"],
-	summary, .ritem, .radios label, .radios button, label.switch { min-height: 40px; }
+	summary, .ritem, .radios label, .radios button, .pj-meter, .pj-goal-main { min-height: 40px; }
+	/* A switch keeps its shape; its (invisible) checkbox reaches past it to 40 px high. */
+	label.switch input { inset: -10px -4px; }
 	.pj-tabs [role="tab"] { min-width: 40px; }
 	/* A project's Next up: the drag handle is a thumb wide. */
 	#project-view .pj-item { grid-template-columns: 40px minmax(0, 1fr); }
-	.ghost:not(.sm), button.primary:not(.sm), .set-tabs a, .ritem, .radios label, label.switch { display: inline-flex; align-items: center; }
+	.ghost:not(.sm), button.primary:not(.sm), .set-tabs a, .ritem, .radios label { display: inline-flex; align-items: center; }
 	.set-tabs a, .ritem { display: flex; }
 	.icon-btn { min-width: 40px; min-height: 40px; }
 	.nav-sheet .nav-warn { min-height: 40px; }

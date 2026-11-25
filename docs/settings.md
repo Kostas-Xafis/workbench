@@ -56,7 +56,7 @@ On this computer only: the database and its copies, then who can get at the boar
 ## About
 
 - **You** (this computer only): **Your name** (default Kostas) is what the board, `wb`, the MCP server's texts and day pages call you. Items for you are still `kostas` in commands and the API. **A work day starts at** (default 05:00) is when "today" turns over for day pages and `wb day`; work before that counts as the day before. It applies from the next day page on.
-- **Look** (this browser): the **theme** (Light, Dark or System; reports and day pages opened on the board follow it, share links follow the system), **Zoom** in the app, and **Keyboard shortcuts** (folded), for reference.
+- **Look** (this browser): the **theme** (Light, Dark or System; reports and day pages opened on the board follow it, share links follow the system), **Show key hints** (off by default: the keys beside buttons and in hint lines, like Done M in an item; the shortcuts work either way, and a phone never shows them), **Zoom** in the app, and **Keyboard shortcuts** (folded), for reference.
 - **Setup guide** (folded; this computer only): the guide's steps, each with what its check finds right now, a button into the guide at that step, and whether "Finish setting up" shows on the Inbox.
   - Each step is checked, not assumed: agents count once an MCP client has called the board, not merely when Claude Code has the server. It opens by itself once, on a board with no projects or fewer than 10 items.
 - **Updates** (folded; this computer only):
