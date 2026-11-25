@@ -104,9 +104,9 @@ export class Board extends DurableObject<Env> {
 		useKeyring(cloudKeyring(env.WB_SOURCES_KEY || env.WB_OWNER_KEY));
 		createSchema(this.db);
 		const db = this.db;
-		// Day pages keep their last few versions from each day page's own write on (day.ts). The cloud board doesn't prune
-		// its older history in one go as it starts: it has no backup of its own, and `wb export` can't yet write a board
-		// this size, so nothing would keep what goes. pruneDayVersions(db) here once an export can hold it.
+		// Day pages keep their last few versions from each day page's own write on (day.ts). The cloud board never prunes
+		// their older history by itself, here or anywhere: it has no backup of its own. `wb tidy --day-pages` does it
+		// when asked (src/cli.ts), once `wb export` (src/export.ts, streamed by GET /api/data/export) has kept a copy.
 		// The open pairing code, kept in the database: this object may be restarted while a phone types it.
 		db.run("CREATE TABLE IF NOT EXISTS pairing_code (id INTEGER PRIMARY KEY CHECK (id = 1), value TEXT NOT NULL, expires INTEGER NOT NULL, wrong INTEGER NOT NULL)");
 		// One-time login tickets (login()), by hash: a ticket is as good as a pairing code for its minute.

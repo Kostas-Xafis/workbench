@@ -73,6 +73,8 @@ export const OPTION_SPEC = {
 	code: { type: "string" },
 	replace: { type: "boolean" },
 	"keep-local": { type: "boolean" },
+	// wb tidy (cli.ts)
+	"day-pages": { type: "boolean" },
 	help: { type: "boolean", short: "h" },
 } as const;
 

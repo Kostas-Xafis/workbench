@@ -159,7 +159,23 @@ Usage, at the foot of the nav (`/usage`): what Claude has used, for the project 
 
 ## Your data
 
-`workbench.db` next to the README (gitignored). The board copies it to `backups/` once a day and keeps the newest 14. `wb backup` makes one now, `wb backups` lists them, `wb export > file.json` writes everything as JSON. To restore, Settings → Data → Restore gives the exact commands for this computer. Vault secrets stay encrypted in backups.
+`workbench.db` next to the README (gitignored). The board copies it to `backups/` once a day and keeps the newest 14. `wb backup` makes one now, `wb backups` lists them. To restore, Settings → Data → Restore gives the exact commands for this computer. Vault secrets stay encrypted in backups.
+
+- **Export:** `wb export > workbench-export.jsonl` writes everything on the board to one file, however big, a row at a time (Settings → Data → Export downloads the same file). While this computer syncs it's the cloud board's, streamed from it: the cloud board has no backup files, so this is the way to keep a copy of it. `wb` says so, and exits with an error, if the connection drops before the end.
+- **What's in it:** every table a move to the cloud board carries, row for row with its ids: projects, items, notes, pictures, links and their icons, what waits on what, reports with every version, saved report inputs, trackers and their history, goals, rulings, settings, data sources, runs, checks and the vault (encrypted: only your password opens it). Data sources' header values stay sealed with the key of the board that exported them. Not in it: paired devices.
+- **Import:** `wb import workbench-export.jsonl` puts an export in place of an empty board, the one `wb` talks to (this computer's, or the cloud board while it syncs), reading it line by line. A board with items or reports refuses unless `--replace`, which empties it first. It checks every table's count against the file's last line, so a cut-off file is refused; on this computer nothing changes then. It also reads the old one-JSON export (format 1, what 0.6.0 and earlier wrote) of a board small enough to be one string; that never had the vault, data sources' headers, link icons or runs.
+- **Day pages' history:** `wb tidy --day-pages` removes day pages' older versions now and says how many it removed and kept (the newest 3 of each). Each day page trims itself as it's written; the board on this computer also trims the rest after its startup backup. The cloud board never does it by itself: `wb export` first, then `wb tidy --day-pages`.
+
+**The export's format** (`src/export.ts`) is JSON Lines, one JSON value per line:
+
+```
+{"workbench":"export","format":2,"app":"0.6.0","exported_at":"2026-11-25T01:00:00.000Z","tables":[{"name":"projects","columns":["slug","name",…]},…]}
+{"t":"projects","r":["demo","Demo",…]}      a row: its table, and its values in the header's columns
+{"t":"images","r":[1,7,…,{"b64":"iVBOR…"},…]}  a BLOB as base64
+{"end":{"rows":{"projects":3,"items":1200,…}}}   last: each table's row count
+```
+
+Tables come parents first (by their foreign keys), rows in rowid order. A page longer than a million characters is its `report_versions` row and the rest in `report_parts`, as the database keeps it. On this computer the file is the board at one moment; the cloud board can be written to while it exports, and a row whose parent went meanwhile is left out on import, which says so.
 
 ## Start on login
 

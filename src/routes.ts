@@ -83,7 +83,7 @@ import {
 	backupFile,
 	backupsKeep,
 	dbStats,
-	exportAll,
+	snapshotOf,
 	restoreSteps,
 	shellWord,
 	tidy,
@@ -102,6 +102,7 @@ import { existsSync } from "node:fs";
 import { etagRoutes, IMMUTABLE, versionedPage } from "./fresh";
 import { addStepPhoto, finishRun, removeStepPhoto, runState, saveStep, startOver } from "./checkruns";
 import { addImage, imageData, prepareImage, removeImage, setImageCaption } from "./images";
+import { exportStream } from "./export";
 import { mcpHttp } from "./mcp";
 import { agentsView, landItem } from "./agents";
 import { continueRun, getRun, listRuns, openInDesktop, runEvents, runPrompt, runsInfo, startRun, stopRun, testCommand, type From } from "./dispatch";
@@ -548,8 +549,12 @@ export function boardRoutes(h: BoardHost) {
 					if (!localRead(req, srv)) return local();
 					const d = new Date();
 					const day = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-					return new Response(JSON.stringify(exportAll(db), null, 1), {
-						headers: attachment(`workbench-export-${day}.json`, "application/json; charset=utf-8"),
+					// Streamed a page of rows at a time (export.ts), here and from the cloud board's Durable Object, which
+					// `wb export` reads while it syncs. On a computer it reads its own connection in one transaction, so
+					// the file is the board at one moment; the cloud board can't hold one open between pages.
+					const snap = h.cloud ? null : snapshotOf(db);
+					return new Response(exportStream(snap ?? db, { done: () => snap?.close() }), {
+						headers: attachment(`workbench-export-${day}.jsonl`, "application/x-ndjson; charset=utf-8"),
 					});
 				},
 				"/api/data/compact": {

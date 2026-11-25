@@ -12,6 +12,7 @@ import { resolveHeaderSpecs } from "./sourceheaders";
 import { continueRun, startRun, listRuns, pollRuns, runsText, stopRun } from "./dispatch";
 import { integrationGuide } from "./integrate";
 import { imageBytes } from "./images";
+import { exportFileLines, exportKind, exportLines, importExport, importSummary, localTarget, toStdout } from "./export";
 
 const { values: o, positionals: args } = parseWb(Bun.argv.slice(2));
 
@@ -69,7 +70,28 @@ async function serverUp() {
 }
 
 const cmd = args[0];
-if (!needsComputer(cmd)) process.exitCode = await runCli(ctx);
+// The export, and importing one, go a row at a time (export.ts): a board can be more than one string holds. A file
+// that isn't an export (wb import's list of items) is cli.ts's.
+const exportFile = cmd === "import" && args[1] && (await Bun.file(args[1]).exists()) && exportKind(await Bun.file(args[1]).slice(0, 4096).text()) !== "other";
+if (cmd === "export" || exportFile)
+	try {
+		if (cmd === "export") {
+			if (ctx.tty) die("wb export writes the whole board: send it to a file, e.g. wb export > workbench-export.jsonl");
+			// One read transaction on this process's own connection: the file is the board as it was at one moment.
+			db.run("BEGIN");
+			try {
+				await toStdout(exportLines(db));
+			} finally {
+				db.run("COMMIT");
+			}
+		} else {
+			const r = await importExport(await exportFileLines(Bun.file(args[1]), db), localTarget(db), { schema: db, replace: o.replace, log: console.log });
+			for (const line of importSummary(r)) console.log(line);
+		}
+	} catch (e) {
+		die((e as Error).message);
+	}
+else if (!needsComputer(cmd)) process.exitCode = await runCli(ctx);
 else
 	try {
 		switch (cmd) {

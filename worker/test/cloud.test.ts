@@ -9,6 +9,8 @@ import { cloudLogin, readSync, syncOff, syncOn, type SyncConfig } from "../../sr
 import { deriveVault, dialog, resetCooldown } from "../../src/vaultask";
 import { vaultHere } from "../../src/cloudvault";
 import { addSource, sourceFetch } from "../../src/sources";
+import { importExport, localTarget } from "../../src/export";
+import { createHash } from "node:crypto";
 
 const PORT = Number(process.env.WB_CLOUD_TEST_PORT ?? 8797);
 const BASE = `http://127.0.0.1:${PORT}`;
@@ -664,7 +666,10 @@ describe("wb over the network", () => {
 		expect((await wb(["import", file])).out).toBe("imported 2 items into cli\n");
 		const exported = await wb(["export"]);
 		expect(exported.code).toBe(0);
-		expect(JSON.stringify(JSON.parse(exported.out))).toContain("Imported two");
+		const exportLines = exported.out.trimEnd().split("\n");
+		expect(JSON.parse(exportLines[0])).toMatchObject({ workbench: "export", format: 2 });
+		expect(exported.out).toContain("Imported two");
+		expect(exportLines.at(-1)).toMatch(/^\{"end":/);
 		// The helper's tests above may have made a vault on this board: either way it's the board's own line.
 		expect((await wb(["vault"])).out).toMatch(/^(no vault yet|vault set up)/);
 		expect((await wb(["devices"])).out).toContain("wb commands");
@@ -767,5 +772,82 @@ describe("data sources (live data in reports)", () => {
 		expect(await call(reports[0].id, cfg.token, "other")).toMatchObject({ ok: true });
 		expect(seen.at(-1)).toBe("typed-nowhere");
 		await syncOff({ keepLocal: true });
+	});
+});
+
+describe("the export, streamed from the cloud board", () => {
+	const proj = join(dir, "exp");
+	const wbBin = join(import.meta.dir, "..", "..", "src", "wb.ts");
+	const wb = async (args: string[], stdout?: string) => {
+		const p = Bun.spawn(["bun", wbBin, ...args], {
+			cwd: proj,
+			env: { ...process.env, WB_AUTHOR: "kostas", CLAUDECODE: "" },
+			stdout: stdout ? Bun.file(stdout) : "pipe",
+			stderr: "pipe",
+		});
+		const [out, err, code] = await Promise.all([stdout ? Promise.resolve("") : new Response(p.stdout as ReadableStream).text(), new Response(p.stderr).text(), p.exited]);
+		return { out, err, code };
+	};
+	const sha = (s: string) => createHash("sha256").update(s).digest("hex");
+	const cloudCounts = async (t: string) => Object.fromEntries(((await (await api("/api/sync/tables", {}, t)).json()) as { name: string; rows: number }[]).map((x) => [x.name, x.rows]));
+	let cfgToken = "";
+	// Five versions of a page over a million characters each (with their report_parts), and 1100 items: more than one
+	// page of rows holds (2 MB, or 1000 rows), so the Durable Object reads them a page at a time as the body goes out.
+	const pages = [1, 2, 3, 4, 5].map((n) => `<!doctype html><title>Big</title><p>version ${n}</p>${String(n).repeat(1_300_000)}`);
+
+	beforeAll(async () => {
+		mkdirSync(proj, { recursive: true });
+		cfgToken = (await syncOn(BASE, { key: KEY, name: "Export" })).cfg.token;
+		expect((await api("/api/projects", { method: "POST", body: JSON.stringify({ slug: "exp", name: "Exp", path: proj }) }, cfgToken)).status).toBe(201);
+	});
+	afterAll(async () => {
+		await syncOff({ keepLocal: true });
+	});
+
+	test("wb export pages through a board bigger than a page, and it imports whole; wb import puts it back up", async () => {
+		const items = join(dir, "many.json");
+		writeFileSync(items, JSON.stringify(Array.from({ length: 1100 }, (_, i) => ({ title: `Many ${i}` }))));
+		expect((await wb(["import", items])).out).toBe("imported 1100 items into exp\n");
+		const page = join(dir, "big.html");
+		for (const html of pages) {
+			writeFileSync(page, html);
+			expect((await wb(["report", page, "--name", "big", "--icon", "📦"])).code).toBe(0);
+		}
+		const file = join(dir, "board.jsonl");
+		const done = await wb(["export"], file);
+		expect({ code: done.code, err: done.err }).toEqual({ code: 0, err: "" });
+		const text = readFileSync(file, "utf8");
+		const lines = text.trimEnd().split("\n");
+		const end = JSON.parse(lines.at(-1)!).end.rows as Record<string, number>;
+		const before = await cloudCounts(cfgToken);
+		for (const [t, n] of Object.entries(end)) expect([t, n]).toEqual([t, before[t]]);
+		expect(end.items).toBeGreaterThan(1100);
+		expect(end.report_parts).toBeGreaterThanOrEqual(5);
+
+		// Into a new board on this computer, read line by line: the same rows, the same pages.
+		const into = open(join(dir, "imported.db"));
+		const r = await importExport(text.trimEnd().split("\n"), localTarget(into), { schema: into });
+		expect(r.left).toEqual([]);
+		for (const [t, n] of Object.entries(end)) expect([t, r.rows[t] ?? 0]).toEqual([t, n]);
+		const big = (into.query("SELECT id FROM reports WHERE project = 'exp' AND name = 'big'").get() as { id: number }).id;
+		expect([1, 2, 3, 4, 5].map((n) => sha(reportHtml(into, big, n)!.html))).toEqual(pages.map(sha));
+		into.close();
+
+		// Back up to the cloud board: it has items, so only with --replace.
+		const refused = await wb(["import", file]);
+		expect(refused.code).toBe(1);
+		expect(refused.err).toContain("wb import --replace");
+		const back = await wb(["import", file, "--replace"]);
+		expect({ code: back.code, err: back.err }).toEqual({ code: 0, err: "" });
+		expect(back.out).toContain(`${end.items} items`);
+		const after = await cloudCounts(cfgToken);
+		for (const [t, n] of Object.entries(end)) expect([t, after[t]]).toEqual([t, n]);
+		expect(await (await api(`/r/${big}`, {}, cfgToken)).text()).toContain("version 5");
+	});
+
+	test("wb tidy --day-pages runs on the cloud board, when asked", async () => {
+		const r = await wb(["tidy", "--day-pages"]);
+		expect(r).toMatchObject({ code: 0, err: "" });
+		expect(r.out).toMatch(/^day pages: removed \d+ older versions?, kept \d+/);
 	});
 });

@@ -3,7 +3,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync } from "node:fs";
 import { join } from "node:path";
-import { addItem, addProject, exportAll, getItem, listItems, removeProject, search, updateItem } from "../src/db";
+import { addItem, addProject, getItem, listItems, removeProject, search, updateItem } from "../src/db";
 import {
 	activeGoal,
 	addGoal,
@@ -22,6 +22,7 @@ import {
 } from "../src/goals";
 import { mcpHttp } from "../src/mcp";
 import { freshDb } from "./helpers";
+import { exportLines } from "../src/export";
 
 describe("goals", () => {
 	test("add, read, change and close one", () => {
@@ -159,9 +160,11 @@ describe("items on a goal", () => {
 		expect(search(db, "zoo", "demo").goals.map((x) => x.id)).toEqual([g.id]);
 		expect(search(db, "zoo", "nobody").goals).toEqual([]);
 		addItem(db, { title: "Item", project: "demo", goal_id: g.id });
-		const out = exportAll(db) as unknown as { goals: { title: string }[]; items: { goal_id: number }[] };
-		expect(out.goals.map((x) => x.title)).toEqual(["Quokka launch"]);
-		expect(out.items[0].goal_id).toBe(g.id);
+		const lines = [...exportLines(db)].map((l) => JSON.parse(l));
+		const cols = (t: string) => lines[0].tables.find((x: { name: string }) => x.name === t).columns as string[];
+		const rows = (t: string) => lines.filter((l) => l.t === t).map((l) => l.r);
+		expect(rows("goals").map((r) => r[cols("goals").indexOf("title")])).toEqual(["Quokka launch"]);
+		expect(rows("items")[0][cols("items").indexOf("goal_id")]).toBe(g.id);
 	});
 });
 

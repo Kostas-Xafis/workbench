@@ -14,7 +14,8 @@
 import { existsSync } from "node:fs";
 import { CLI_BODY_MAX, filesNamed, needsComputer, type CliReply, type CliRequest, type Opts } from "./cliargs";
 import { imageBytes } from "./images";
-import { cloudFetch, cloudLogin, cloudPairing, readSync, resealUp, syncOff, syncOn, type SyncConfig } from "./sync";
+import { cloudFetch, cloudLogin, cloudPairing, readSync, resealUp, syncOff, syncOn, type SyncConfig, type TableInfo } from "./sync";
+import { exportFileLines, exportKind, importExport, importSummary, toStdout, type ImportTarget } from "./export";
 import { resolveHeaderSpecs } from "./sourceheaders";
 import { DB_PATH } from "./db";
 
@@ -114,6 +115,64 @@ async function runOnCloud(cfg: SyncConfig, args: string[], o: Options): Promise<
 	for (const [stream, line] of reply.lines) (stream === "err" ? console.error : console.log)(line);
 	for (const [path, b64] of Object.entries(reply.writes ?? {})) await Bun.write(path, Buffer.from(b64, "base64"));
 	return reply.code;
+}
+
+/**
+ * `wb export` from the cloud board: its GET /api/data/export streams the export (export.ts) as the Durable Object
+ * reads it, a page of rows at a time, and it goes to stdout as it comes. A body that ends before the export's last
+ * line (the connection dropped) is an error, so a cut-off file is never taken for a whole one.
+ */
+async function exportFromCloud(cfg: SyncConfig): Promise<number> {
+	if (process.stdout.isTTY) throw new Error("wb export writes the whole board: send it to a file, e.g. wb export > workbench-export.jsonl");
+	const res = await cloudFetch(cfg, "/api/data/export");
+	if (!res.body || !(res.headers.get("content-type") ?? "").startsWith("application/x-ndjson"))
+		throw new Error("the cloud board answered the export in the old way: deploy the Worker from this version");
+	let tail = "";
+	const dec = new TextDecoder();
+	async function* chunks() {
+		for await (const c of res.body as unknown as AsyncIterable<Uint8Array>) {
+			tail = (tail + dec.decode(c.subarray(Math.max(0, c.length - 65536)), { stream: false })).slice(-65536);
+			yield c;
+		}
+	}
+	await toStdout(chunks());
+	const last = tail.trimEnd().split("\n").pop() ?? "";
+	if (!last.startsWith('{"end":')) throw new Error("the export stopped before its end (the connection to the cloud board dropped?): the file isn't whole, run it again");
+	return 0;
+}
+
+/**
+ * `wb import <export>` while the board is in the cloud: the file is read here line by line and its rows go up in
+ * batches, as `wb sync on` sends a board (/api/sync/wipe, /api/sync/rows), so a file of any size goes in.
+ */
+async function importToCloud(cfg: SyncConfig, file: string, o: Options): Promise<number> {
+	const { open } = await import("./db");
+	// This version's schema, for the order of the tables and their foreign keys: a board in memory, never this computer's.
+	const schema = open(":memory:");
+	const target: ImportTarget = {
+		tables: async () => (await (await cloudFetch(cfg, "/api/sync/tables")).json()) as TableInfo[],
+		wipe: (tables) => cloudFetch(cfg, "/api/sync/wipe", { method: "POST", body: JSON.stringify({ tables }) }),
+		write: async (table, columns, rows) =>
+			((await (await cloudFetch(cfg, "/api/sync/rows", { method: "POST", body: JSON.stringify({ table, columns, rows }) })).json()) as { rows: number }).rows,
+	};
+	let r: Awaited<ReturnType<typeof importExport>>;
+	try {
+		r = await importExport(await exportFileLines(Bun.file(file), schema), target, { schema, replace: o.replace, log: out });
+	} catch (e) {
+		const msg = (e as Error).message;
+		// Refused before anything changed, or stopped part way: the cloud board can't take it all in one transaction.
+		if (/already has|isn't a board export|newer than/.test(msg)) throw e;
+		throw new Error(`${msg}. The cloud board may hold part of the export now: fix the file and run wb import --replace again`);
+	} finally {
+		schema.close();
+	}
+	for (const line of importSummary(r)) out(line);
+	// Data sources sealed with this computer's key file go back to the cloud board's key, as wb sync on does.
+	try {
+		const s = await resealUp(cfg);
+		if (s.resealed.length) out(`Data sources sealed again with the cloud board's key: ${s.resealed.length}.`);
+	} catch {}
+	return 0;
 }
 
 /** Runs `wb <cmd>` against the cloud board, or `wb sync …` either way. Returns the exit code. */
@@ -220,6 +279,11 @@ export async function cloudCommand(cmd: string, args: string[], o: Options): Pro
 			return 0;
 		}
 		// ---- end of the computer helper ----
+		case "export":
+			return exportFromCloud(cfg);
+		case "import":
+			if (args[1] && (await Bun.file(args[1]).exists()) && exportKind(await Bun.file(args[1]).slice(0, 4096).text()) !== "other") return importToCloud(cfg, args[1], o);
+			return runOnCloud(cfg, args, o);
 		case "source":
 			// The headers' {env:…} and {stdin} are filled in here; the cloud board seals them with its own key.
 			return runOnCloud(cfg, args, { ...o, header: await resolveHeaderSpecs(o.header ?? []) });
