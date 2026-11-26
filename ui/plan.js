@@ -86,7 +86,7 @@ function planHtml() {
 		: "Loading what agents did…";
 	const done = (a?.finished ?? []).slice(0, PLAN_SHOWN);
 	const more = (c?.finished ?? 0) - done.length;
-	out.push(`<div class="pl-sec"><div class="pl-h">While you were away <span>since ${esc(when(ib.since))}</span>
+	out.push(`<div class="pl-sec"><div class="pl-h">While you were away <span title="Since ${esc(when(ib.since))}">${esc(ago(ib.since, { short: true }))}</span>
 		<button type="button" class="ghost sm" data-pl-done title="Fold it to one line until your next time away">Done for now</button></div>
 		<div class="pl-counts">${counts}</div>
 		${done.length ? `<ul class="pl-list">${done.map((f) => `<li><button type="button" class="pl-title" data-pl-open="${f.item.id}" title="${esc(f.note || f.item.title)}"><span class="pl-dot pl-done" aria-hidden="true"></span><span>${esc(f.item.title)}</span></button></li>`).join("")}</ul>` : ""}
