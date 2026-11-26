@@ -134,6 +134,16 @@ A setting: `claude -p "$WB_PROMPT" --output-format stream-json --verbose --permi
 
 **From a terminal:** `wb run <ref>` (`--model`, `--effort`, `--mode` for that run; `default` for Claude Code's own model or effort), `wb land <ref>` (Merge it), `wb runs` (also closes runs that ended while the board was off), `wb continue <run> "message"`, `wb stop <run>`. `wb show` and `get_item` show the item's latest run.
 
+## The landing desk
+
+Finished agent work whose branch isn't merged settles by itself. A pass on the computer (on the cloud board, the computer helper's `landing` job) looks at each item under Ready to land, per project, with the project's own git, only reading:
+
+- **Landed:** its branch is merged into the main branch (or the integration branch the project's folder is on), or the branch is gone and a commit there names the item in its subject ("… (wb-xxxx)"), or the branch is still there with nothing on it that isn't in main already. It leaves Ready to land; one found by a commit naming it gets "Landed: found in main as <sha> <subject>" in its history, once.
+- **Lost:** the branch is gone (here and on origin as fetched) and nothing in main names the item. It's shown apart, with **Ask the agent** and **Drop**.
+- **Ready:** the branch is there and not merged. It gets what it changes (commits ahead, files, lines, the last commit) and whether it merges into main without conflicts (a trial `git merge-tree`, whose objects go to a temporary folder, never the repo). **Land N clean** starts Merge it for those.
+
+It costs one `git log --grep` per project for every item at once, and a few git calls per branch that still exists. It runs when the Agents place loads (kept 2 minutes) and once a day by itself: on a computer from the board's hourly look, on the cloud board from the helper's tick. The reader of an item that's ready lists every file its branch changes (`GET /api/items/:id/diff`, the helper's `diffstat` job). An app from before this can't do either job: the Agents place says to update it there.
+
 ## Merge it
 
 **Merge it**, on an item under Ready to land (`wb land <ref>`), starts a board run whose job is to land that item's branch. It's a run like Run's, with the same limits, command and computer helper, recorded on the item as a run of kind `land`, and the history says "Agent merging <branch> into <main> (run #n, from …)".
@@ -141,5 +151,5 @@ A setting: `claude -p "$WB_PROMPT" --output-format stream-json --verbose --permi
 - Allowed on a done agent item with a branch the board doesn't know to be merged already (an unknown git state goes ahead: the agent finds out), with no run on it.
 - The agent is told to read the item, merge the branch into the main branch the way the project's own rules say (its CLAUDE.md or AGENTS.md: some projects merge locally, some open a pull request), run the project's checks, never force-push, add a note saying what landed where, and, when it can't, file what it needs from you as its own item.
 - The item stays done. A merge run that fails or is stopped puts it under Stuck, with Merge it again.
-- **What counts as merged:** a merged pull request naming the item, or a branch that's no longer among the unmerged ones (merged, or deleted).
+- **What counts as merged:** a merged pull request naming the item, a branch that's no longer among the unmerged ones, or what the landing desk found landed. A branch git doesn't have here, which the landing desk hasn't looked at, is "not known", never merged.
 - **Git state** is read per project (unmerged branches, worktrees, commits and pull requests that name items), at most every 30 s (90 s for the ones that ask `gh`). On the cloud board it's what the computer helper last sent, and the Agents place says when that's old or missing.

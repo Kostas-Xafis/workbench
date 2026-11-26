@@ -11,6 +11,10 @@
  *   that have had no sign of life for a day while doing (stale.ts); and done ones whose merge run failed.
  * - **Finished**: agent items done since `since` (24 hours unless asked).
  *
+ * The landing desk (landing.ts) settles what it can first: work found in the main branch (by its branch, or a commit
+ * naming the item) gets "Landed: …" and leaves ready to land; a branch that's gone with nothing in main is **lost**
+ * (its own group, with Ask the agent and Drop); a real one gets what it changes and whether it merges cleanly.
+ *
  * Git comes through `agentGit.read`, only for the projects with finished work on a branch: on a computer it's read here
  * (at most every 30 s for the state, 90 s for commits and pull requests, which ask `gh`, sharing what GET /api/git and
  * /api/code read); the cloud board hands it to its computer helper's cache (worker/src/helper.ts),
@@ -20,9 +24,10 @@ import { getItem, listItems, projects, type Db, type Item, type Note, type Proje
 import { codeLinksOf, forgetGitReads, repoStateOf, type CodeLinks, type PullRequest, type RepoState } from "./git";
 import { blockersOf } from "./links";
 import { getRun, itemRefusal, landRefusal, liveRuns, startLand, startRefusal, type From, type Run } from "./dispatch";
+import { itemBranches, landedNote, READY_DAYS, settleLanding, type ItemFacts } from "./landing";
 
-/** How far back "ready to land" looks. */
-export const READY_DAYS = 14;
+/** How far back "ready to land" looks (landing.ts, with the daily pass). */
+export { READY_DAYS, itemBranches };
 const OPEN = ["todo", "doing", "waiting"];
 
 /* ---------- Git, here or from a computer ---------- */
@@ -50,15 +55,34 @@ export const forgetGit = forgetGitReads;
  * counts as an integration branch (what's merged there has landed) only when it isn't one of them: a feature branch
  * checked out in the main folder doesn't make everything landed.
  */
-export type BranchState = { known: boolean; merged: boolean; base: string; ahead: number | null; worktree: string; why?: string; into?: string; missing?: boolean };
+export type BranchState = {
+	known: boolean;
+	merged: boolean;
+	base: string;
+	ahead: number | null;
+	worktree: string;
+	why?: string;
+	into?: string;
+	missing?: boolean;
+	/** Missing, and the landing pass (`facts`) found nothing naming the item in the main branch either. */
+	lost?: boolean;
+};
 
 export const NOT_FOUND = "branch not found on this computer";
 
-export function branchState(i: Pick<Item, "ref" | "branch" | "project">, repo: RepoState | undefined, code: CodeLinks, own: ReadonlySet<string> = new Set()): BranchState {
-	const base = repo?.base ?? "";
+export function branchState(
+	i: Pick<Item, "ref" | "branch" | "project">,
+	repo: RepoState | undefined,
+	code: CodeLinks,
+	own: ReadonlySet<string> = new Set(),
+	facts?: ItemFacts,
+): BranchState {
+	const base = repo?.base ?? facts?.base ?? "";
 	const worktree = repo?.worktrees.find((w) => w.branch === i.branch)?.path ?? "";
 	const none = { known: false, merged: false, base, ahead: null, worktree };
 	if (!i.branch) return { ...none, why: "no branch" };
+	// The landing pass found it in the main branch (its branch merged, or a commit naming the item): landed.
+	if (facts?.landed) return { known: true, merged: true, base: facts.base || base, ahead: 0, worktree };
 	if (code[i.ref]?.prs.some((p) => p.state === "MERGED")) return { known: true, merged: true, base, ahead: 0, worktree };
 	if (!repo?.ok) return { ...none, why: repo?.error || "no git state" };
 	if (i.branch === base || (!base && ["main", "master"].includes(i.branch))) return { known: true, merged: true, base, ahead: 0, worktree };
@@ -76,17 +100,7 @@ export function branchState(i: Pick<Item, "ref" | "branch" | "project">, repo: R
 	if (!repo.branches) return { ...none, why: "the computer that sends git state has an older Workbench app" };
 	// A branch git has, not among the unmerged ones: merged.
 	if (repo.branches.includes(i.branch) || repo.remoteBranches?.includes(i.branch)) return { known: true, merged: true, base, ahead: 0, worktree };
-	return { ...none, why: NOT_FOUND, missing: true };
-}
-
-/** The branches agent items name as their own: open ones, and those done in the last READY_DAYS (branchState's `own`). */
-export function itemBranches(db: Db, project: string, now = Date.now()): Set<string> {
-	const rows = db
-		.query(
-			"SELECT DISTINCT branch FROM items WHERE project = ? AND owner = 'agent' AND branch != '' AND (status IN ('todo', 'doing', 'waiting') OR (status = 'done' AND done_at >= ?))",
-		)
-		.all(project, sqlTime(now - READY_DAYS * 86400e3)) as { branch: string }[];
-	return new Set(rows.map((r) => r.branch));
+	return { ...none, why: NOT_FOUND, missing: true, ...(facts?.where === "gone" ? { lost: true } : {}) };
 }
 
 /** The pull request to show for an item: an open one first, else the newest. */
@@ -162,6 +176,9 @@ export type Ready = {
 	/** false: known not to be merged. null: not known, with why in `unknown` ("branch not found on this computer"). */
 	merged: false | null;
 	unknown: string;
+	/** What the branch changes against the main branch and whether it merges without conflicts (`clean`; null: not
+	 * known), from the landing pass; null without one. */
+	diff: { ahead: number; files: number; added: number; removed: number; last: string; clean: boolean | null } | null;
 };
 export type Stuck = {
 	item: AgentItem;
@@ -178,9 +195,11 @@ export type AgentsView = {
 	since: string;
 	running: Running[];
 	ready: Ready[];
+	/** Done items whose branch is gone, with nothing naming them in the main branch: Ask the agent, or Drop. */
+	lost: Ready[];
 	stuck: Stuck[];
 	finished: Finished[];
-	counts: { running: number; ready: number; stuck: number; finished: number };
+	counts: { running: number; ready: number; lost: number; stuck: number; finished: number };
 	/** Whether this client may start agents now (on, limits), and why not: Run again and Merge it need it too. */
 	start: { allowed: boolean; why: string };
 	/** What the board couldn't know (git state on the cloud board, a folder git can't read), in words. */
@@ -246,11 +265,25 @@ export async function agentsView(db: Db, q: { project?: string; since?: string }
 		}
 	}
 	limits.push(...git.limits);
+	// The landing desk's pass (landing.ts): what's landed gets its note and isn't ready any more.
+	let facts = new Map<number, ItemFacts>();
+	if (gitProjects.length)
+		try {
+			const pass = await settleLanding(db, gitProjects, done.filter((i) => i.branch && (i.done_at ?? "") >= readyFrom));
+			facts = pass.by;
+			limits.push(...pass.limits);
+		} catch (e) {
+			limits.push(`The board couldn't look for landed work: ${(e as Error).message}`);
+		}
 	const repoOf = new Map(git.repos.map((r) => [r.project, r]));
 	const own = new Map<string, Set<string>>();
 	for (const i of [...open, ...done])
 		if (i.branch && (i.status !== "done" || (i.done_at ?? "") >= readyFrom)) (own.get(i.project) ?? own.set(i.project, new Set()).get(i.project)!).add(i.branch);
-	const stateOf = (i: Item) => branchState(i, repoOf.get(i.project), git.code, own.get(i.project));
+	// Landed before (its note): merged, whatever git says now.
+	const stateOf = (i: Item & { notes: Note[] }): BranchState =>
+		landedNote(i.notes) && !facts.get(i.id)?.landed
+			? { known: true, merged: true, base: repoOf.get(i.project)?.base ?? "", ahead: 0, worktree: "" }
+			: branchState(i, repoOf.get(i.project), git.code, own.get(i.project), facts.get(i.id));
 	const unknown = new Map<string, { n: number; why: string }>();
 
 	const start = from ? await startRefusal(db, from) : { why: "Agents start only from the board on this computer, or a phone paired with it." };
@@ -317,10 +350,12 @@ export async function agentsView(db: Db, q: { project?: string; since?: string }
 
 	// ---- Ready to land, and merge runs that broke ----
 	const ready: Ready[] = [];
+	const lost: Ready[] = [];
 	for (const i of done) {
 		if (taken.has(i.id) || !i.branch || (i.done_at ?? "") < readyFrom) continue;
 		const s = stateOf(i);
-		// A branch git has nowhere here is shown, as not known: it may be on a computer that hasn't fetched it.
+		// A branch git has nowhere here is shown, as not known (it may be on a computer that hasn't fetched it), or as
+		// lost once the landing pass found nothing of it in the main branch either.
 		if (!s.known && !s.missing) {
 			const u = unknown.get(i.project) ?? { n: 0, why: s.why ?? "" };
 			u.n++;
@@ -341,7 +376,8 @@ export async function agentsView(db: Db, q: { project?: string; since?: string }
 			});
 			continue;
 		}
-		ready.push({
+		const f = facts.get(i.id);
+		(s.lost ? lost : ready).push({
 			item: brief(i),
 			branch: i.branch,
 			base: s.base,
@@ -353,7 +389,11 @@ export async function agentsView(db: Db, q: { project?: string; since?: string }
 			land: { allowed: !why, why },
 			last_land: runBrief(last?.kind === "land" ? last : undefined),
 			merged: s.known ? false : null,
-			unknown: s.known ? "" : (s.why ?? ""),
+			unknown: s.lost ? "branch gone, and nothing in the main branch names it" : s.known ? "" : (s.why ?? ""),
+			diff:
+				f && f.where !== "gone" && !f.landed && f.ahead !== undefined
+					? { ahead: f.ahead, files: f.files ?? 0, added: f.added ?? 0, removed: f.removed ?? 0, last: f.last ?? "", clean: f.clean ?? null }
+					: null,
 		});
 	}
 	for (const [slug, u] of unknown)
@@ -380,9 +420,10 @@ export async function agentsView(db: Db, q: { project?: string; since?: string }
 		since,
 		running,
 		ready,
+		lost,
 		stuck,
 		finished,
-		counts: { running: running.length, ready: ready.length, stuck: stuck.length, finished: finished.length },
+		counts: { running: running.length, ready: ready.length, lost: lost.length, stuck: stuck.length, finished: finished.length },
 		start: startOk,
 		limits,
 	};

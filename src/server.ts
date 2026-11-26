@@ -24,6 +24,7 @@ import { pollRuns, sendUnblocked } from "./dispatch";
 import { runAutopilot } from "./autopilot";
 import { refreshUsage } from "./usage";
 import { runDue } from "./trackers";
+import { landingNightly } from "./landing";
 import { boardRoutes, PAIR_OPEN, type BoardFile, type BoardHost } from "./routes";
 import { readSync, type SyncConfig } from "./sync";
 import { startHelper } from "./helper";
@@ -81,6 +82,15 @@ export function serve({ lan = false } = {}) {
 	};
 	nightly();
 	setInterval(nightly, 3600e3);
+	// The landing desk's pass (landing.ts), once a day by itself: finished work found in the main branch gets "Landed".
+	// First a minute after start, then looked at every hour like the backup.
+	let landingAt = 0;
+	const landing = () =>
+		landingNightly(db, { get: () => landingAt, set: (ms) => (landingAt = ms) })
+			.then((n) => n && console.log(`landing: ${n} finished item${n === 1 ? "" : "s"} found in the main branch`))
+			.catch((e) => console.error(`landing: ${(e as Error).message}`));
+	setTimeout(landing, 60e3);
+	setInterval(landing, 3600e3);
 	// Day pages keep their last few versions (db.ts pruneDayVersions): settled once at start, after the backup above,
 	// so the backup still has what goes. Each day page's own write prunes it after that (day.ts).
 	try {

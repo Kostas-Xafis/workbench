@@ -19,6 +19,7 @@ import pkg from "../package.json";
 import { DB_PATH, type Project } from "./db";
 import { alive, ASK_WAIT_MS, exitCode, flushLog, forgetLog, launchCwd, launchRun, madeFrom, readLog, terminate, testCommand, type Launch, type Live } from "./dispatch";
 import { codeLinks, repoState } from "./git";
+import { diffstat, landingFacts, type Want } from "./landing";
 import { candidatesNear, folderState } from "./health";
 import { agentFiles, integratePrompt } from "./integrate";
 import { projectLogo } from "./logo";
@@ -138,7 +139,7 @@ export function startHelper(cfg: SyncConfig, o: HelperOptions = {}) {
 	const timers: ReturnType<typeof setInterval>[] = [];
 
 	// caps: what this helper can do that its version may not say (a nightly's version is the last release's next patch).
-	const hello = () => ({ t: "hello", name, version: pkg.version, folders, caps: ["continue"] });
+	const hello = () => ({ t: "hello", name, version: pkg.version, folders, caps: ["continue", "landing"] });
 
 	/** Sends a message: over the WebSocket when it's up (and the message isn't big), else over https, whose answer is read here. */
 	async function send(m: Msg) {
@@ -218,6 +219,10 @@ export function startHelper(cfg: SyncConfig, o: HelperOptions = {}) {
 		},
 		git: ({ projects }: { projects: Project[] }) => Promise.all(projects.map(repoState)),
 		code: async ({ projects }: { projects: Project[] }) => Object.assign({}, ...(await Promise.all(projects.map(codeLinks)))),
+		// The landing desk (landing.ts): what became of finished items' branches, and what one branch changes. Only reads.
+		landing: ({ projects }: { projects: { slug: string; path: string; want: Want[]; own?: string[] }[] }) =>
+			Promise.all(projects.map((p) => landingFacts(p, p.want, p.own ?? []))),
+		diffstat: ({ project, branch }: { project: { slug: string; path: string }; branch: string }) => diffstat(project, String(branch ?? "")),
 		logo: async ({ project }: { project: Project }) => {
 			const l = await projectLogo(project);
 			return l ? { type: l.type, b64: Buffer.from(await l.file.arrayBuffer()).toString("base64") } : null;

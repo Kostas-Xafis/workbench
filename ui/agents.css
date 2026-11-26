@@ -85,3 +85,20 @@
 	.ag-logrow .ag-m { grid-column: 2; grid-row: 1; }
 }
 .ag-loading { margin: 0; padding: var(--sp-3) 0; font-size: var(--fs-12); color: var(--faint); }
+
+/* The landing desk: what a ready branch changes, the clean ones in one go, and what's lost. */
+.ag-h-act { margin-left: auto; }
+.ag-h-act button { font-weight: 500; }
+.ag-diff { margin-top: var(--sp-2); font-size: var(--fs-12); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.ag-plus { color: var(--st-done); font-variant-numeric: tabular-nums; }
+.ag-minus { color: var(--st-failed); font-variant-numeric: tabular-nums; }
+.ag-lost { margin-top: var(--sp-4); }
+.ag-lost h3 { margin: 0; font-size: var(--fs-12); font-weight: 600; color: var(--muted); display: flex; gap: var(--sp-2); }
+.ag-lost h3 i { font-style: normal; font-weight: 500; color: var(--faint); }
+.ag-lost-why { margin: 2px 0 var(--sp-2); font-size: var(--fs-11); color: var(--faint); }
+.ag-card.is-lost { background: transparent; border-style: dashed; }
+.ag-files { display: flex; flex-direction: column; gap: var(--sp-1); }
+.ag-files code { font-family: var(--mono); font-size: var(--fs-11); font-weight: 400; }
+.ag-f-list { list-style: none; margin: var(--sp-1) 0 0; padding: 0; font-size: var(--fs-12); max-height: 320px; overflow: auto; }
+.ag-f-list li { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: var(--sp-2); padding: 2px 0; border-top: 1px solid var(--line); }
+.ag-f-path { font-family: var(--mono); font-size: var(--fs-11); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
