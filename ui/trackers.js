@@ -5,7 +5,8 @@
 const LOCAL = !CLOUD && ["localhost", "127.0.0.1", "[::1]"].includes(location.hostname);
 const TRK_ADD = `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-linecap="round"><g stroke-width="1.4"><path d="M2 12.5a6 6 0 0 1 9.4-4.95"/><path d="M8 12.5l2.2-3.3"/><path d="M12.5 10v5M10 12.5h5"/></g></svg>`;
 const EVERY = [[300, "5 min"], [900, "15 min"], [1800, "30 min"], [3600, "1 hour"], [10800, "3 hours"], [21600, "6 hours"], [43200, "12 hours"], [86400, "1 day"], [0, "Only when asked"]];
-const SERIES = ["var(--accent)", "var(--review)", "var(--decision)", "var(--check)", "var(--bug)"];
+// The chart's lines: distinct, and never amber or red, which mean warn and bad everywhere else.
+const SERIES = ["var(--accent)", "var(--st-running)", "var(--decision)", "var(--muted)", "var(--setup)"];
 const fmtNum = (n) => Number(n).toLocaleString("en-US", { maximumFractionDigits: 2 });
 const CURRENCY = ["$", "€", "£"];
 const unitOf = (u) => !u || CURRENCY.includes(u) ? "" : u === "%" ? "%" : ` ${u}`;
@@ -19,6 +20,13 @@ const valueHtml = (m) => m.value == null ? esc(m.text ?? "")
 	: `<b>${esc(withUnit(m.value, m.unit))}</b><small>${m.max != null ? `/${esc(withUnit(m.max, m.unit))}` : ""}${esc(unitOf(m.unit))}</small>`;
 const meterPlain = (m) => m.value == null ? `${m.label ? `${m.label}: ` : ""}${m.text ?? ""}`
 	: `${m.label ? `${m.label} ` : ""}${withUnit(m.value, m.unit)}${m.max != null ? `/${withUnit(m.max, m.unit)}` : ""}${unitOf(m.unit)}${m.left != null && m.max ? ` (${withUnit(m.left, m.unit)} left)` : ""}`;
+// Big numbers short, for a narrow place (the nav's chips): "1.8K/2K"; the exact ones are in the tooltip.
+const shortNum = (n) => Math.abs(n) >= 1000 ? Number(n).toLocaleString("en-US", { notation: "compact", maximumFractionDigits: 1 }) : fmtNum(n);
+const shortValue = (m) => {
+	if (m.value == null) return m.text ?? "";
+	const c = CURRENCY.includes(m.unit) ? m.unit : "";
+	return `${c}${shortNum(m.value)}${m.max != null ? `/${c}${shortNum(m.max)}` : ""}${m.unit === "%" ? "%" : ""}`;
+};
 const pctOf = (m) => m.value != null && m.max ? Math.max(0, Math.min(100, (m.value / m.max) * 100)) : null;
 function trkTip(t) {
 	const r = t.reading;
@@ -31,6 +39,22 @@ function trkTip(t) {
 		t.stale ? "stale: it hasn't read for a while" : "",
 		t.kind === "manual" ? (t.read_at ? `recorded ${ago(t.read_at)}` : "") : t.read_at ? `read ${ago(t.read_at)} · ${everyText(t.every)}` : "",
 	].filter(Boolean).join("\n");
+}
+
+// A meter as a row of a three-column grid (.trk-m): its label, its bar filled to the value, its value against the max
+// ("6/15", the number bold and in the state's colour when it warns). A state in words takes the bar's place. none:
+// the label when it has none; detail: the dialog's "of 15 · 9 left · 40%" after the number. Everything from a reading
+// is escaped: a unit, a label or a text can carry markup.
+function meterRow(m, { none = "", detail = false } = {}) {
+	const lv = m.level === "warn" || m.level === "bad" ? ` lv-${m.level}` : "";
+	const label = `<span class="ml">${esc(m.label || none)}</span>`;
+	if (m.value == null) return `<span class="trk-m${lv}">${label}<span class="mt">${esc(m.text ?? "")}</span></span>`;
+	const p = pctOf(m);
+	const bar = p == null ? "<span></span>" : `<span class="bar"><i style="width:${p}%"></i></span>`;
+	if (!detail) return `<span class="trk-m${lv}">${label}${bar}<span class="mv">${valueHtml(m)}</span></span>`;
+	const more = [m.max != null ? `of ${withUnit(m.max, m.unit)}${unitOf(m.unit)}` : unitOf(m.unit).trim(), m.left != null && m.max ? `${withUnit(m.left, m.unit)} left` : "",
+		p != null ? `${Math.round(p)}%` : "", m.text ?? ""].filter(Boolean).map(esc).join(" · ");
+	return `<span class="trk-m${lv}">${label}${bar}<span class="mv"><b>${esc(withUnit(m.value, m.unit))}</b> <small>${more}</small></span></span>`;
 }
 
 async function loadTrackers() {
@@ -59,9 +83,13 @@ async function openTracker(id) {
 function trackerChart(t) {
 	const pts = (t.history || []).map((h) => ({ at: parseTime(h.at).getTime(), meters: h.reading.meters }));
 	if (pts.length < 2) return "";
-	const labels = [...new Set(pts.flatMap((p) => p.meters.filter((m) => m.value != null).map((m) => m.label)))].slice(0, SERIES.length);
+	// A line for each meter the tracker has now, in its order (a meter since renamed or dropped would be a dead line).
+	const all = [...new Set(pts.flatMap((p) => p.meters.filter((m) => m.value != null).map((m) => m.label)))];
+	const now = (t.reading?.meters ?? []).filter((m) => m.value != null).map((m) => m.label).filter((l) => all.includes(l));
+	const labels = (now.length ? now : all).slice(0, SERIES.length);
 	if (!labels.length) return "";
-	const W = 560, H = 120, L = 30, R = 6, T = 8, B = 18;
+	// In the viewBox's units, which the dialog draws a little smaller: 12 here reads as 11 px.
+	const W = 560, H = 150, L = 40, R = 8, T = 10, B = 22;
 	const t0 = pts[0].at, t1 = Math.max(Date.now(), pts.at(-1).at + 1);
 	const maxes = [...new Set(pts.flatMap((p) => p.meters.map((m) => m.max ?? t.max)).filter((v) => v != null))];
 	const top = Math.max(1, ...maxes, ...pts.flatMap((p) => p.meters.map((m) => m.value ?? 0)));
@@ -74,14 +102,18 @@ function trackerChart(t) {
 			if (m?.value == null) continue;
 			d += d ? ` H${x(p.at).toFixed(1)} V${y(m.value).toFixed(1)}` : `M${x(p.at).toFixed(1)} ${y(m.value).toFixed(1)}`;
 		}
-		return d ? `<path d="${d} H${x(t1).toFixed(1)}" fill="none" stroke="${SERIES[n]}" stroke-width="1.8" stroke-linejoin="round"/>` : "";
+		return d ? `<path d="${d} H${x(t1).toFixed(1)}" fill="none" stroke="${SERIES[n]}" stroke-width="2" stroke-linejoin="round"/>` : "";
 	}).join("");
-	const guides = maxes.map((v) => `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" stroke="var(--muted)" stroke-dasharray="3 3" stroke-width="1" opacity=".6"/>` +
-		`<text class="ax" x="${L - 5}" y="${y(v) + 3}" text-anchor="end">${fmtNum(v)}</text>`).join("");
+	// The allowance as a dashed line with its number; a guide halfway, so a value between reads without a hover.
+	const guides = maxes.map((v) => `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" stroke="var(--muted)" stroke-dasharray="4 3" stroke-width="1"/>` +
+		`<text class="ax" x="${L - 6}" y="${y(v) + 4}" text-anchor="end">${esc(shortNum(v))}</text>`).join("");
+	const half = maxes.length === 1 ? `<line x1="${L}" x2="${W - R}" y1="${y(maxes[0] / 2)}" y2="${y(maxes[0] / 2)}" stroke="var(--line)"/>` +
+		`<text class="ax" x="${L - 6}" y="${y(maxes[0] / 2) + 4}" text-anchor="end">${esc(shortNum(maxes[0] / 2))}</text>` : "";
+	const mid = t1 - t0 > 2 * 86400e3 ? `<text class="ax" x="${x((t0 + t1) / 2)}" y="${H - 5}" text-anchor="middle">${esc(day((t0 + t1) / 2))}</text>` : "";
 	const svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Readings over time">
-		<line x1="${L}" x2="${W - R}" y1="${y(0)}" y2="${y(0)}" stroke="var(--line)"/>${guides}
-		<text class="ax" x="${L - 5}" y="${y(0) + 3}" text-anchor="end">0</text>${lines}
-		<text class="ax" x="${L}" y="${H - 3}">${day(t0)}</text><text class="ax" x="${W - R}" y="${H - 3}" text-anchor="end">now</text></svg>`;
+		<line x1="${L}" x2="${W - R}" y1="${y(0)}" y2="${y(0)}" stroke="var(--line)"/>${half}${guides}
+		<text class="ax" x="${L - 6}" y="${y(0) + 4}" text-anchor="end">0</text>${lines}
+		<text class="ax" x="${L}" y="${H - 5}">${esc(day(t0))}</text>${mid}<text class="ax" x="${W - R}" y="${H - 5}" text-anchor="end">now</text></svg>`;
 	const legend = labels.length > 1 || labels[0] ? `<div class="tv-legend">${labels.map((l, n) => `<span><i style="background:${SERIES[n]}"></i>${esc(l || t.title)}</span>`).join("")}</div>` : "";
 	return svg + legend;
 }
@@ -95,16 +127,7 @@ function showTrackerView() {
 	$("#tv-ref").dataset.copy = t.ref;
 	$("#tv-scope").textContent = t.project ? projectName(t.project) : "Every project";
 	const ms = t.reading?.meters ?? [];
-	$("#tv-meters").innerHTML = ms.length ? ms.map((m) => {
-		const p = pctOf(m);
-		const lv = m.level ? ` lv-${m.level}` : "";
-		const label = `<span class="ml">${esc(m.label || (ms.length === 1 ? "" : "—"))}</span>`;
-		if (m.value == null) return `<span class="trk-m${lv}">${label}<span class="mt">${esc(m.text ?? "")}</span></span>`;
-		// Everything that came from a reading is escaped: a unit, a label or a text can carry markup.
-		const detail = [m.max != null ? `of ${withUnit(m.max, m.unit)}${unitOf(m.unit)}` : unitOf(m.unit).trim(), m.left != null && m.max ? `${withUnit(m.left, m.unit)} left` : "",
-			p != null ? `${Math.round(p)}%` : "", m.text ?? ""].filter(Boolean).map(esc).join(" · ");
-		return `<span class="trk-m${lv}">${label}${p == null ? "<span></span>" : `<span class="bar"><i style="width:${p}%"></i></span>`}<span class="mv"><b>${esc(withUnit(m.value, m.unit))}</b> <small>${detail}</small></span></span>`;
-	}).join("") : `<span class="hint" style="grid-column:1/-1">${t.kind === "manual" ? "No reading yet: record one below." : t.error ? "No reading yet: the last read failed." : "No reading yet."}</span>`;
+	$("#tv-meters").innerHTML = ms.length ? ms.map((m) => meterRow(m, { none: ms.length === 1 ? "" : "—", detail: true })).join("") :`<span class="hint" style="grid-column:1/-1">${t.kind === "manual" ? "No reading yet: record one below." : t.error ? "No reading yet: the last read failed." : "No reading yet."}</span>`;
 	const r = t.reading;
 	$("#tv-info").innerHTML = [
 		r?.resets_at ? `<span>Resets ${esc(day(r.resets_at))} (${inDays(r.resets_at)})</span>` : "",
