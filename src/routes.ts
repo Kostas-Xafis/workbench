@@ -68,6 +68,7 @@ import {
 import { qrSvg } from "./qr";
 import { archivedDay, currentDay } from "./day";
 import { todayData } from "./today";
+import { nextUp } from "./plan";
 import { buildQueue, deferItem, giveBack } from "./queue";
 import { resolveAsk } from "./asks";
 import { fileItem } from "./filing";
@@ -663,7 +664,11 @@ export function boardRoutes(h: BoardHost) {
 			return json(todayData(db, u.get("project") || "", u.get("since")));
 		},
 		// Queue mode (queue.ts): what waits on you in the order to go through it, notices after; deferred ones apart.
-		"/api/queue": (req) => json(buildQueue(db, { project: new URL(req.url).searchParams.get("project") || "" })),
+		// The queue, and the morning plan's "Start next" (plan.ts) beside it.
+		"/api/queue": (req) => {
+			const project = new URL(req.url).searchParams.get("project") || "";
+			return json({ ...buildQueue(db, { project }), next: nextUp(db, { project }) });
+		},
 		// Out of the queue until {until}: "tomorrow", a date, "in 3 days"; "none" brings it back.
 		"/api/items/:id/defer": {
 			POST: jsonOnly(async (req) => {

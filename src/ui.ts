@@ -38,6 +38,8 @@ import pagesCss from "../ui/pages.css" with { type: "file" };
 import pagesJs from "../ui/pages.js" with { type: "file" };
 import phoneCss from "../ui/phone.css" with { type: "file" };
 import phonesCss from "../ui/phones.css" with { type: "file" };
+import planCss from "../ui/plan.css" with { type: "file" };
+import planJs from "../ui/plan.js" with { type: "file" };
 import projectCss from "../ui/project.css" with { type: "file" };
 import projectJs from "../ui/project.js" with { type: "file" };
 import projectsJs from "../ui/projects.js" with { type: "file" };
@@ -106,6 +108,8 @@ export const UI: Record<string, string> = {
 	"pages.js": pagesJs,
 	"phone.css": phoneCss,
 	"phones.css": phonesCss,
+	"plan.css": planCss,
+	"plan.js": planJs,
 	"project.css": projectCss,
 	"project.js": projectJs,
 	"projects.js": projectsJs,
