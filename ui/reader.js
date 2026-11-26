@@ -411,7 +411,8 @@ function createReader(host, opts = {}) {
 	r.defer = (until) => settle((id) => act.defer(id, until), "Out of the queue until then");
 	r.giveBack = (text) => settle((id) => act.giveBack(id, text), "Given back to the agent");
 	r.note = (text) => settle((id) => act.note(id, text));
-	r.tellAgent = (text) => { const i = r.item; return settle(() => continueAgent(i, text), "Sent: the agent carries on"); };
+	// continueAgent says how it went: sent while it runs, queued for when it ends, or carried on.
+	r.tellAgent = (text) => { const i = r.item; return settle(() => continueAgent(i, text)); };
 
 	async function create() {
 		const d = r.draft;

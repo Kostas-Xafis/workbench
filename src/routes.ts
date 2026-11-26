@@ -68,14 +68,16 @@ import {
 import { qrSvg } from "./qr";
 import { archivedDay, currentDay } from "./day";
 import { todayData } from "./today";
+import { nextUp } from "./plan";
 import { buildQueue, deferItem, giveBack } from "./queue";
 import { resolveAsk } from "./asks";
 import { fileItem } from "./filing";
 import { setOrder } from "./order";
+import { autopilotStates, runAutopilot, setAutopilot } from "./autopilot";
 import { codeLinksOf, repoStateOf } from "./git";
 import { candidateFolders, checkFolder, folderState, health } from "./health";
 import { addGoal, goalsWithStats, itemGoals, moveGoal, updateGoal, type GoalPatch } from "./goals";
-import { getSettings, settingDefs, updateSettings } from "./settings";
+import { getSetting, getSettings, settingDefs, updateSettings } from "./settings";
 import { addRuling, getRuling, listRulings, updateRuling } from "./rulings";
 import { checkNow, updateInfo } from "./updates";
 import {
@@ -105,7 +107,9 @@ import { addImage, imageData, prepareImage, removeImage, setImageCaption } from 
 import { exportStream } from "./export";
 import { mcpHttp } from "./mcp";
 import { agentsView, landItem } from "./agents";
+import { itemDiff } from "./landing";
 import { checkChoices, continueRun, getRun, listRuns, moveRun, openInDesktop, runEvents, runPrompt, runsInfo, setItemChoice, startRun, stopRun, testCommand, type From } from "./dispatch";
+import { answerPermission, askPermission, pendingPermissions, runPermissions, tellRun, waitPermission } from "./live";
 
 /** Bypass permissions lets an agent do anything: chosen only where the board's own settings are changed. */
 const BYPASS_LOCAL = "Bypass permissions is chosen only on the board on this computer.";
@@ -662,7 +666,11 @@ export function boardRoutes(h: BoardHost) {
 			return json(todayData(db, u.get("project") || "", u.get("since")));
 		},
 		// Queue mode (queue.ts): what waits on you in the order to go through it, notices after; deferred ones apart.
-		"/api/queue": (req) => json(buildQueue(db, { project: new URL(req.url).searchParams.get("project") || "" })),
+		// The queue, and the morning plan's "Start next" (plan.ts) beside it.
+		"/api/queue": (req) => {
+			const project = new URL(req.url).searchParams.get("project") || "";
+			return json({ ...buildQueue(db, { project }), next: nextUp(db, { project }) });
+		},
 		// Out of the queue until {until}: "tomorrow", a date, "in 3 days"; "none" brings it back.
 		"/api/items/:id/defer": {
 			POST: jsonOnly(async (req) => {
@@ -740,6 +748,26 @@ export function boardRoutes(h: BoardHost) {
 					if (!getProject(db, req.params.slug)) return json({ error: "not found" }, 404);
 					const { refs } = await req.json();
 					return json({ refs: setOrder(db, req.params.slug, refs) });
+				} catch (e) {
+					return fail(e);
+				}
+			}),
+		},
+		// Autopilot (autopilot.ts): a project's switch, and every one that's on with why it starts nothing now. It
+		// starts agents, so it turns on where agents may be started from; off from anywhere they may.
+		"/api/autopilot": async () => json(await autopilotStates(db)),
+		"/api/projects/:slug/autopilot": {
+			PUT: jsonOnly(async (req, srv) => {
+				const from = runFrom(req, srv);
+				if (!from) return json({ error: "autopilot is turned on and off from the board on this computer, or a phone paired with it" }, 403);
+				try {
+					const { on } = await req.json();
+					if (on === true && from.where === "phone" && !getSetting<boolean>(db, "agents.phone"))
+						return json({ error: "Agents start only from this computer. Settings → Agents can allow a paired phone." }, 403);
+					const p = setAutopilot(db, req.params.slug, on);
+					// A free slot takes its first item now, rather than at the next look.
+					if (on) await runAutopilot(db).catch((e) => console.error(`autopilot: ${(e as Error).message}`));
+					return json({ project: p, autopilot: (await autopilotStates(db)).find((x) => x.slug === p.slug) ?? { slug: p.slug, on: false, why: "" } });
 				} catch (e) {
 					return fail(e);
 				}
@@ -1135,6 +1163,14 @@ export function boardRoutes(h: BoardHost) {
 				return fail(e);
 			}
 		},
+		// What a done item's branch changes against the main branch (landing.ts): the reader's file list.
+		"/api/items/:id/diff": async (req) => {
+			try {
+				return json(await itemDiff(db, itemId(req.params.id)));
+			} catch (e) {
+				return fail(e);
+			}
+		},
 		"/api/items/:id/land": {
 			POST: jsonOnly(async (req, srv) => {
 				const from = runFrom(req, srv);
@@ -1174,7 +1210,54 @@ export function boardRoutes(h: BoardHost) {
 			const after = raw === null || raw === "" || !Number.isFinite(Number(raw)) ? -1 : Number(raw);
 			const events = runEvents(db, r.id, after);
 			const { tail: _, command: __, ...run } = r;
-			return json({ run, events, next: events.at(-1)?.n ?? after });
+			return json({ run, events, next: events.at(-1)?.n ?? after, permissions: runPermissions(db, r.id) });
+		},
+		// While a run goes (live.ts). Tell: { message } reaches it on its stdin, or continues its session once it has
+		// ended. Permissions: its permission prompt files one (the relay of a run's `wb mcp` on the cloud board), asks
+		// how it stands (?wait=s, at most 25), and you answer it ({ answer: allow | run | deny }), from a phone too.
+		"/api/runs/:id/tell": {
+			POST: jsonOnly(async (req, srv) => {
+				const from = runFrom(req, srv);
+				if (!from) return json({ error: "messages go to agents only from the board on this computer, or a phone paired with it" }, 403);
+				try {
+					const { message } = await req.json();
+					const out = await tellRun(db, Number(req.params.id), String(message ?? ""), from);
+					return json(out, out.continued ? 201 : out.queued ? 202 : 200);
+				} catch (e) {
+					return fail(e);
+				}
+			}),
+		},
+		"/api/runs/:id/permissions": {
+			POST: jsonOnly(async (req, srv) => {
+				if (!loopback(req, srv) && !gate.device(req, srv)) return json({ error: "only a run's own MCP server asks this" }, 403);
+				try {
+					return json({ permission: askPermission(db, Number(req.params.id), await req.json()) }, 201);
+				} catch (e) {
+					return fail(e);
+				}
+			}),
+		},
+		"/api/permissions": () => json(pendingPermissions(db)),
+		"/api/permissions/:id": {
+			GET: async (req) => {
+				const wait = Math.max(0, Math.min(25, Number(new URL(req.url).searchParams.get("wait")) || 0));
+				try {
+					return json({ permission: await waitPermission(db, Number(req.params.id), wait * 1000) });
+				} catch (e) {
+					return fail(e);
+				}
+			},
+			POST: jsonOnly(async (req, srv) => {
+				const from = runFrom(req, srv);
+				if (!from) return json({ error: "permissions are answered only from the board on this computer, or a phone paired with it" }, 403);
+				try {
+					const { answer } = await req.json();
+					return json({ permission: answerPermission(db, Number(req.params.id), answer, from.by ?? "kostas") });
+				} catch (e) {
+					return fail(e);
+				}
+			}),
 		},
 		// Continue: a new run that resumes this run's Claude Code session with { message } as the prompt.
 		"/api/runs/:id/continue": {

@@ -32,18 +32,25 @@
 .pj-goal-add { color: var(--muted); display: inline-flex; align-items: center; gap: 6px; border-color: transparent; }
 .pj-goal-add:hover { color: var(--ink); }
 
-.pj-meters { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: var(--sp-1) var(--sp-2); }
-.pj-meter { min-width: 150px; max-width: 240px; display: grid; gap: 3px; border: 0; background: transparent; border-radius: var(--r-md); padding: 4px 6px; text-align: left; color: var(--muted); }
+/* The trackers: a line of their own under the name, a block each (its name, when read, then a row per meter). */
+.pj-meters { flex: 1 1 100%; display: grid; grid-template-columns: repeat(auto-fill, minmax(232px, 1fr)); gap: var(--sp-2) var(--sp-4); align-items: start; }
+.pj-meter { display: grid; gap: 6px; min-width: 0; border: 0; background: transparent; border-radius: var(--r-md); padding: 6px var(--sp-2); margin: 0 calc(-1 * var(--sp-2)); text-align: left; color: var(--ink); font-size: var(--fs-12); }
 .pj-meter:hover { background: var(--hover); }
-.pj-meter-t { display: flex; gap: 6px; align-items: baseline; font-size: var(--fs-11); min-width: 0; }
-.pj-meter-t span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pj-meter-t b { font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; white-space: nowrap; }
-.pj-meter.lv-warn, .pj-meter.lv-warn b { color: var(--st-stuck); }
-.pj-meter.lv-warn .pj-bar > i { background: var(--st-stuck); }
-.pj-meter.lv-bad, .pj-meter.lv-bad b { color: var(--st-failed); }
-.pj-meter.lv-bad .pj-bar > i { background: var(--st-failed); }
-.pj-meter.stale { opacity: .6; }
-.pj-meters .icon-btn svg { width: 16px; height: 16px; }
+.pj-trk-h { display: flex; gap: var(--sp-2); align-items: baseline; min-width: 0; }
+.pj-trk-h b { flex: 1; min-width: 0; font-weight: 600; font-size: var(--fs-13); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pj-trk-h small { flex: none; font-size: var(--fs-11); color: var(--faint); white-space: nowrap; }
+.pj-trk-h .pj-trk-err { color: var(--st-failed); }
+.pj-trk-ms { display: grid; grid-template-columns: minmax(0, auto) minmax(48px, 1fr) auto; gap: 5px var(--sp-2); align-items: center; }
+.pj-trk-ms .ml { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* A meter without a label (the tracker's only one): its bar takes the label's room. */
+.pj-trk-ms .ml:empty { display: none; }
+.pj-trk-ms .ml:empty + .bar, .pj-trk-ms .ml:empty + span:empty { grid-column: span 2; }
+.pj-trk-ms .ml:empty + .mt { grid-column: 1 / -1; text-align: left; }
+.pj-trk-ms .mt { grid-column: span 2; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right; }
+.pj-trk-ms .mv small { font-size: var(--fs-11); }
+.pj-trk-none { grid-column: 1 / -1; color: var(--faint); }
+.pj-meter.stale .bar, .pj-meter.stale .mv { opacity: .5; }
+.pj-side .icon-btn svg { width: 16px; height: 16px; }
 
 /* The tabs. */
 .pj-tabs { display: flex; gap: var(--sp-5); border-bottom: 1px solid var(--line); margin-bottom: var(--sp-4); overflow-x: auto; scrollbar-width: none; }
@@ -129,11 +136,8 @@
 	.pj-side { justify-content: flex-start; width: 100%; }
 	.pj-goal-main { width: 100%; }
 	.pj-goal { flex: 1 1 0; min-width: 0; }
-	/* The meters take a line of their own; with none, Add a tracker stays beside the goal. */
-	.pj-meters { justify-content: flex-start; flex: none; }
-	.pj-meters:has(.pj-meter) { flex: 1 1 100%; }
 	.pj-goal-add { margin-right: auto; }
-	.pj-meter { flex: 1 1 140px; max-width: none; }
+	.pj-meters { gap: 2px; }
 	/* The tabs stay at the top while the page scrolls. */
 	.pj-tabs { position: sticky; top: 0; z-index: 2; background: var(--bg); margin: 0 calc(-1 * var(--sp-4)) var(--sp-4); padding: 0 var(--sp-4); gap: var(--sp-4); }
 	/* No keys to tell about on a phone: its own button files it. */

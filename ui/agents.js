@@ -20,7 +20,8 @@ agEl.innerHTML = `<div class="ag-wrap">
 	<div class="ag-limits" hidden></div>
 	<div class="ag-lanes">
 		<section class="ag-lane" data-lane="running" aria-label="Running now"><h2><span class="ag-dot" aria-hidden="true"></span>Running now <i></i></h2><div class="ag-list" role="listbox" aria-label="Running now"></div></section>
-		<section class="ag-lane" data-lane="ready" aria-label="Ready to land"><h2>Ready to land <i></i></h2><div class="ag-list" role="listbox" aria-label="Ready to land"></div></section>
+		<section class="ag-lane" data-lane="ready" aria-label="Ready to land"><h2>Ready to land <i></i><span class="ag-h-act"></span></h2><div class="ag-list" role="listbox" aria-label="Ready to land"></div>
+			<div class="ag-lost" hidden><h3>Lost <i></i></h3><p class="ag-lost-why">The branch is gone and the main branch has no commit naming the item.</p><div class="ag-list" role="listbox" aria-label="Lost"></div></div></section>
 		<section class="ag-lane" data-lane="stuck" aria-label="Stuck"><h2>Stuck <i></i></h2><div class="ag-list" role="listbox" aria-label="Stuck"></div></section>
 	</div>
 	<section class="ag-log" aria-label="Finished"><h2><span>Finished</span> <i></i></h2><div class="ag-list" role="listbox" aria-label="Finished"></div></section>
@@ -89,12 +90,24 @@ function agView() {
 	const d = ag.data;
 	const pick = (list) => (list ?? []).filter(agIn);
 	const stuck = pick(d?.stuck).sort((a, b) => AG_STUCK_ORDER.indexOf(a.reason) - AG_STUCK_ORDER.indexOf(b.reason));
-	return { running: pick(d?.running), ready: pick(d?.ready), stuck, finished: pick(d?.finished) };
+	return { running: pick(d?.running), ready: pick(d?.ready), lost: pick(d?.lost), stuck, finished: pick(d?.finished) };
+}
+// Ready to land that merges into the main branch without conflicts, and may get a merge run now: one per branch
+// (several items can name the same one).
+function agClean(v = agView()) {
+	// A branch a merge run is on already isn't started again for another item that names it.
+	const seen = new Set((ag.data?.running ?? []).filter((x) => x.run?.kind === "land").map((x) => `${x.item.project}:${x.branch}`));
+	return v.ready.filter((x) => {
+		const key = `${x.item.project}:${x.branch}`;
+		if (x.diff?.clean !== true || !x.land.allowed || seen.has(key)) return false;
+		seen.add(key);
+		return true;
+	});
 }
 // The order J and K follow in the reader: the lanes left to right (as many as they show), then Finished.
 // Fewer on a phone, where the lanes stack.
 const agShown = (lane, list) => (ag.all.has(lane) ? list : list.slice(0, matchMedia("(max-width: 760px)").matches ? 3 : AG_SHOWN));
-const agOrder = () => { const v = agView(); return [...agShown("running", v.running), ...agShown("ready", v.ready), ...agShown("stuck", v.stuck), ...v.finished].map((x) => x.item.id); };
+const agOrder = () => { const v = agView(); return [...agShown("running", v.running), ...agShown("ready", v.ready), ...agShown("lost", v.lost), ...agShown("stuck", v.stuck), ...v.finished].map((x) => x.item.id); };
 
 const agRef = (i) => `<span class="ag-ref">wb-${esc(i.ref)}</span>`;
 // Each bit carries the dot before it, so a line that wraps starts with a bit, not a dot (agents.css clips it).
@@ -127,15 +140,33 @@ function agPr(pr) {
 	const words = `PR #${pr.number} ${pr.state === "OPEN" ? (pr.draft ? "draft" : pr.checks === "failing" ? "checks failing" : pr.checks === "pending" ? "checks running" : "open") : pr.state.toLowerCase()}`;
 	return pr.url ? `<a class="ag-pr" href="${esc(pr.url)}" target="_blank" rel="noreferrer" data-act="link">${chip(words, st)}</a>` : chip(words, st);
 }
+const agNum = (n) => Number(n).toLocaleString("en-GB");
+// What the branch changes, in one quiet line: files, lines, the last commit.
+function agDiffLine(d) {
+	if (!d) return "";
+	const lines = `<span class="ag-plus">+${agNum(d.added)}</span> <span class="ag-minus">−${agNum(d.removed)}</span>`;
+	const text = `${d.files} file${d.files === 1 ? "" : "s"} ${lines}${d.last ? ` · ${esc(d.last)}` : ""}`;
+	return `<div class="ag-diff" title="${esc(`${d.files} files changed, ${d.added} lines added, ${d.removed} removed${d.last ? `. Last commit: ${d.last}` : ""}`)}">${text}</div>`;
+}
 function agReadyCard(x) {
 	const i = x.item;
 	const busy = ag.busy.has(`land:${i.id}`);
 	// A branch git can't find on this computer is "not known", never merged (agents.ts: unknown).
 	const ahead = x.unknown ? x.unknown : x.ahead == null ? "not merged" : `${x.ahead} commit${x.ahead === 1 ? "" : "s"} ahead`;
+	const conflicts = x.diff?.clean === false ? chip(`conflicts with ${x.base || "main"}`, "failed") : "";
 	return agCard(x, "is-ready", `${agTitle(i)}
-		${agMeta(esc(projectName(i.project)), agBranch(x.branch), esc(ahead), agPr(x.pr))}
-		${x.note ? `<div class="ag-said" title="${esc(x.note)}">${esc(x.note)}</div>` : ""}
+		${agMeta(esc(projectName(i.project)), agBranch(x.branch), esc(ahead), conflicts, agPr(x.pr))}
+		${agDiffLine(x.diff)}
+		${x.note && !x.diff ? `<div class="ag-said" title="${esc(x.note)}">${esc(x.note)}</div>` : ""}
 		<div class="ag-acts">${agBtn("land", i.id, busy ? "Starting…" : "Merge it", { primary: true, why: busy ? "Starting…" : x.land.why, title: `An agent merges ${x.branch} into ${x.base || "the main branch"} by the project's own rules` })}${agBtn("open", i.id, "See the note")}</div>`);
+}
+// Lost: the branch is gone and nothing in the main branch names it. The agent says where it is or does it again.
+function agLostCard(x) {
+	const i = x.item;
+	const busy = ag.busy.has(`ask:${i.id}`) || ag.busy.has(`drop:${i.id}`);
+	return agCard(x, "is-lost", `${agTitle(i)}
+		${agMeta(esc(projectName(i.project)), agRef(i), agBranch(x.branch))}
+		<div class="ag-acts">${agBtn("ask", i.id, ag.busy.has(`ask:${i.id}`) ? "Asking…" : "Ask the agent", { why: busy ? "…" : "", title: "A note asks the agent where the work is, or to do it again, and it goes back on its to-do" })}${agBtn("drop", i.id, "Drop", { why: busy ? "…" : "" })}${agBtn("open", i.id, "Open")}</div>`);
 }
 const AG_FAILED = new Set(["failed", "land-failed"]);
 function agStuckCard(x) {
@@ -171,7 +202,7 @@ function agRender() {
 	const v = agView();
 	const since = new Date(ag.since || Date.now() - 86400e3);
 	const sinceWords = ag.fromVisit && Date.now() - since.getTime() < 86400e3 - 60e3 ? `since ${when(since)}` : "in the last day";
-	paint(agEl.querySelector(".ag-counts"), esc([`${v.running.length} running`, `${v.ready.length} to land`, `${v.stuck.length} stuck`, `${v.finished.length} finished ${sinceWords}`].join(" · ")));
+	paint(agEl.querySelector(".ag-counts"), esc([`${v.running.length} running`, `${v.ready.length} to land`, v.lost.length ? `${v.lost.length} lost` : "", `${v.stuck.length} stuck`, `${v.finished.length} finished ${sinceWords}`].filter(Boolean).join(" · ")));
 	paint(agEl.querySelector(".ag-filters"), agFilters());
 	const lim = agEl.querySelector(".ag-limits");
 	lim.hidden = !d.limits.length;
@@ -183,6 +214,13 @@ function agRender() {
 		h.textContent = list.length || "";
 	}
 	agEl.querySelector(".ag-log h2 i").textContent = v.finished.length || "";
+	// Land the clean ones: a merge run each (the limits apply; agAct says how many started).
+	const clean = agClean(v);
+	paint(agEl.querySelector('[data-lane="ready"] .ag-h-act'), clean.length
+		? `<button type="button" class="ghost sm" data-act="landclean"${ag.busy.has("landclean") ? " disabled" : ""} title="A merge run for each branch that merges into the main branch without conflicts">${ag.busy.has("landclean") ? "Starting…" : `Land ${clean.length} clean`}</button>` : "");
+	const lostBox = agEl.querySelector(".ag-lost");
+	lostBox.hidden = !v.lost.length;
+	lostBox.querySelector("h3 i").textContent = v.lost.length || "";
 	paint(agEl.querySelector(".ag-log h2 span"), esc(`Finished ${sinceWords}`));
 	const empty = {
 		running: ["No agent is running", "Run an agent's to-do from its item, or send one with your answer."],
@@ -199,6 +237,7 @@ function agRender() {
 	draw(agLane("running"), v.running, agRunningCard, empty.running, "running");
 	draw(agLane("ready"), v.ready, agReadyCard, empty.ready, "ready");
 	draw(agLane("stuck"), v.stuck, agStuckCard, empty.stuck, "stuck");
+	if (v.lost.length) draw(lostBox.querySelector(".ag-list"), v.lost, agLostCard, ["", ""], "lost");
 	draw(agEl.querySelector(".ag-log .ag-list"), v.finished, agLogRow, [`Nothing finished ${sinceWords}`, ""]);
 }
 
@@ -234,6 +273,9 @@ agEl.addEventListener("click", async (e) => {
 			return agAct(again ? `again:${id}` : `land:${id}`, () => api(`/api/items/${id}/land`, { method: "POST", body: "{}" }), "An agent is merging it");
 		}
 		if (act === "run") return agAct(`again:${id}`, () => sendItem(id), "The agent is on it");
+		if (act === "landclean") return agLandClean(b);
+		if (act === "ask") return agAsk(id);
+		if (act === "drop") return agDrop(b, id);
 		return;
 	}
 	const card = e.target.closest("[data-id][role=option]");
@@ -245,6 +287,69 @@ agEl.addEventListener("keydown", (e) => {
 	if (e.key === "Enter" || e.key === " ") { e.preventDefault(); agOpen(Number(card.dataset.id)); }
 });
 const agOpen = (id) => openItemById(id, { list: agOrder }).catch((err) => toast(err.message));
+
+// Lost: Ask the agent (a note, and back on its to-do: the board's own note and status writes), or Drop. Outside the
+// click handler, whose `act` is the button's.
+function agAsk(id) {
+	const x = ag.data?.lost?.find((l) => l.item.id === id);
+	if (!x) return;
+	const text = `The branch ${x.branch} isn't on this computer any more, and ${x.base || "the main branch"} has no commit naming wb-${x.item.ref}. Say where this work is (a branch, a commit or a pull request), or do it again.`;
+	return agAct(`ask:${id}`, async () => { await act.note(id, text); await act.update(id, { status: "todo" }); }, "Asked: it's back on the agent's to-do");
+}
+async function agDrop(b, id) {
+	if (!(await confirmIn(b, { text: "Drop this item? Its work isn't in the main branch.", yes: "Drop", danger: true }))) return;
+	return agAct(`drop:${id}`, () => act.drop(id), "Dropped");
+}
+
+// Land N clean: one merge run per branch that merges cleanly, the existing Merge it (POST /api/items/:id/land), one
+// after another; a limit (at once, per day, the cost cap) stops it, and the rest wait for a free slot.
+async function agLandClean(b) {
+	const list = agClean();
+	if (!list.length) return;
+	const names = list.map((x) => `• ${x.item.title} (${x.branch})`).join("\n");
+	const ok = await confirmIn(b, { text: `Start a merge run for ${list.length === 1 ? "this branch" : `these ${list.length} branches`}? Each merges by the project's own rules and runs its checks.\n\n${names}`, yes: `Land ${list.length}` });
+	if (!ok) return;
+	let started = 0, stop = "";
+	await agAct("landclean", async () => {
+		for (const x of list) {
+			try {
+				await api(`/api/items/${x.item.id}/land`, { method: "POST", body: "{}" });
+				started++;
+			} catch (e) {
+				// A limit: the rest wait. Anything else is this one's own reason: the next one goes on.
+				if (/Settings → Agents|doesn't start agents/.test(e.message)) { stop = e.message; break; }
+				stop ||= e.message;
+			}
+		}
+	});
+	const rest = list.length - started;
+	toast(!rest ? `${started} merge run${started === 1 ? "" : "s"} started` : `${started} of ${list.length} merge runs started. ${rest === 1 ? "One waits" : `${rest} wait`} for a free slot: ${stop}`);
+}
+
+// The reader of an item ready to land: everything its branch changes (GET /api/items/:id/diff), asked once per change.
+const agDiffs = new Map();
+hooks.readerDoc.push({
+	slot: "action",
+	html(i, r) {
+		if (!i.id || r.compose || i.status !== "done" || !i.branch || i.owner !== "agent") return "";
+		// Only for what's ready to land: opened straight from a link, the Agents place's answer comes first.
+		if (!ag.data) { agLoad().then(() => ag.data && r.render()); return ""; }
+		if (!ag.data.ready?.some((x) => x.item.id === i.id)) return "";
+		const key = `${i.id}:${i.branch}:${i.updated_at}`;
+		const d = agDiffs.get(key);
+		if (d === undefined) {
+			agDiffs.set(key, null);
+			api(`/api/items/${i.id}/diff`).then((data) => { agDiffs.set(key, data); r.render(); }).catch((e) => { agDiffs.set(key, { error: e.message }); r.render(); });
+		}
+		const head = `<span class="rd-label">Changes on <code>${esc(i.branch)}</code></span>`;
+		if (!d) return `<div class="ag-files">${head}<p class="rd-muted">Loading…</p></div>`;
+		if (d.error) return `<div class="ag-files">${head}<p class="rd-muted">${esc(d.error)}</p></div>`;
+		const n = (v) => (v == null ? "bin" : agNum(v));
+		const rows = d.files.map((f) => `<li><span class="ag-f-path" title="${esc(f.path)}">${esc(f.path)}</span><span class="ag-plus">+${n(f.added)}</span><span class="ag-minus">−${n(f.removed)}</span></li>`).join("");
+		const sum = `${d.commits.length} commit${d.commits.length === 1 ? "" : "s"} ahead of ${esc(d.base)} · ${d.files.length} file${d.files.length === 1 ? "" : "s"} · <span class="ag-plus">+${agNum(d.added)}</span> <span class="ag-minus">−${agNum(d.removed)}</span>`;
+		return `<div class="ag-files">${head}<p class="rd-muted">${sum}</p>${rows ? `<ul class="ag-f-list">${rows}</ul>` : ""}</div>`;
+	},
+});
 
 /* ---------- The view ---------- */
 defineView({

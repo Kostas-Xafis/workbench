@@ -290,7 +290,9 @@ describe("git: the main branch and how far each branch is ahead", () => {
 		expect(fin[gone].merged).toBeNull();
 		expect(fin[pushed].merged).toBe(false);
 		const ready = Object.fromEntries(v.ready.map((r) => [r.item.id, r]));
-		expect(ready[gone]).toMatchObject({ merged: null, unknown: "branch not found on this computer", ahead: null });
+		// The landing pass (landing.ts) found nothing naming it on master either: lost, in a group of its own.
+		expect(ready[gone]).toBeUndefined();
+		expect(v.lost.find((r) => r.item.id === gone)).toMatchObject({ merged: null, unknown: "branch gone, and nothing in the main branch names it", ahead: null });
 		expect(ready[pushed]).toMatchObject({ merged: false, unknown: "", ahead: 1 });
 	});
 });
@@ -389,7 +391,7 @@ describe("GET /api/agents", () => {
 		expect(Object.keys(fin).map(Number).sort()).toEqual([ready, merged].sort());
 		expect(fin[merged]).toMatchObject({ merged: true, note: "merged into master", branch: "feature-m" });
 		expect(fin[ready]).toMatchObject({ merged: false, ahead: 3, commits: 1 });
-		expect(v.counts).toEqual({ running: 1, ready: 1, stuck: 4, finished: 2 });
+		expect(v.counts).toEqual({ running: 1, ready: 1, lost: 0, stuck: 4, finished: 2 });
 		expect(v.start).toEqual({ allowed: true, why: "" });
 		expect(v.limits).toEqual([]);
 

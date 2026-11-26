@@ -101,7 +101,10 @@ import {
 } from "./trackers";
 import { briefText } from "./today";
 import { latestRun, runLine } from "./dispatch";
+import { askPermission, permissionResult, waitPermission } from "./live";
 import { FILE_MINUTES, getForAgent, getReply, listForAgent, listReply, type Delivery } from "./vaultask";
+/** A run id as an environment variable or header gives it, or undefined. */
+const runOf = (s: string | null | undefined) => (s && /^\d{1,9}$/.test(s.trim()) ? Number(s.trim()) : undefined);
 
 const BOARD = `http://localhost:${Number(process.env.WB_PORT ?? 4321)}`;
 const MODERN = "2026-07-28";
@@ -190,6 +193,8 @@ type Conn = {
 	legacy?: string;
 	/** The HTTP MCP-Protocol-Version header. */
 	header?: string;
+	/** The board run this serves (WB_RUN, x-wb-run): it lists and answers the permission tool. */
+	run?: number;
 };
 
 /** What a request speaks: the revision, and whether results get the 2026-07-28 shape. */
@@ -1446,7 +1451,28 @@ const TOOLS: Tool[] = [
 	},
 ];
 
-const TOOL = new Map(TOOLS.map((t) => [t.name, t]));
+/**
+ * Claude Code's permission prompt for a run the board started (--permission-prompt-tool mcp__wb__permission, live.ts):
+ * listed and callable only on a connection that names its run (a run's `wb mcp` has WB_RUN; the relay sends it as
+ * x-wb-run), so other sessions' tool lists stay as they are. It waits for the answer on the board, then says allow
+ * or deny in the shape Claude Code reads.
+ */
+const PERMISSION: Tool = {
+	name: "permission",
+	description: "Claude Code calls this when a tool needs a permission in a run the board started: it asks {{name}} on the board. Not for agents to call.",
+	input: { type: "object", properties: { tool_name: { type: "string" }, input: { type: "object" }, tool_use_id: { type: "string" } }, required: ["tool_name", "input"] },
+	hints: WRITE,
+	async run(a, c) {
+		if (!c.run) throw new ToolError("only a run the board started asks for permissions here");
+		const asked = askPermission(c.db, c.run, a);
+		const p = asked.answer ? asked : await waitPermission(c.db, asked.id);
+		return { text: JSON.stringify(permissionResult(p, a.input) ?? { behavior: "deny", message: "Nobody answered on the board." }) };
+	},
+};
+
+const TOOL = new Map([...TOOLS, PERMISSION].map((t) => [t.name, t]));
+/** The tools a connection lists: the board's, and for a run the board started, its permission prompt. */
+const toolsFor = (c: Conn) => (c.run ? [...TOOLS, PERMISSION] : TOOLS);
 
 /** A schema as the model reads it: the limits (lengths, counts, additionalProperties) stay with check(), which says what broke. */
 function lean(s: unknown): unknown {
@@ -1474,6 +1500,7 @@ async function callTool(params: Json, c: Conn, era: Era): Promise<Json> {
 	const name = params.name;
 	const alias = typeof name === "string" && Object.hasOwn(ALIASES, name) ? ALIASES[name] : undefined;
 	const tool = typeof name === "string" ? TOOL.get(alias?.tool ?? name) : undefined;
+	if (tool === PERMISSION && !c.run) throw new RpcError(-32602, `Unknown tool: ${String(name)}`);
 	if (!tool) throw new RpcError(-32602, `Unknown tool: ${String(name)}`);
 	// The alias's own fields win: list_trackers {"action": "remove"} is still a list.
 	const args = { ...((params.arguments ?? {}) as Json), ...alias?.args };
@@ -1746,7 +1773,7 @@ async function dispatch(m: Rpc, c: Conn): Promise<Json | null> {
 		case "ping":
 			return shape(era, {});
 		case "tools/list":
-			return shape(era, { tools: personal(TOOLS.map((t) => toolDef(t, era)), c) }, CACHE_STATIC);
+			return shape(era, { tools: personal(toolsFor(c).map((t) => toolDef(t, era)), c) }, CACHE_STATIC);
 		case "tools/call":
 			return shape(era, await callTool(params, c, era));
 		case "resources/list": {
@@ -1835,7 +1862,7 @@ export async function serveStdio() {
 			stopRuns(db);
 			process.exit(0);
 		});
-	const conn: Conn = { transport: "stdio", db, project: defaultProject(db), session: process.env.CLAUDE_CODE_HOST_SESSION_ID };
+	const conn: Conn = { transport: "stdio", db, project: defaultProject(db), session: process.env.CLAUDE_CODE_HOST_SESSION_ID, run: runOf(process.env.WB_RUN) };
 	const write = (msg: Json) => process.stdout.write(`${JSON.stringify(msg)}\n`);
 	// Requests still running, so a notifications/cancelled can stop their answer, and open subscriptions/listen.
 	const running = new Map<Id, { cancelled: boolean }>();
@@ -1978,7 +2005,9 @@ export async function mcpHttp(req: Request, db: Db, { loopback, cloud = false }:
 	const hv = req.headers.get("mcp-protocol-version");
 	// The session `wb mcp`'s relay runs in (relay.ts), as a stdio server has it: start_item links it, alive.ts counts it.
 	const session = req.headers.get("x-wb-session")?.trim();
-	const conn: Conn = { transport: "http", db, project, header: hv ?? undefined, ...(session && /^[\w.:-]{1,120}$/.test(session) ? { session } : {}) };
+	// The run the board started that this connection serves (the relay sends WB_RUN as x-wb-run): its permission prompt.
+	const run = runOf(req.headers.get("x-wb-run"));
+	const conn: Conn = { transport: "http", db, project, header: hv ?? undefined, ...(session && /^[\w.:-]{1,120}$/.test(session) ? { session } : {}), ...(run ? { run } : {}) };
 
 	const one = async (m: unknown): Promise<{ reply: Json | null; status: number }> => {
 		if (!validRpc(m)) return answer(m, conn);

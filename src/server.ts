@@ -21,8 +21,10 @@ import { lanUrls } from "./health";
 import { startUpdateChecks } from "./updates";
 import { resumeShares } from "./share";
 import { pollRuns, sendUnblocked } from "./dispatch";
+import { runAutopilot } from "./autopilot";
 import { refreshUsage } from "./usage";
 import { runDue } from "./trackers";
+import { landingNightly } from "./landing";
 import { boardRoutes, PAIR_OPEN, type BoardFile, type BoardHost } from "./routes";
 import { readSync, type SyncConfig } from "./sync";
 import { startHelper } from "./helper";
@@ -80,6 +82,15 @@ export function serve({ lan = false } = {}) {
 	};
 	nightly();
 	setInterval(nightly, 3600e3);
+	// The landing desk's pass (landing.ts), once a day by itself: finished work found in the main branch gets "Landed".
+	// First a minute after start, then looked at every hour like the backup.
+	let landingAt = 0;
+	const landing = () =>
+		landingNightly(db, { get: () => landingAt, set: (ms) => (landingAt = ms) })
+			.then((n) => n && console.log(`landing: ${n} finished item${n === 1 ? "" : "s"} found in the main branch`))
+			.catch((e) => console.error(`landing: ${(e as Error).message}`));
+	setTimeout(landing, 60e3);
+	setInterval(landing, 3600e3);
 	// Day pages keep their last few versions (db.ts pruneDayVersions): settled once at start, after the backup above,
 	// so the backup still has what goes. Each day page's own write prunes it after that (day.ts).
 	try {
@@ -135,7 +146,8 @@ export function serve({ lan = false } = {}) {
 	const gate = phoneGate(db, { port: PORT, loopback, open: PAIR_OPEN });
 
 	// Every 2 s: new output into the runs' tails, and the end of those whose process is gone (also the ones that ended
-	// while the board was off: the first look is now). Unblocked work is sent from here when Settings says so.
+	// while the board was off: the first look is now). Unblocked work is sent from here when Settings says so,
+	// and autopilot (autopilot.ts) starts a project's Next up.
 	let runsBusy = false;
 	const watchRuns = async () => {
 		if (runsBusy) return;
@@ -143,6 +155,7 @@ export function serve({ lan = false } = {}) {
 		try {
 			pollRuns(db);
 			await sendUnblocked(db);
+			await runAutopilot(db);
 		} catch (e) {
 			console.error(`agents: ${(e as Error).message}`);
 		} finally {

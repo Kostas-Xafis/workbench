@@ -1,6 +1,6 @@
 # Status trackers
 
-A tracker is a live reading shown in its project's header on the Projects page: one or more meters, each a number against an allowance (Android 1/15) or a state in words (In review). A tracker belongs to one project, or to every project (global, like a GitHub account's allowance). Bars stay grey and turn amber (warn) or red (bad) as a meter fills. A tracker that runs low also shows as a chip in the nav. Click one for its dialog: the meters, when it resets, the trend, the last error, and Refresh, Record, Edit or Delete. The gauge button in the header adds one.
+A tracker is a live reading shown in its project's header on the Projects page, a block with its name, when it was read and a row per meter (label, bar, value against the max): one or more meters, each a number against an allowance (Android 1/15) or a state in words (In review). A tracker belongs to one project, or to every project (global, like a GitHub account's allowance; it shows on every project's page, after the project's own). Bars stay grey and turn amber (warn) or red (bad) as a meter fills. A tracker that runs low also shows as a chip in the nav, with its number (big ones short: 1.8K/2K); a project's chip goes to its page, a global one opens the tracker. Click one for its dialog: the meters, when it resets, the trend, the last error, and Refresh, Record, Edit or Delete. The gauge button in the header adds one.
 
 It gets its reading one of three ways:
 

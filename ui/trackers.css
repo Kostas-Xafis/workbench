@@ -1,30 +1,32 @@
-/* Status trackers (trackers.js): a meter's bar and value, in the tracker dialog. */
+/* Status trackers (trackers.js): a meter (meterRow) is a row of a grid, its label, its bar and its value, in the
+   tracker dialog and a project page's header. Bars are grey; only a meter at warn or bad takes the state's colour,
+   on its bar and its number. */
 .bar { display: block; height: 4px; border-radius: 2px; background: var(--line); overflow: hidden; }
 .bar > i { display: block; height: 100%; border-radius: 2px; background: color-mix(in srgb, var(--ink) 38%, transparent); max-width: 100%; }
-.lv-warn .bar > i { background: var(--review); } .lv-bad .bar > i { background: var(--bug); }
-.lv-warn .mv > b { color: var(--review); } .lv-bad .mv > b { color: var(--bug); }
+.lv-warn .bar > i { background: var(--st-stuck); } .lv-bad .bar > i { background: var(--st-failed); }
+.lv-warn .mv > b { color: var(--st-stuck); } .lv-bad .mv > b { color: var(--st-failed); }
 .mv > b { font-weight: 600; }
+.trk-m { display: contents; }
+.trk-m .mv { font-variant-numeric: tabular-nums; white-space: nowrap; text-align: right; }
+.trk-m .mv small { color: var(--muted); }
 /* Tracker dialog */
 dialog.mid { width: min(560px, calc(100vw - 32px)); }
 .tv-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .tv-head b { font-size: 17px; }
 .tv-head small { color: var(--muted); font-size: 12px; }
 .tv-meters { display: grid; grid-template-columns: auto minmax(60px, 1fr) auto; gap: 10px 12px; align-items: center; }
-/* A meter is a row of the grid: its label, its bar, its value. */
-.tv-meters .trk-m { display: contents; }
-.tv-meters .ml { font-size: 13px; }
+.tv-meters .ml { font-size: var(--fs-13); }
 .tv-meters .bar { height: 8px; border-radius: 4px; }
 .tv-meters .bar > i { border-radius: 4px; }
-.tv-meters .mv { font-variant-numeric: tabular-nums; font-size: 13px; white-space: nowrap; text-align: right; }
-.tv-meters .mv small { color: var(--muted); }
-.tv-meters .mt { grid-column: span 2; font-size: 13px; text-align: left; color: var(--ink); white-space: normal; }
+.tv-meters .mv { font-size: var(--fs-13); }
+.tv-meters .mt { grid-column: span 2; font-size: var(--fs-13); text-align: left; color: var(--ink); white-space: normal; }
 #tv-source .tv-cmd { display: block; margin-top: var(--sp-1); max-height: calc(3 * 1.5em + var(--sp-2)); overflow: auto; padding: var(--sp-1) var(--sp-2);
 	line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; background: var(--sunk); }
 .tv-info { font-size: 12.5px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 4px 12px; }
 .tv-chart svg { width: 100%; height: auto; display: block; overflow: visible; }
-.tv-chart .ax { fill: var(--muted); font-size: 10px; font-family: inherit; }
-.tv-legend { display: flex; flex-wrap: wrap; gap: 2px 12px; font-size: 11.5px; color: var(--muted); margin-top: 4px; }
-.tv-legend i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; vertical-align: 0; }
+.tv-chart .ax { fill: var(--muted); font-size: 12px; font-family: inherit; font-variant-numeric: tabular-nums; }
+.tv-legend { display: flex; flex-wrap: wrap; gap: 2px var(--sp-3); font-size: var(--fs-12); color: var(--ink); margin-top: var(--sp-1); }
+.tv-legend i { display: inline-block; width: 12px; height: 3px; border-radius: 2px; margin-right: 6px; vertical-align: middle; }
 .tv-record { display: flex; gap: 8px; align-items: flex-start; }
 #tv-reading { flex: 1; min-height: 0; height: auto; resize: vertical; font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
 .tv-error { color: var(--bug); background: color-mix(in srgb, var(--bug) 8%, transparent); border-radius: 8px; padding: 6px 9px; font-size: 12.5px; overflow-wrap: anywhere; }

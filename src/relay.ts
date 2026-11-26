@@ -20,6 +20,7 @@ import { resolve } from "node:path";
 import { cloudFetch, type SyncConfig } from "./sync";
 import { VAULT_TOOLS, vaultHere } from "./cloudvault";
 import { relayedToolReply } from "./mcp";
+import { PERMISSION_WAIT, permissionResult, type Permission } from "./live";
 
 const M = "io.modelcontextprotocol/";
 const MAX_IMAGE = 20 * 1024 * 1024;
@@ -65,17 +66,48 @@ async function projectFor(cfg: SyncConfig, dir: string) {
 	}
 }
 
+/**
+ * The permission tool for a run on the cloud board: filed there (POST /api/runs/:id/permissions), then asked again
+ * every 25 s until it's answered or times out on the board, so no one request has to stay open for minutes. What it
+ * answers Claude Code is made here, with the call's input as it came.
+ */
+export async function permissionHere(cfg: SyncConfig, run: number, args: Record<string, unknown>): Promise<{ text: string }> {
+	const call = async (path: string, init?: RequestInit) => {
+		const res = await cloudFetch(cfg, path, init);
+		const body = (await res.json().catch(() => ({}))) as { permission?: Permission; error?: string };
+		if (!res.ok || !body.permission) throw new Error(body.error || `the cloud board said ${res.status}`);
+		return body.permission;
+	};
+	let p = await call(`/api/runs/${run}/permissions`, { method: "POST", body: JSON.stringify({ tool_name: args.tool_name, input: args.input, tool_use_id: args.tool_use_id }) });
+	const until = Date.now() + PERMISSION_WAIT.ms + 120e3;
+	while (!p.answer && Date.now() < until) {
+		try {
+			p = await call(`/api/permissions/${p.id}?wait=25`);
+		} catch {
+			await Bun.sleep(5000);
+		}
+	}
+	return { text: JSON.stringify(permissionResult(p, args.input) ?? { behavior: "deny", message: "Nobody answered on the board." }) };
+}
+
 export async function relay(cfg: SyncConfig) {
 	const project = await projectFor(cfg, process.cwd());
 	const endpoint = `/mcp${project ? `?project=${encodeURIComponent(project)}` : ""}`;
 	let agreed: string | undefined;
 	const session = /^[\w.:-]{1,120}$/.test(process.env.CLAUDE_CODE_HOST_SESSION_ID ?? "") ? process.env.CLAUDE_CODE_HOST_SESSION_ID : undefined;
+	const run = /^\d{1,9}$/.test(process.env.WB_RUN ?? "") ? Number(process.env.WB_RUN) : undefined;
 	const write = (m: unknown) => process.stdout.write(`${JSON.stringify(m)}\n`);
 	const failed = (m: Msg, message: string) => {
 		if (m.id !== undefined && m.id !== null) write({ jsonrpc: "2.0", id: m.id, error: { code: -32000, message } });
 	};
 
 	const send = async (raw: Msg) => {
+		// ---- A run's permission prompt (live.ts): asked on the cloud board, waited for here in short polls ----
+		if (raw.method === "tools/call" && raw.params?.name === "permission" && run) {
+			const out = await permissionHere(cfg, run, (raw.params.arguments ?? {}) as Record<string, unknown>).catch((e) => ({ error: (e as Error).message }));
+			if (raw.id !== undefined && raw.id !== null) write(relayedToolReply(raw as Parameters<typeof relayedToolReply>[0], agreed, out));
+			return;
+		}
 		// ---- The vault's password window, on this computer (cloudvault.ts) ----
 		if (raw.method === "tools/call" && VAULT_TOOLS.has(String(raw.params?.name))) {
 			const out = await vaultHere(cfg, String(raw.params!.name), (raw.params!.arguments ?? {}) as Record<string, unknown>, project);
@@ -93,6 +125,8 @@ export async function relay(cfg: SyncConfig) {
 		// The session this runs in, as a stdio server on a computer has it: start_item links it, and the board counts
 		// its calls as a sign of life on the items that record it (alive.ts).
 		if (session) headers["x-wb-session"] = session;
+		// The board run this serves (its command started this server with WB_RUN): the cloud board lists its permission tool.
+		if (run) headers["x-wb-run"] = String(run);
 		const meta = ((m.params?._meta ?? {}) as Record<string, unknown>)[`${M}protocolVersion`];
 		if (typeof meta === "string") {
 			headers["mcp-protocol-version"] = meta;

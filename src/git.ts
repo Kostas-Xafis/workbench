@@ -37,7 +37,7 @@ async function git(cwd: string, ...args: string[]) {
 
 const lines = (s: string) => s.split("\n").filter(Boolean);
 
-async function defaultBranch(cwd: string) {
+export async function defaultBranch(cwd: string) {
 	try {
 		return (await git(cwd, "symbolic-ref", "--short", "refs/remotes/origin/HEAD")).replace(/^origin\//, "");
 	} catch {
@@ -168,8 +168,8 @@ export type PullRequest = {
 export type CodeLinks = Record<string, { commits: Commit[]; prs: PullRequest[] }>;
 
 // The ref alphabet has no 0, 1, i, l or o.
-const REF = /\bwb-([2-9a-hjkmnp-z]{4})\b/gi;
-const refsIn = (text: string) => new Set(Array.from(text.matchAll(REF), (m) => m[1].toLowerCase()));
+export const REF = /\bwb-([2-9a-hjkmnp-z]{4})\b/gi;
+export const refsIn = (text: string) => new Set(Array.from(text.matchAll(REF), (m) => m[1].toLowerCase()));
 
 /** https://github.com/owner/repo for an origin on GitHub, else ''. */
 export function githubWeb(remote: string) {

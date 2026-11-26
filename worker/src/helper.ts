@@ -37,12 +37,15 @@ import {
 	startRun,
 	type From,
 	type Launch,
+	type InputSent,
 	type Launched,
 	type ReadLog,
 } from "../../src/dispatch";
 import { reader, RUN_TIMEOUT_MS, runDue, type Reading } from "../../src/trackers";
+import { autopilotAny, runAutopilot } from "../../src/autopilot";
 import { agentGit, agentsView, landItem, type GitRead } from "../../src/agents";
 import type { CodeLinks, RepoState } from "../../src/git";
+import { landingGit, landingNightly, type Ask, type DiffStat, type FactsRead, type LandingFacts } from "../../src/landing";
 import { getSetting } from "../../src/settings";
 
 export const NO_COMPUTER =
@@ -121,8 +124,19 @@ export class Helpers {
 				return (e as Error).message;
 			}
 		};
+		// While a run goes (live.ts): what the computers that have the folder can do (an older app can't), and a message
+		// to a running agent on the computer that runs it.
+		places.live = (folder) => {
+			const hs = this.online().filter((h) => h.folders.includes(folder));
+			const all = (cap: string) => hs.length > 0 && hs.every((h) => h.caps?.includes(cap));
+			return { ask: all("ask"), tell: all("tell") };
+		};
+		places.tell = (r, text) => this.tell(r.id, text);
+		places.settle = () => {};
 		costs.of = (sessions, since = 0) => this.costs(sessions, since);
 		agentGit.read = (list) => this.gitForAgents(list);
+		landingGit.facts = (asks, maxAge, fresh) => this.landingFor(asks, maxAge, fresh);
+		landingGit.diff = (p, branch) => this.diffFor(p, branch);
 		desktop.here = false;
 		reader.read = (t, folder) =>
 			this.ask<Reading>("tracker", { tracker: { id: t.id, kind: t.kind, command: t.command, options: t.options, name: t.name, project: t.project }, folder }, { prefer: folder, timeout: RUN_TIMEOUT_MS + 15e3 });
@@ -251,11 +265,23 @@ export class Helpers {
 		const h = spec.resume ? this.continuer(spec.resume, folder) : this.pick({ need: folder });
 		// An older helper would run a continuation as a fresh run (it knows no resume, folder or base).
 		if (spec.resume && !helperContinues(h.version, h.caps)) throw new Error(`Update the Workbench app on ${h.name} to continue sessions from the board.`);
+		if ((spec.live?.ask && !h.caps?.includes("ask")) || (spec.live?.tell && !h.caps?.includes("tell")))
+			throw new Error(`Update the Workbench app on ${h.name} to answer agents' permissions and send them messages from the board.`);
 		this.db.query("INSERT OR REPLACE INTO helper_runs (run_id, device) VALUES (?, ?)").run(spec.id, h.device);
 		this.db.query("INSERT OR REPLACE INTO helper_ran (run_id, device) VALUES (?, ?)").run(spec.id, h.device);
 		// Long enough for the computer's window asking whether a new command may run (ASK_WAIT_MS): a yes starts it.
 		const out = await this.ask<Launched>("run", spec, { device: h.device, timeout: ASK_WAIT_MS + 30e3 });
 		return { pid: Number(out?.pid) || 0, unit: String(out?.unit ?? ""), cwd: typeof out?.cwd === "string" ? out.cwd.slice(0, 1000) : "" };
+	}
+
+	/** A message to a running agent: the computer that runs it writes it to the run's stdin (src/helper.ts, "tell"). */
+	private async tell(id: number, text: string): Promise<InputSent> {
+		const at = (this.db.query("SELECT device FROM helper_runs WHERE run_id = ?").get(id) as { device: string } | null)?.device;
+		const h = at ? this.online().find((x) => x.device === at) : undefined;
+		if (!h) throw new Error("The computer that runs it isn't online.");
+		if (!h.caps?.includes("tell")) throw new Error(`Update the Workbench app on ${h.name} to send messages to a running agent.`);
+		const out = await this.ask<string>("tell", { id, text }, { device: h.device, timeout: 15e3 });
+		return out === "sent" || out === "closed" ? out : "gone";
 	}
 
 	/** What sessions cost, from Claude Code's transcripts on a computer: asked at most once a minute. */
@@ -278,13 +304,13 @@ export class Helpers {
 	 * What a computer knows, kept in helper_cache: fresh for `maxAge`; older, it's answered at once and asked again
 	 * behind it. Only the first time does a request wait (up to `wait`) for the computer.
 	 */
-	private async cached<T>(key: string, maxAge: number, kind: string, payload: unknown, fallback: T, wait = 8e3): Promise<T> {
+	private async cached<T>(key: string, maxAge: number, kind: string, payload: unknown, fallback: T, wait = 8e3, device?: string): Promise<T> {
 		const row = this.db.query("SELECT value, at FROM helper_cache WHERE key = ?").get(key) as { value: string; at: number } | null;
 		if (row && Date.now() - row.at < maxAge) return JSON.parse(row.value) as T;
 		if (!this.online().length) return row ? (JSON.parse(row.value) as T) : fallback;
 		let p = this.refreshing.get(key) as Promise<T> | undefined;
 		if (!p) {
-			p = this.ask<T>(kind, payload, { cache: key, timeout: 60e3 });
+			p = this.ask<T>(kind, payload, { cache: key, timeout: 60e3, ...(device ? { device } : {}) });
 			this.refreshing.set(key, p);
 			p.catch(() => {}).finally(() => this.refreshing.delete(key));
 		}
@@ -341,6 +367,46 @@ export class Helpers {
 		if (!(repos ?? []).length && list.length && row) limits.push("No computer has these projects' folders, so their git state isn't known.");
 		return { repos: repos ?? [], code: code ?? {}, limits };
 	}
+
+	/* ---------- The landing desk (src/landing.ts) ---------- */
+
+	/** A helper that runs the landing desk's jobs (an app from before them doesn't), one with `folder` first. */
+	private lander(folder = ""): Computer | null {
+		const fit = this.online().filter((h) => h.caps?.includes("landing") && (!folder || h.folders.includes(folder)));
+		return fit.sort((a, b) => (b.via === "ws" ? 1 : 0) - (a.via === "ws" ? 1 : 0) || b.folders.length - a.folders.length)[0] ?? null;
+	}
+
+	/** The landing pass for the Agents place, kept in helper_cache like git state; `fresh` (the daily pass) waits for it. */
+	private async landingFor(asks: Ask[], maxAge: number, fresh = false): Promise<FactsRead> {
+		const key = `landing:${asks.map((a) => a.project.slug).sort().join(",")}`;
+		const payload = { projects: asks.map((a) => ({ slug: a.project.slug, path: a.project.path, want: a.want, own: a.own })) };
+		const online = this.online();
+		const h = this.lander();
+		const limits: string[] = [];
+		if (online.length && !h) limits.push(`Update the Workbench app on ${online[0].name} so the board can tell which finished work landed, which is lost, and which merges cleanly.`);
+		if (!h) {
+			const row = this.db.query("SELECT value FROM helper_cache WHERE key = ?").get(key) as { value: string } | null;
+			return { facts: row ? (JSON.parse(row.value) as LandingFacts[]) : [], limits };
+		}
+		if (fresh) return { facts: (await this.ask<LandingFacts[]>("landing", payload, { device: h.device, cache: key, timeout: 60e3 })) ?? [], limits };
+		return { facts: (await this.cached<LandingFacts[]>(key, maxAge, "landing", payload, [], 8e3, h.device)) ?? [], limits };
+	}
+
+	/** What one branch changes (the reader's file list), from a computer that has the project's folder. */
+	private async diffFor(p: { slug: string; path: string }, branch: string): Promise<DiffStat> {
+		const h = this.lander(p.path);
+		if (!h) {
+			const any = this.online().find((x) => x.folders.includes(p.path));
+			throw new NoComputer(any ? `Update the Workbench app on ${any.name} to see what a branch changes.` : `No computer that's online has ${p.path}.`);
+		}
+		return this.ask<DiffStat>("diffstat", { project: p, branch }, { device: h.device, timeout: 20e3 });
+	}
+
+	/** When the daily landing pass last ran here (helper_cache, so a board that slept doesn't run it again). */
+	private readonly night = {
+		get: () => Number((this.db.query("SELECT value FROM helper_cache WHERE key = 'landing:night'").get() as { value: string } | null)?.value ?? 0) || 0,
+		set: (ms: number) => void this.db.query("INSERT OR REPLACE INTO helper_cache (key, value, at) VALUES ('landing:night', ?, ?)").run(String(ms), ms),
+	};
 
 	/* ---------- Routes the board hands over ---------- */
 
@@ -596,13 +662,19 @@ export class Helpers {
 		return [{ t: "welcome", device, name: hello.name, runs, orphans }];
 	}
 
-	/** Every 15 s from a helper: the trackers that are due, and unblocked work Settings says to send. */
+	/** Every 15 s from a helper: the trackers that are due, unblocked work Settings says to send, and autopilot. */
 	private async tick() {
 		if (this.ticking) return;
 		this.ticking = true;
 		try {
 			for (const t of await runDue(this.db)) if (t.error) console.log(`tracker ${t.ref}: ${t.error}`);
 			for (const r of await sendUnblocked(this.db)) console.log(`agents: run #${r.id} on wb-${r.ref} started by itself`);
+			for (const r of await runAutopilot(this.db)) console.log(`agents: run #${r.id} on wb-${r.ref} started by autopilot`);
+			// The landing desk's daily pass, with a computer that can do it; not waited for (it asks the computer).
+			if (this.lander())
+				void landingNightly(this.db, this.night)
+					.then((n) => n && this.changed())
+					.catch((e) => console.error(`landing: ${(e as Error).message}`));
 		} catch (e) {
 			console.error(`helper tick: ${(e as Error).message}`);
 		} finally {
@@ -619,7 +691,7 @@ export class Helpers {
 			)
 			.get() as { s: number | null } | null;
 		let ms = row?.s == null ? 600e3 : row.s * 1000;
-		if (getSetting<boolean>(this.db, "agents.on") && getSetting<string>(this.db, "agents.unblocked") === "send") ms = Math.min(ms, 60e3);
+		if (getSetting<boolean>(this.db, "agents.on") && (getSetting<string>(this.db, "agents.unblocked") === "send" || autopilotAny(this.db))) ms = Math.min(ms, 60e3);
 		return Math.max(15e3, Math.min(600e3, ms));
 	}
 

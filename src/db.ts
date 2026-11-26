@@ -12,6 +12,7 @@ import { createTables as createTrackerTables } from "./trackers";
 import { backfillRulings, createTables as createRulingTables, draftRuling, listRulings } from "./rulings";
 import { createDeviceTables } from "./devices";
 import { createRunTables, desktopLink } from "./dispatch";
+import { createLiveTables } from "./live";
 import { askChanges, cleanAsk, resolveAsk } from "./asks";
 import { createCheckRunTables } from "./checkruns";
 import { appendToOrder, placeInOrder } from "./order";
@@ -95,6 +96,8 @@ export type Project = {
 	archived_at: string | null;
 	/** The order of its report groups in the sidebar, as a JSON list of names. See setReportOrder. */
 	report_order: string;
+	/** 1: autopilot is on, starting its Next up when a slot is free (autopilot.ts). */
+	autopilot?: number;
 };
 
 // import.meta.dir is Bun's; the cloud board (worker/) has no folder and no database file.
@@ -196,6 +199,8 @@ export function createSchema(db: Db) {
 	if (!projectCols.includes("archived_at")) db.run("ALTER TABLE projects ADD COLUMN archived_at TEXT");
 	// The order of its report groups in the sidebar, as a JSON list of names (see setReportOrder).
 	if (!projectCols.includes("report_order")) db.run("ALTER TABLE projects ADD COLUMN report_order TEXT NOT NULL DEFAULT '[]'");
+	// Autopilot (autopilot.ts): 1 = the board starts its Next up by itself when a slot is free.
+	if (!projectCols.includes("autopilot")) db.run("ALTER TABLE projects ADD COLUMN autopilot INTEGER NOT NULL DEFAULT 0");
 	// A report is one HTML page; publishing it again under the same name adds a version.
 	db.run(`CREATE TABLE IF NOT EXISTS reports (
 		id INTEGER PRIMARY KEY,
@@ -291,6 +296,7 @@ export function createSchema(db: Db) {
 	createCheckRunTables(db);
 	// Agents the board started on items (see dispatch.ts).
 	createRunTables(db);
+	createLiveTables(db);
 	// When an MCP client last called the board, per transport, for the setup guide (see setup.ts). Here rather
 	// than in setup.ts, which reads health.ts and would make an import cycle.
 	db.run(`CREATE TABLE IF NOT EXISTS mcp_contact (

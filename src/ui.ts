@@ -18,6 +18,8 @@ import checkrunCss from "../ui/checkrun.css" with { type: "file" };
 import checkrunJs from "../ui/checkrun.js" with { type: "file" };
 import coreJs from "../ui/core.js" with { type: "file" };
 import dialogsCss from "../ui/dialogs.css" with { type: "file" };
+import autopilotCss from "../ui/autopilot.css" with { type: "file" };
+import autopilotJs from "../ui/autopilot.js" with { type: "file" };
 import dispatchCss from "../ui/dispatch.css" with { type: "file" };
 import dispatchJs from "../ui/dispatch.js" with { type: "file" };
 import goalsCss from "../ui/goals.css" with { type: "file" };
@@ -36,6 +38,8 @@ import pagesCss from "../ui/pages.css" with { type: "file" };
 import pagesJs from "../ui/pages.js" with { type: "file" };
 import phoneCss from "../ui/phone.css" with { type: "file" };
 import phonesCss from "../ui/phones.css" with { type: "file" };
+import planCss from "../ui/plan.css" with { type: "file" };
+import planJs from "../ui/plan.js" with { type: "file" };
 import projectCss from "../ui/project.css" with { type: "file" };
 import projectJs from "../ui/project.js" with { type: "file" };
 import projectsJs from "../ui/projects.js" with { type: "file" };
@@ -84,6 +88,8 @@ export const UI: Record<string, string> = {
 	"copy.js": copyJs,
 	"core.js": coreJs,
 	"dialogs.css": dialogsCss,
+	"autopilot.css": autopilotCss,
+	"autopilot.js": autopilotJs,
 	"dispatch.css": dispatchCss,
 	"dispatch.js": dispatchJs,
 	"goals.css": goalsCss,
@@ -102,6 +108,8 @@ export const UI: Record<string, string> = {
 	"pages.js": pagesJs,
 	"phone.css": phoneCss,
 	"phones.css": phonesCss,
+	"plan.css": planCss,
+	"plan.js": planJs,
 	"project.css": projectCss,
 	"project.js": projectJs,
 	"projects.js": projectsJs,

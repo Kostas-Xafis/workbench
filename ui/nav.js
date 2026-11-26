@@ -45,19 +45,28 @@ function navProjectRow(p, on) {
 	return `<a class="nav-row" href="#project/${encodeURIComponent(p.slug)}" data-nav="${esc(key)}" title="${esc(p.name)}${c?.n ? ` · ${c.n} waiting on you` : ""}"${on === key ? ' aria-current="page"' : ""}>
 		<span class="nav-ic">${logo(p)}</span><span class="nav-t">${esc(p.name)}</span>${navN(c)}</a>`;
 }
-// Trackers at warn or worse, worst first: "Isokratis · Uploads 10/10". One for every project links to the board.
+// Trackers at warn or worse, worst first: "Isokratis · Uploads of local builds" and, always in full, "10/10" (the name
+// gives way). A project's links to its page, where its meters are; one for every project opens the tracker.
 function navWarnings() {
 	const lv = { bad: 2, warn: 1 };
 	return state.trackers.filter((t) => lv[t.level] && !isArchived(t.project)).sort((a, b) => lv[b.level] - lv[a.level]).map((t) => {
 		const ms = t.reading?.meters ?? [];
 		const m = ms.find((x) => x.level === t.level) ?? ms[0];
-		const reading = !m ? "" : m.value == null ? m.text ?? "" : `${withUnit(m.value, m.unit)}${m.max != null ? `/${withUnit(m.max, m.unit)}` : ""}`;
 		const what = [t.project ? projectName(t.project) : t.title, ms.length > 1 && m?.label ? m.label : t.project ? t.title : ""].filter(Boolean).join(" · ");
-		const text = `${what}${reading ? ` ${reading}` : ""}`;
-		return `<a class="nav-warn st-${t.level === "bad" ? "failed" : "stuck"}" href="${t.project ? `#project/${encodeURIComponent(t.project)}` : "#"}" title="${esc(trkTip(t))}">
-			<span class="nav-ic">${navSvg(NAV_IC.warn)}</span><span class="nav-t">${esc(text)}</span></a>`;
+		const value = m ? shortValue(m) : "";
+		const cls = `nav-warn st-${t.level === "bad" ? "failed" : "stuck"}`;
+		const body = `<span class="nav-ic">${navSvg(NAV_IC.warn)}</span><span class="nav-t">${esc(what)}</span>${value ? `<b class="nav-v">${esc(value)}</b>` : ""}`;
+		return t.project ? `<a class="${cls}" href="#project/${encodeURIComponent(t.project)}" title="${esc(trkTip(t))}">${body}</a>`
+			: `<button type="button" class="${cls}" data-tracker="${t.id}" title="${esc(trkTip(t))}">${body}</button>`;
 	}).join("");
 }
+// A chip for every project's tracker opens it (in the nav or the phone's Projects sheet).
+document.addEventListener("click", (e) => {
+	const b = e.target.closest(".nav-warn[data-tracker]");
+	if (!b) return;
+	if (navSheet.open) navSheet.close();
+	openTracker(Number(b.dataset.tracker));
+});
 
 function renderNav() {
 	const on = currentNav();

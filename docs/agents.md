@@ -21,7 +21,7 @@ claude mcp add -s user --transport http wb http://localhost:4321/mcp   # or thro
 
 - **stdio** (`wb mcp`) works without the board running. Its default project is the one whose folder the client starts it in (`WB_PROJECT=slug` pins one). While this computer syncs with the [cloud board](cloud.md), `wb mcp` relays every call to it.
 - **HTTP** (`POST /mcp`) is for this computer only: it refuses other addresses (so not the phone under `--lan`), a Host other than localhost, and any web page's Origin. `?project=slug` sets the default project.
-- **Tools:** `list_projects`, `project_overview` (open items, rulings, trackers, git state, reports, links and data sources of a project), `search`, `list_items`, `get_item`, `add_item`, `update_item`, `attach_image`, `start_item`, `wait_item` (with `on`: the items it waits on), `finish_item`, `drop_item`, `add_note`, `answer_decision` (only with an answer you gave in the conversation), `list_rulings`, `add_ruling`, `update_ruling` (also moves a ruling, or retires it), `add_link`, `vault_list`, `vault_get` ([the vault](vault.md)), and four that take an `action`: `goal` (list, add, update), `report` (list, read, publish, icon), `tracker` (list, get, record, refresh, define, remove, presets) and `image` (get, remove). Every tool's definition is loaded into every agent session, so they are kept few and short: about 19.6 KB with the instructions, and a test fails if that grows 10%. Read-only tools are marked as such, so a client can let them run without asking.
+- **Tools:** `list_projects`, `project_overview` (open items, rulings, trackers, git state, reports, links and data sources of a project), `search`, `list_items`, `get_item`, `add_item`, `update_item`, `attach_image`, `start_item`, `wait_item` (with `on`: the items it waits on), `finish_item`, `drop_item`, `add_note`, `answer_decision` (only with an answer you gave in the conversation), `list_rulings`, `add_ruling`, `update_ruling` (also moves a ruling, or retires it), `add_link`, `vault_list`, `vault_get` ([the vault](vault.md)), and four that take an `action`: `goal` (list, add, update), `report` (list, read, publish, icon), `tracker` (list, get, record, refresh, define, remove, presets) and `image` (get, remove). A run the board started also has `permission`, which Claude Code calls for its permission prompts ([While it runs](#while-it-runs)). Every tool's definition is loaded into every agent session, so they are kept few and short: about 19.6 KB with the instructions, and a test fails if that grows 10%. Read-only tools are marked as such, so a client can let them run without asking.
 - **Resources:** `wb://projects`, `wb://project/{slug}`, `wb://item/{wb-xxxx}`, `wb://report/{id}`, `wb://rulings/{slug}`, `wb://trackers`, `wb://trackers/{slug}`. `@` in Claude Code can attach an open item or a report.
 - **Prompts** (slash commands in Claude Code): `/mcp__wb__work-on wb-k3f9` (the item's brief and how to track it), `/mcp__wb__next` (pick the next agent task), `/mcp__wb__status` (a short status of the project) and `/mcp__wb__today` (what waits on you, what finished and what's stuck, since a time you give or the last 24 hours).
 - **Not on MCP:** reading the vault without you, data sources' secrets, deleting items, reports or links, and starting agents (agents don't start agents). `image` with `remove` is there so an agent can replace a picture it got wrong; the item's history keeps a line.
@@ -63,7 +63,17 @@ Answering a decision hands it back to the agent, but nothing runs until someone 
 - **Merge it** is below.
 - **When an agent's work is unblocked** (Settings → Agents): **Tell me** (the default) is the notification "An agent can carry on" and Run on its card. **Send it** starts the agent by itself, whoever answered, within the limits. What a limit holds back goes when the limit allows, the same day.
 - **Limits:** at most 1 at once and 5 a day unless changed, and optionally a day's usage: no new agent once today's runs come to that much at API prices, counted from their sessions as the Usage page does. A run already going isn't stopped. A day starts at the hour set in Settings → About.
+- **Autopilot**, per project: below.
 - **Only this computer starts agents.** A paired phone can answer, but starting needs "From a paired phone too" in Settings → Agents. Agents never start agents: there's no MCP tool for it, and `wb run` and `wb continue` refuse inside one.
+
+### Autopilot
+
+A switch in each project's header, off until you turn it on. While it's on, whenever a slot is free, the board starts an agent on the first item of the project's **Next up** that an agent can run: an agent's to-do (not an idea), waiting on nothing, with no run on it. It starts with the item's own model, effort and mode, and its history says "Agent started by autopilot (run #n)". One at a time per project: any run on the project (yours too) is its one. With one slot and several projects on, the project it started least lately goes first.
+
+- **Within the limits:** at once, per day and a day's usage, as every run. And its own, in Settings → Agents → Limits: **Autopilot starts agents** any time (the default) or only in hours you pick (at night, 22:00–08:00, so the queue moves while you sleep), at your device's clock; and **Autopilot pauses when a tracker is** bad (the default), warn or bad, or never. The trackers that count are the project's own and the board-wide ones, such as your plan's usage; one that couldn't read doesn't.
+- **It says why it waits**, in one line under the switch: "Paused: Storage · System at 90%", "Waits for its hours: 22:00–08:00", "Paused: 1 agent started today, the most per day", "Nothing in Next up an agent can run". The Agents place has one line, "Autopilot: Isokratis, Workbench", for the projects it's on for.
+- **A run that breaks doesn't loop:** an item whose last autopilot run failed or was stopped isn't picked again. It shows under Stuck; once you run it yourself, it's back in the queue. The next item goes meanwhile.
+- **Where it runs:** the board looks every 2 s, where it sends unblocked work; the cloud board when its computer helper ticks (every minute while autopilot is on), and at once when you turn it on. Turning it on is allowed where starting agents is (this computer, a paired phone when Settings allows); `PUT /api/projects/<slug>/autopilot {"on": true}`.
 
 ### The agent session in the reader
 
@@ -89,6 +99,25 @@ Its buttons:
 - Allowed on any item, a done one too (a follow-up), within the limits; refused while that session, or any run on the item, still runs. The new run's first event is what you sent. From a terminal: `wb continue <run> "message"`.
 - **The command** for it is made from the start command below, word by word as the shell splits it and never inside quotes: `--session-id <id>` becomes `--resume "$WB_RESUME"` (before `-p`), and `-w` / `--worktree` with its name (and `--tmux`) go, since the session has its worktree. A command with more than one plain command in it (a pipe, `&&`, `;`, a redirection, `$(…)`) gets none made. Then the setting `agents.continue-command` has to be set, and when set it's used anyway.
 - On the cloud board, a computer whose app is older than 0.5.0 can't continue a session: it says "Update the Workbench app on <computer> to continue sessions from the board."
+- While the run still goes, the same box sends the message to it at once ([While it runs](#while-it-runs)).
+
+### While it runs
+
+Two things reach a run before it ends. Each is a flag the board puts at the end of the run's command, word by word as for the [model, effort and mode](#model-effort-and-mode), only when the command can take it; the run's line in the API says which (`live`: `ask`, `tell`).
+
+**Permissions on the board** (Settings → Agents → "Ask me on the board when an agent needs a permission", on by default). A tool call its mode would refuse (Auto's checks blocking it, Accept edits on a command, Don't ask on anything not allowed) asks you instead:
+
+- In its agent box, at the top of the Inbox ("wb-k3f9 wants to run Bash" with the command in full) and as a notification, with **Allow**, **Allow Bash for this run** (that tool, for the rest of the run) and **Deny**. A paired phone can answer: that's the point of it. It never allows a new command on a computer.
+- **Nobody answering within 10 minutes is a no**, which is what the mode would have said anyway, and the run's later asks are a no at once: a run nobody watches waits once at most. Nothing is filed as an item. Your answer is a line in the item's history ("Allowed Bash: npm publish (run #12)").
+- **How:** `--permission-prompt-tool mcp__wb__permission`. Claude Code calls the board's MCP tool `permission` with the tool's name and input, which waits for the answer and says allow (with the input as it came) or deny (with why). The tool is listed only to a run the board started (its `wb mcp` has `$WB_RUN`), so other sessions' tool lists stay the same size. Through `wb mcp`'s relay, it's asked on the cloud board and waited for in short polls.
+- **The command takes it** in print mode (`-p`), with the board's server named `wb` in it (`--allowedTools mcp__wb`, as the default has), and no prompt tool or Bypass permissions of its own.
+
+**Messages to a running agent.** "Tell the agent…" (the reply box's send to the agent tick) on a run that's going writes your message to its stdin: it's in the run's events as yours as soon as Claude Code reads it (after the tool call it's in), and in the history. Once the run has ended, the same box continues its session as above, so you needn't know which.
+
+- **How:** `--input-format stream-json --replay-user-messages`. The run's stdin is a named pipe next to its log, read by a small feeder in the run's own shell, so it outlives the board (a restarted board opens it again) and nobody writing never holds the run up. Its prompt is the first line. When the agent's turn has ended and it has written nothing for 15 s, the board closes it, and Claude Code finishes as before (so a quick follow-up still lands live). Only Claude Code's own user message goes in, made from your words.
+- **Never refused while it runs.** When it can't take a message now (its stdin closed but a background task or a subagent keeps it going, its command doesn't read stdin, its computer can't be reached), the message is **queued** on the run: the run box shows "Queued: goes to the agent when this run ends", and the history has it. When the run finishes, the board continues its session with what was queued (several in one message). When it failed, was stopped or moved to Claude Desktop, nothing is sent: the history says the message didn't reach the agent, with its words.
+- **The command takes it** in print mode with `--output-format stream-json` and no `--input-format` of its own. Not on Windows (no named pipes there): a message waits for the run to end, as before. `agents.tell` false turns it off.
+- On the cloud board it goes to the computer that runs it (the helper job `tell`). A computer with an older app runs its agents as before, and says "Update the Workbench app on <computer> …" when asked for more.
 
 **Restart:** Run works again on an item whose last run failed or was stopped (doing, or waiting on nothing), or that has sat doing with no sign of life for a day. A fresh session, and the history says "Agent restarted (run #n): run #m had failed". Never while a run is on it.
 
@@ -124,6 +153,16 @@ A setting: `claude -p "$WB_PROMPT" --output-format stream-json --verbose --permi
 
 **From a terminal:** `wb run <ref>` (`--model`, `--effort`, `--mode` for that run; `default` for Claude Code's own model or effort), `wb land <ref>` (Merge it), `wb runs` (also closes runs that ended while the board was off), `wb continue <run> "message"`, `wb stop <run>`. `wb show` and `get_item` show the item's latest run.
 
+## The landing desk
+
+Finished agent work whose branch isn't merged settles by itself. A pass on the computer (on the cloud board, the computer helper's `landing` job) looks at each item under Ready to land, per project, with the project's own git, only reading:
+
+- **Landed:** its branch is merged into the main branch (or the integration branch the project's folder is on), or the branch is gone and a commit there names the item in its subject ("… (wb-xxxx)"), or the branch is still there with nothing on it that isn't in main already. It leaves Ready to land; one found by a commit naming it gets "Landed: found in main as <sha> <subject>" in its history, once.
+- **Lost:** the branch is gone (here and on origin as fetched) and nothing in main names the item. It's shown apart, with **Ask the agent** and **Drop**.
+- **Ready:** the branch is there and not merged. It gets what it changes (commits ahead, files, lines, the last commit) and whether it merges into main without conflicts (a trial `git merge-tree`, whose objects go to a temporary folder, never the repo). **Land N clean** starts Merge it for those.
+
+It costs one `git log --grep` per project for every item at once, and a few git calls per branch that still exists. It runs when the Agents place loads (kept 2 minutes) and once a day by itself: on a computer from the board's hourly look, on the cloud board from the helper's tick. The reader of an item that's ready lists every file its branch changes (`GET /api/items/:id/diff`, the helper's `diffstat` job). An app from before this can't do either job: the Agents place says to update it there.
+
 ## Merge it
 
 **Merge it**, on an item under Ready to land (`wb land <ref>`), starts a board run whose job is to land that item's branch. It's a run like Run's, with the same limits, command and computer helper, recorded on the item as a run of kind `land`, and the history says "Agent merging <branch> into <main> (run #n, from …)".
@@ -131,5 +170,5 @@ A setting: `claude -p "$WB_PROMPT" --output-format stream-json --verbose --permi
 - Allowed on a done agent item with a branch the board doesn't know to be merged already (an unknown git state goes ahead: the agent finds out), with no run on it.
 - The agent is told to read the item, merge the branch into the main branch the way the project's own rules say (its CLAUDE.md or AGENTS.md: some projects merge locally, some open a pull request), run the project's checks, never force-push, add a note saying what landed where, and, when it can't, file what it needs from you as its own item.
 - The item stays done. A merge run that fails or is stopped puts it under Stuck, with Merge it again.
-- **What counts as merged:** a merged pull request naming the item, or a branch that's no longer among the unmerged ones (merged, or deleted).
+- **What counts as merged:** a merged pull request naming the item, a branch that's no longer among the unmerged ones, or what the landing desk found landed. A branch git doesn't have here, which the landing desk hasn't looked at, is "not known", never merged.
 - **Git state** is read per project (unmerged branches, worktrees, commits and pull requests that name items), at most every 30 s (90 s for the ones that ask `gh`). On the cloud board it's what the computer helper last sent, and the Agents place says when that's old or missing.

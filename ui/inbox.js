@@ -12,7 +12,7 @@
 // - Addresses: #inbox (every project), #inbox/<slug> (one), #queue and #queue/<slug> (the same in focus mode). The
 //   board's own address ("") opens it on the project last picked. The tab and the project are kept in this browser.
 // - "Since you were away": your last visit, kept in this browser (inboxSince); finished and stuck come from
-//   GET /api/agents.
+//   GET /api/agents. After a while away it unfolds into the morning plan (plan.js draws both).
 // - While the setup guide isn't finished, its checklist sits at the top ("Finish setting up", #setup-card, setup.js).
 const IB_TABS = [
 	["answer", "Answer", "Decisions"],
@@ -125,6 +125,8 @@ async function inboxLoad() {
 		const q = await api("/api/queue");
 		// A visit counts only while the Inbox shows; elsewhere the stamp stays as it was.
 		const since = ibOn() ? inboxSince() : ib.since || Number(localGet("inbox.since")) || hourBefore(86400e3);
+		// A look after a while away unfolds the morning plan (plan.js).
+		if (ibOn()) planTick();
 		const changed = q !== ib.q || since !== ib.since;
 		Object.assign(ib, { q, since, loaded: true });
 		inboxCount();
@@ -169,14 +171,6 @@ function inboxCount() {
 
 const ibKey = (k) => `<kbd class="ib-k">${esc(k)}</kbd>`;
 function ibHeadHtml() {
-	const all = ibAll();
-	const fresh = all.filter((i) => parseTime(i.created_at) >= ib.since).length;
-	const c = ib.agents?.counts;
-	const bits = [
-		`${fresh} new`,
-		c ? `<a href="#agents">${c.finished} finished</a>` : "",
-		c?.stuck ? `<a href="#agents" class="ib-stuck">${c.stuck} stuck</a>` : c ? `0 stuck` : "",
-	].filter(Boolean).join(" · ");
 	// The projects with asks of yours, and the one picked even when it has none.
 	const counts = new Map();
 	for (const i of ib.q?.items ?? []) counts.set(i.project, (counts.get(i.project) ?? 0) + 1);
@@ -185,7 +179,8 @@ function ibHeadHtml() {
 	const slugs = [...counts.keys()].sort((a, b) => ((order.indexOf(a) + 1 || 999) - (order.indexOf(b) + 1 || 999)) || a.localeCompare(b));
 	const chip = (slug, label, n) => `<button type="button" class="ib-chip" data-ib-project="${esc(slug)}" aria-pressed="${ib.project === slug}">${esc(label)}${n !== null ? `<i>${n}</i>` : ""}</button>`;
 	const chips = slugs.length > 1 || ib.project ? `<div class="ib-chips" role="group" aria-label="Project">${chip("", "All", null)}${slugs.map((s) => chip(s, projectName(s), counts.get(s))).join("")}</div>` : "";
-	return `<div class="ib-since" title="Since ${esc(when(ib.since))}">Since you were away: ${bits}</div>${chips}`;
+	// "Since you were away" in one line, or the morning plan after a while away (plan.js).
+	return `${planHtml()}${chips}`;
 }
 function ibTabsHtml() {
 	return IB_TABS.map(([key, label, title]) => `<button type="button" class="ib-tab" role="tab" data-ib-tab="${key}" aria-selected="${ib.tab === key}" title="${esc(title)}">${esc(label)}<i>${ibCount(key)}</i></button>`).join("");

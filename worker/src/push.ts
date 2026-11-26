@@ -75,6 +75,8 @@ export class Watch {
 	private reports = new Map<number, number>();
 	private trackers = new Map<number, { level: string; error: string }>();
 	private mark = "";
+	/** The newest permission a run asked for that was seen. */
+	private permission = 0;
 
 	constructor(private readonly db: Db) {}
 
@@ -113,6 +115,17 @@ export class Watch {
 			else if (i.owner === "agent" && i.status === "done" && was && was.status !== "done") ev("done", `Done · ${at}`, i.title, `wb-${i.ref}`, target);
 			else if (i.owner === "agent" && i.status === "todo" && was?.status === "waiting" && was.waiting_on > 0) ev("resumed", `Can carry on · ${at}`, i.title, `wb-${i.ref}`, target);
 			else if (i.owner === "agent" && i.status === "waiting" && was && was.status !== "waiting") ev("stuck", `Agent waiting · ${at}`, i.title, `wb-${i.ref}`, target);
+		}
+		// A run asks for a permission (src/live.ts): it waits for you, so it's a "needs you".
+		const perms = db
+			.query(
+				"SELECT p.id, p.what, i.id AS item, i.ref, i.project FROM run_permissions p JOIN runs r ON r.id = p.run_id JOIN items i ON i.id = r.item_id WHERE p.id > ? AND p.answer = '' ORDER BY p.id",
+			)
+			.all(this.permission) as { id: number; what: string; item: number; ref: string; project: string }[];
+		if (first) this.permission = (db.query("SELECT MAX(id) AS n FROM run_permissions").get() as { n: number | null }).n ?? 0;
+		for (const p of perms) {
+			this.permission = Math.max(this.permission, p.id);
+			if (!first) ev("needs", `Agent asks · ${where(p.project)}`, `wb-${p.ref} wants to run: ${p.what}`, `perm-${p.id}`, { item: p.item });
 		}
 		const reports = db
 			.query("SELECT r.id, r.project, r.name, r.title, (SELECT MAX(n) FROM report_versions v WHERE v.report_id = r.id) AS version FROM reports r")

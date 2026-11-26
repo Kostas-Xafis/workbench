@@ -140,8 +140,10 @@ describe("server", () => {
 		const add = async (title: string) =>
 			((await (await post("/api/items", JSON.stringify({ title, project: "demo", kind: "review", owner: "kostas" }), "application/json")).json()) as { id: number }).id;
 		const a = await add("Queue: first"), b = await add("Queue: second");
-		const queue = async () => (await (await fetch(`${BASE}/api/queue?project=demo`)).json()) as { items: { id: number }[]; deferred: { id: number }[] };
+		const queue = async () => (await (await fetch(`${BASE}/api/queue?project=demo`)).json()) as { items: { id: number }[]; deferred: { id: number }[]; next: { project: string }[] };
 		expect((await queue()).items.map((i) => i.id)).toEqual(expect.arrayContaining([a, b]));
+		// The morning plan's "Start next" comes with it (plan.ts), for that project only.
+		expect((await queue()).next.every((i) => i.project === "demo")).toBe(true);
 		expect((await post(`/api/items/${a}/defer`, JSON.stringify({ until: "tomorrow" }), "text/plain")).status).toBe(415);
 		const d = await post(`/api/items/${a}/defer`, JSON.stringify({ until: "tomorrow" }), "application/json");
 		expect(((await d.json()) as { deferred_until: string }).deferred_until).toBeTruthy();
