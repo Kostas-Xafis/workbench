@@ -55,6 +55,8 @@ addProject(db, { slug: "repo", name: "Repo", path: folder });
 const here: From = { where: "local", label: "this computer" };
 const task = (title: string) => addItem(db, { title, project: "repo", owner: "agent" });
 const set = (patch: Record<string, unknown>) => updateSettings(db, patch);
+// The flags a run gets so the board reaches it while it runs (test/live.test.ts) are left out here.
+set({ "agents.ask": false, "agents.tell": false });
 set({ "agents.on": true, "agents.per-day": 100, "agents.at-once": 5 });
 
 async function ended(id: number): Promise<Run> {

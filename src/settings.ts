@@ -223,6 +223,10 @@ const AGENTS: Defs = {
 	"agents.model": { about: "Agents start with this model ('' = as the command says)", default: "", check: oneOf("", ...AGENT_MODELS) },
 	"agents.effort": { about: "Agents start with this effort ('' = as the command says)", default: "", check: oneOf("", ...AGENT_EFFORTS) },
 	"agents.mode": { about: "Agents start in this permission mode ('' = as the command says)", default: "", check: oneOf("", ...AGENT_MODES) },
+	// While a run goes (live.ts): a tool call that needs a permission asks you on the board (--permission-prompt-tool),
+	// and what you write reaches it at once (--input-format stream-json). Nobody answering is a no, as without it.
+	"agents.ask": { about: "Ask me on the board when an agent needs a permission", default: true, check: bool },
+	"agents.tell": { about: "Messages reach a running agent at once (off: they wait for the run to end)", default: true, check: bool },
 };
 /* ---------- end: Agents ---------- */
 

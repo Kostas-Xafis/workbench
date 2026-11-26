@@ -12,6 +12,7 @@ import { createTables as createTrackerTables } from "./trackers";
 import { backfillRulings, createTables as createRulingTables, draftRuling, listRulings } from "./rulings";
 import { createDeviceTables } from "./devices";
 import { createRunTables, desktopLink } from "./dispatch";
+import { createLiveTables } from "./live";
 import { askChanges, cleanAsk, resolveAsk } from "./asks";
 import { createCheckRunTables } from "./checkruns";
 import { appendToOrder, placeInOrder } from "./order";
@@ -291,6 +292,7 @@ export function createSchema(db: Db) {
 	createCheckRunTables(db);
 	// Agents the board started on items (see dispatch.ts).
 	createRunTables(db);
+	createLiveTables(db);
 	// When an MCP client last called the board, per transport, for the setup guide (see setup.ts). Here rather
 	// than in setup.ts, which reads health.ts and would make an import cycle.
 	db.run(`CREATE TABLE IF NOT EXISTS mcp_contact (

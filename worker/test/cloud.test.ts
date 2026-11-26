@@ -8,6 +8,7 @@ import { addImage } from "../../src/images";
 import { cloudLogin, readSync, syncOff, syncOn, type SyncConfig } from "../../src/sync";
 import { deriveVault, dialog, resetCooldown } from "../../src/vaultask";
 import { vaultHere } from "../../src/cloudvault";
+import { permissionHere } from "../../src/relay";
 import { addSource, sourceFetch } from "../../src/sources";
 import { importExport, localTarget } from "../../src/export";
 import { createHash } from "node:crypto";
@@ -461,6 +462,71 @@ echo '{"type":"result","subtype":"success","is_error":false,"num_turns":1,"total
 		expect(notes.some((n) => n.startsWith(`Agent run #${run.id} moved to Claude Desktop`))).toBe(true);
 		expect((await post(`/api/runs/${run.id}/move`)).status).toBe(400);
 	}, 60e3);
+
+	test("while it runs: a message reaches it on the computer, a permission is answered through the relay, and the computer needs no new OK", async () => {
+		type Live = { run: RunRow & { live: string; command: string; continues: number | null }; events: { kind: string; text: string }[] };
+		// The same command (so the same OK on the computer), with a fake that reads its stdin as Claude Code's
+		// --input-format stream-json does: each message is echoed back, the first is the prompt. "Talk" in the title
+		// holds its first turn until a message comes (10 s at most).
+		const before = readFileSync(fake, "utf8");
+		writeFileSync(fake, `#!/usr/bin/env bash
+sid="\${WB_RESUME:-$WB_SESSION}"
+echo '{"type":"system","subtype":"init","session_id":"'"$sid"'","model":"fake-model","cwd":"'"$PWD"'"}'
+replay() { printf '%s\\n' "$1" | sed 's/^{"type":"user",/{"type":"user","isReplay":true,/'; }
+first=1
+while IFS= read -r line; do
+  replay "$line"
+  if [ $first = 1 ]; then
+    first=0
+    echo '{"type":"assistant","message":{"content":[{"type":"text","text":"On it"}]}}'
+    case "$WB_TITLE" in *Talk*) IFS= read -r -t 10 more && replay "$more";; esac
+  fi
+  echo '{"type":"result","subtype":"success","is_error":false,"num_turns":1,"total_cost_usd":0.1,"result":"Done.","session_id":"'"$sid"'"}'
+done
+`);
+		try {
+			const id = (await json<{ id: number }>(post("/api/items", { project: "repo", title: "Talk to it", owner: "agent" }))).id;
+			const res = await post("/api/runs", { item: String(id) });
+			expect(res.status).toBe(201);
+			const { run } = (await res.json()) as Live;
+			// No mcp__wb in this command: messages only. The computer ran it as the command it allowed, with those flags.
+			expect(run.live).toBe("tell");
+			expect(run.command).toBe(`${command} --input-format stream-json --replay-user-messages`);
+			await until("its first words", async () => (await get<Live>(`/api/runs/${run.id}/events`)).events.some((e) => e.text === "On it"));
+			const told = await post(`/api/runs/${run.id}/tell`, { message: "Use the other folder." });
+			expect(told.status).toBe(200);
+			expect(((await told.json()) as { continued: boolean }).continued).toBe(false);
+			await until("the run's end", async () => (await get<RunRow>(`/api/runs/${run.id}`)).ended_at);
+			const done = await get<Live>(`/api/runs/${run.id}/events`);
+			expect(done.run.status).toBe("done");
+			expect(done.events.filter((e) => e.kind === "message").map((e) => e.text)).toEqual(["Use the other folder."]);
+			const notes = (await get<{ notes: { text: string }[] }>(`/api/items/${id}`)).notes.map((n) => n.text);
+			expect(notes).toContain("Use the other folder.");
+			// Once it has ended, the same box continues its session.
+			const more = await post(`/api/runs/${run.id}/tell`, { message: "And one more." });
+			expect(more.status).toBe(201);
+			const next = ((await more.json()) as Live).run;
+			expect(next.continues).toBe(run.id);
+			await until("the continuation's end", async () => (await get<RunRow>(`/api/runs/${next.id}`)).ended_at);
+
+			// A permission: the run's `wb mcp` (here its relay's call) files it in the cloud and waits; it's answered on the board.
+			const id2 = (await json<{ id: number }>(post("/api/items", { project: "repo", title: "Talk, and ask", owner: "agent" }))).id;
+			const { run: run2 } = (await (await post("/api/runs", { item: String(id2) })).json()) as Live;
+			const cfg: SyncConfig = { url: BASE, token, device: "", since: "" };
+			const asking = permissionHere(cfg, run2.id, { tool_name: "Bash", input: { command: "npm publish" }, tool_use_id: "toolu_1" });
+			const p = await until("the permission", async () => (await get<{ id: number; run_id: number; what: string }[]>("/api/permissions")).find((x) => x.run_id === run2.id));
+			expect(p.what).toBe("Bash: npm publish");
+			expect((await get<{ permissions: { id: number }[] }>("/api/runs")).permissions.map((x) => x.id)).toContain(p.id);
+			expect((await post(`/api/permissions/${p.id}`, { answer: "allow" })).status).toBe(200);
+			expect(JSON.parse((await asking).text)).toEqual({ behavior: "allow", updatedInput: { command: "npm publish" } });
+			expect((await post(`/api/permissions/${p.id}`, { answer: "deny" })).status).toBe(400);
+			expect((await post(`/api/runs/${run2.id}/tell`, { message: "Thanks." })).status).toBe(200);
+			await until("the second run's end", async () => (await get<RunRow>(`/api/runs/${run2.id}`)).ended_at);
+			expect(a.log()).not.toContain("waits for an OK");
+		} finally {
+			writeFileSync(fake, before);
+		}
+	}, 90e3);
 
 	test("with two computers online, each job goes to one of them", async () => {
 		const b = await startHelper("Computer B");

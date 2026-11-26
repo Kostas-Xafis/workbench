@@ -32,6 +32,7 @@ async function runsLoad() {
 			redraw();
 			if (settings.tab === "agents" && !$("#settings-view").hidden) renderSettings();
 		}
+		permStripRender();
 	} catch {}
 	runsWatch();
 }
@@ -177,6 +178,9 @@ function continueWhy(item) {
 	const info = runs.info;
 	if (!item?.id || !info) return "Loading…";
 	const r = runsOf(item)[0];
+	// While it runs, a run that takes messages gets it at once (live.ts tellRun).
+	const going = runsOf(item).find((x) => !x.ended_at);
+	if (going) return runTells(going) ? "" : "The agent is still working: wait for it to finish, or stop it.";
 	if (!r || !RUN_UUID.test(r.session || "")) return "No agent session on it to continue.";
 	if (runLive(item)) return "The agent is still working: wait for it to finish, or stop it.";
 	if (!info.on) return "The board doesn't start agents: turn it on in Settings → Agents.";
@@ -190,16 +194,21 @@ function continueWhy(item) {
 const canContinue = (item) => !continueWhy(item);
 /** Sends the agent `text`: a new run carries on in its session (POST /api/runs/:id/continue). Returns the item. */
 async function continueAgent(item, text) {
-	const r = runsOf(item)[0];
+	const going = runsOf(item).find((x) => !x.ended_at);
+	const r = going ?? runsOf(item)[0];
 	if (!r) throw new Error("No agent session on it to continue.");
 	touched(item.id);
-	const res = await api(`/api/runs/${r.id}/continue`, { method: "POST", body: JSON.stringify({ message: text }) });
+	// A run that's going gets it on its stdin (and if it has just ended, the board continues it instead).
+	const res = await api(`/api/runs/${r.id}/${going ? "tell" : "continue"}`, { method: "POST", body: JSON.stringify({ message: text }) });
 	rvFor(item.id);
 	rvTake(res.run);
 	runView.sel = res.run.id;
 	await Promise.all([loadItems(), runsLoad()]);
+	if (runs.panel?.item.id === item.id) runPanelPoll(runs.panel);
 	return res.item;
 }
+/** A run that's going takes messages on its stdin (its command reads them: dispatch.ts, `tell`). */
+const runTells = (r) => !r.ended_at && String(r.live || "").split(",").includes("tell");
 /** Run again: an agent's to-do, or one whose last run failed or was stopped, or that stalled while doing. */
 function restartKind(i) {
 	if (!i?.id || i.owner !== "agent" || i.kind === "idea" || !OPEN.includes(i.status) || runLive(i)) return "";
@@ -300,7 +309,8 @@ function actsHtml(item, r) {
 	if (r && newest && !live && RUN_UUID.test(r.session || "")) {
 		const why = continueWhy(item);
 		b.push(`<button type="button" class="${why || r.moved ? "ghost" : "primary"} sm" data-run-tell${why ? ` disabled title="${esc(why)}"` : ' title="Write to the agent in the box below: it carries on in the same session"'}>Tell the agent…</button>`);
-	}
+	} else if (r && live && runTells(r))
+		b.push(`<button type="button" class="ghost sm" data-run-tell title="Write to the agent in the box below: it gets it while it works">Tell the agent…</button>`);
 	if (desk && !r.moved) b.push(desk);
 	if (r?.session) b.push(`<button type="button" class="ghost sm" data-run-copy="${esc(`${r.cwd ? `cd ${shq(r.cwd)} && ` : ""}claude --resume ${r.session}`)}" title="To carry on in a terminal">Copy resume command</button>`);
 	const again = restartKind(item);
@@ -325,8 +335,64 @@ function runPanel(item) {
 	return `<div class="run-box">${headHtml(item, r, list)}
 		${r.error ? `<p class="run-err">${esc(r.error)}</p>` : ""}
 		${r.refused ? `<p class="run-err">Its permissions refused ${esc(r.refused)}. What a run may do is in Settings → Agents → The command.</p>` : ""}
-		${feedHtml(r)}${choiceHtml(item)}${actsHtml(item, r)}</div>`;
+		${feedHtml(r)}${runPermsHtml(r)}${choiceHtml(item)}${actsHtml(item, r)}</div>`;
 }
+
+/* ---------- Permissions it asks you for while it runs (live.ts) ---------- */
+// A tool call its mode would refuse asks you instead (Settings → Agents): in its run box, and at the top of the Inbox.
+// Allow, Allow <tool> for this run (the same tool, for the rest of the run), or Deny; nobody answering in 10 minutes is
+// a no. POST /api/permissions/:id, from a paired phone too.
+const PERM_MIN = 10;
+const permTool = (p) => (p.tool.startsWith("mcp__") ? p.tool.replace(/^mcp__/, "").replace("__", " · ") : p.tool);
+/** The call as it would run: a command in full, else its one line ("Edit src/app.ts"). */
+const permWhat = (p) => (/^(Bash|PowerShell)$/.test(p.tool) && p.detail ? p.detail : p.what.replace(/^[^:]+: /, "")) || p.what;
+const permLeft = (p) => {
+	const left = PERM_MIN - Math.floor((Date.now() - Date.parse(`${p.asked_at.replace(" ", "T")}Z`)) / 60e3);
+	return left <= 1 ? "a minute left" : `${left} min left`;
+};
+function permHtml(p, inbox = false) {
+	const tool = permTool(p);
+	const who = inbox ? `<button type="button" class="perm-ref" data-perm-open="${p.item_id}" title="${esc(p.title)}"><code>wb-${esc(p.ref)}</code></button> ` : "The agent ";
+	return `<div class="perm" role="group" aria-label="${esc(`${inbox ? `wb-${p.ref}` : "The agent"} asks to run ${tool}`)}">
+		<div class="perm-q">${who}wants to run <b>${esc(tool)}</b><span class="run-muted perm-left">${esc(permLeft(p))}</span></div>
+		<code class="perm-what" title="${esc(p.detail || p.what)}">${esc(permWhat(p))}</code>
+		<div class="perm-acts"><button type="button" class="primary sm" data-perm="${p.id}" data-perm-answer="allow">Allow</button><button type="button" class="ghost sm" data-perm="${p.id}" data-perm-answer="run" title="${esc(`Every ${tool} call it makes from now on, until this run ends`)}">Allow ${esc(tool)} for this run</button><button type="button" class="ghost sm danger" data-perm="${p.id}" data-perm-answer="deny">Deny</button></div></div>`;
+}
+/** The run's permissions waiting for you: what its events said last, else the board's list. */
+function runPermsHtml(r) {
+	if (r.ended_at) return "";
+	const got = runView.ev.get(r.id)?.perms;
+	const list = (got ?? runs.info?.permissions ?? []).filter((p) => p.run_id === r.id && !p.answer);
+	return list.length ? `<div class="perms">${list.map((p) => permHtml(p)).join("")}</div>` : "";
+}
+/** The Inbox's strip: every permission waiting, above the tabs. */
+const permStrip = document.createElement("div");
+permStrip.className = "perms perm-strip";
+permStrip.hidden = true;
+$("#setup-card")?.after(permStrip);
+function permStripRender() {
+	const list = runs.info?.permissions ?? [];
+	const html = list.map((p) => permHtml(p, true)).join("");
+	permStrip.hidden = !list.length;
+	if (permStrip._html !== html) { permStrip.innerHTML = html; permStrip._html = html; }
+}
+document.addEventListener("click", async (e) => {
+	const open = e.target.closest("[data-perm-open]");
+	if (open) { openItemById(open.dataset.permOpen).catch((err) => toast(err.message)); return; }
+	const b = e.target.closest("[data-perm]");
+	if (!b) return;
+	const answer = b.dataset.permAnswer;
+	for (const x of b.closest(".perm")?.querySelectorAll("button") ?? []) x.disabled = true;
+	try {
+		const { permission: p } = await api(`/api/permissions/${b.dataset.perm}`, { method: "POST", body: JSON.stringify({ answer }) });
+		toast(answer === "deny" ? "Denied: the agent goes on without it" : answer === "run" ? `Allowed: ${permTool(p)} for the rest of this run` : "Allowed: the agent goes on");
+	} catch (err) { toast(err.message); }
+	if (runs.info) runs.info.permissions = (runs.info.permissions ?? []).filter((x) => String(x.id) !== b.dataset.perm);
+	for (const got of runView.ev.values()) if (got.perms) got.perms = got.perms.filter((x) => String(x.id) !== b.dataset.perm);
+	permStripRender();
+	runPanelDraw();
+	runsLoad();
+});
 
 /* Drawing it again in place, following what it does while it runs. */
 function runPanelDraw() {
@@ -347,7 +413,7 @@ async function runEventsLoad(id) {
 	const got = runView.ev.get(id) ?? { events: [], next: -1 };
 	const res = await api(`/api/runs/${id}/events${got.next >= 0 ? `?after=${got.next}` : ""}`);
 	const events = got.next >= 0 ? [...got.events, ...res.events.filter((e) => e.n > got.next)] : res.events;
-	runView.ev.set(id, { events, next: res.next });
+	runView.ev.set(id, { events, next: res.next, perms: res.permissions });
 	return res.run;
 }
 /** Looks again: the picked run's events (and the newest's while it runs), every 2 s while one runs. */
@@ -508,6 +574,7 @@ function runsSettings() {
 		${optGroup("Starting agents", [
 			optRow({ label: "Let the board start agents", hint: "Off: Run and Answer &amp; send don't show, and nothing starts by itself.", bind: { setting: "agents.on" }, control: ctlToggle({ setting: "agents.on" }, { label: "Let the board start agents" }) }),
 			optRow({ label: "From a paired phone too", hint: "Off: a phone can answer, but only this computer starts agents.", bind: { setting: "agents.phone" }, control: ctlToggle({ setting: "agents.phone" }, { label: "A paired phone may start agents" }), off }),
+			optRow({ label: "Ask me on the board when an agent needs a permission", hint: `A tool call its mode would refuse asks you instead: in its agent box, at the top of the Inbox, and as a notification, with Allow, Allow for this run and Deny. Nobody answering within ${PERM_MIN} minutes is a no, as it would have been without this, and that run's later asks are a no at once. From the next run on.`, bind: { setting: "agents.ask" }, control: ctlToggle({ setting: "agents.ask" }, { label: "Ask me on the board when an agent needs a permission" }), off }),
 			optRow({ label: "When an agent's work is unblocked", hint: "Work that waited on your answer, or on another item, can carry on. <b>Tell me</b>: a notification (Notifications → An agent can carry on), and Run on its row in the project's page. <b>Send it</b>: the board starts the agent on it by itself, within the limits below.", bind: { setting: "agents.unblocked" }, control: ctlRadios({ setting: "agents.unblocked" }, [["tell", "Tell me"], ["send", "Send it"]], { label: "When an agent's work is unblocked" }), off }),
 		])}
 		${startsWithGroup(off)}

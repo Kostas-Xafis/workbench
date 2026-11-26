@@ -106,6 +106,7 @@ import { exportStream } from "./export";
 import { mcpHttp } from "./mcp";
 import { agentsView, landItem } from "./agents";
 import { checkChoices, continueRun, getRun, listRuns, moveRun, openInDesktop, runEvents, runPrompt, runsInfo, setItemChoice, startRun, stopRun, testCommand, type From } from "./dispatch";
+import { answerPermission, askPermission, pendingPermissions, runPermissions, tellRun, waitPermission } from "./live";
 
 /** Bypass permissions lets an agent do anything: chosen only where the board's own settings are changed. */
 const BYPASS_LOCAL = "Bypass permissions is chosen only on the board on this computer.";
@@ -1174,7 +1175,54 @@ export function boardRoutes(h: BoardHost) {
 			const after = raw === null || raw === "" || !Number.isFinite(Number(raw)) ? -1 : Number(raw);
 			const events = runEvents(db, r.id, after);
 			const { tail: _, command: __, ...run } = r;
-			return json({ run, events, next: events.at(-1)?.n ?? after });
+			return json({ run, events, next: events.at(-1)?.n ?? after, permissions: runPermissions(db, r.id) });
+		},
+		// While a run goes (live.ts). Tell: { message } reaches it on its stdin, or continues its session once it has
+		// ended. Permissions: its permission prompt files one (the relay of a run's `wb mcp` on the cloud board), asks
+		// how it stands (?wait=s, at most 25), and you answer it ({ answer: allow | run | deny }), from a phone too.
+		"/api/runs/:id/tell": {
+			POST: jsonOnly(async (req, srv) => {
+				const from = runFrom(req, srv);
+				if (!from) return json({ error: "messages go to agents only from the board on this computer, or a phone paired with it" }, 403);
+				try {
+					const { message } = await req.json();
+					const out = await tellRun(db, Number(req.params.id), String(message ?? ""), from);
+					return json(out, out.continued ? 201 : 200);
+				} catch (e) {
+					return fail(e);
+				}
+			}),
+		},
+		"/api/runs/:id/permissions": {
+			POST: jsonOnly(async (req, srv) => {
+				if (!loopback(req, srv) && !gate.device(req, srv)) return json({ error: "only a run's own MCP server asks this" }, 403);
+				try {
+					return json({ permission: askPermission(db, Number(req.params.id), await req.json()) }, 201);
+				} catch (e) {
+					return fail(e);
+				}
+			}),
+		},
+		"/api/permissions": () => json(pendingPermissions(db)),
+		"/api/permissions/:id": {
+			GET: async (req) => {
+				const wait = Math.max(0, Math.min(25, Number(new URL(req.url).searchParams.get("wait")) || 0));
+				try {
+					return json({ permission: await waitPermission(db, Number(req.params.id), wait * 1000) });
+				} catch (e) {
+					return fail(e);
+				}
+			},
+			POST: jsonOnly(async (req, srv) => {
+				const from = runFrom(req, srv);
+				if (!from) return json({ error: "permissions are answered only from the board on this computer, or a phone paired with it" }, 403);
+				try {
+					const { answer } = await req.json();
+					return json({ permission: answerPermission(db, Number(req.params.id), answer, from.by ?? "kostas") });
+				} catch (e) {
+					return fail(e);
+				}
+			}),
 		},
 		// Continue: a new run that resumes this run's Claude Code session with { message } as the prompt.
 		"/api/runs/:id/continue": {

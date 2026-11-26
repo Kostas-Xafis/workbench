@@ -90,6 +90,8 @@ const here: From = { where: "local", label: "this computer" };
 const phone: From = { where: "phone", label: "phone (Pixel)" };
 const task = (title = "Build it", more: Record<string, unknown> = {}) => addItem(db, { title, project: "repo", owner: "agent", ...more });
 const set = (patch: Record<string, unknown>) => updateSettings(db, patch);
+// The flags a run gets so the board reaches it while it runs (test/live.test.ts) are left out here.
+set({ "agents.ask": false, "agents.tell": false });
 
 /** Polls until the run has ended (or 10 s pass). */
 async function ended(id: number): Promise<Run> {
