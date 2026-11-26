@@ -112,4 +112,9 @@
 .perm-what { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; margin-top: 4px; font-size: var(--fs-12); white-space: pre-wrap; overflow-wrap: anywhere; background: var(--card); border-radius: var(--r-sm); padding: 3px 6px; }
 .perm-acts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: var(--sp-2); }
 .perm-strip { padding: var(--sp-3) var(--sp-4) 0; }
+/* Messages waiting for a run to end (ui/dispatch.js runQueuedHtml). */
+.run-queued { margin-top: var(--sp-3); border: 1px dashed var(--line); border-radius: var(--r-md); padding: var(--sp-2) var(--sp-3); font-size: var(--fs-12); color: var(--muted); }
+.run-queued-msg { margin-top: 4px; color: var(--ink); font-size: var(--fs-13); overflow-wrap: anywhere; }
+.run-queued-msg > :first-child { margin-top: 0; }
+.run-queued-msg > :last-child { margin-bottom: 0; }
 @media (max-width: 760px) { .perm-strip { padding: var(--sp-2) var(--sp-3) 0; } }

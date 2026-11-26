@@ -13,6 +13,8 @@ import {
 	newLive,
 	pollRuns,
 	readLine,
+	INPUT_IDLE,
+	moveRun,
 	resumeCommand,
 	runEvents,
 	startRun,
@@ -58,6 +60,8 @@ while IFS= read -r line; do
     result "Again"
   fi
 done
+# Stdin closed, but a background task keeps it going: another turn of its own, then it ends.
+[ -n "$FAKE_BG" ] && { sleep "$FAKE_BG"; result "Background done"; }
 exit 0
 `,
 );
@@ -70,6 +74,8 @@ const here: From = { where: "local", label: "this computer" };
 const task = (title: string) => addItem(db, { title, project: "repo", owner: "agent" });
 const set = (patch: Record<string, unknown>) => updateSettings(db, patch);
 set({ "agents.on": true, "agents.per-day": 100, "agents.at-once": 5 });
+// Its stdin closes as soon as its turn ends (the board waits 15 s; one test sets its own).
+INPUT_IDLE.ms = 0;
 
 async function until<T>(what: string, f: () => T | undefined | null | false, ms = 10e3): Promise<T> {
 	for (const end = Date.now() + ms; Date.now() < end; await Bun.sleep(50)) {
@@ -190,13 +196,69 @@ describe("messages to a running agent", () => {
 		expect(runEvents(db, next.id).filter((e) => e.kind === "message")).toHaveLength(1);
 	});
 
-	test("a running run that can't take messages says so; an empty message is refused", async () => {
-		set({ "agents.tell": false, "agents.command": cmd("FAKE_HOLD=1") });
-		const run = await startRun(db, task("Deaf"), here);
-		expect(tellRun(db, run.id, "hello", here)).rejects.toThrow("can't take messages while it runs");
+	test("a quick follow-up after its turn's result still lands live: stdin stays open until it has been quiet a while", async () => {
+		INPUT_IDLE.ms = 3000;
+		try {
+			const input = join(dir, "in-quick.txt");
+			set({ "agents.command": cmd(`FAKE_IN=${input}`) });
+			const run = await startRun(db, task("Quick follow-up"), here);
+			await until("its first result", () => runEvents(db, run.id).some((e) => e.kind === "result"));
+			const told = await tellRun(db, run.id, "And the docs too.", here);
+			expect(told).toMatchObject({ continued: false });
+			expect(told.queued).toBeUndefined();
+			const r = await ended(run.id);
+			expect(r.result).toBe("Again");
+			expect(runEvents(db, run.id).filter((e) => e.kind === "message").map((e) => e.text)).toEqual(["And the docs too."]);
+		} finally {
+			INPUT_IDLE.ms = 0;
+		}
+	});
+
+	test("its stdin closed but it goes on (a background task): the message is queued, and continues its session when it ends", async () => {
+		set({ "agents.command": cmd("FAKE_BG=2") });
+		const t = task("Background work");
+		const run = await startRun(db, t, here);
+		await until("its stdin closed", () => existsSync(join(process.env.XDG_RUNTIME_DIR!, "workbench-runs", `${getRun(db, run.id)!.tag}.in.closed`)));
+		const told = await tellRun(db, run.id, "Then tidy up.", { ...here, by: "kostas" });
+		expect(told).toMatchObject({ continued: false, queued: true });
+		expect(JSON.parse(getRun(db, run.id)!.queued)).toMatchObject([{ text: "Then tidy up.", by: "kostas" }]);
+		// A second one waits behind it, and both go together.
+		expect((await tellRun(db, run.id, "And push.", here)).queued).toBe(true);
+		const r = await ended(run.id);
+		expect(r).toMatchObject({ status: "done", result: "Background done" });
+		const next = await until("the continuation", () => db.query("SELECT id FROM runs WHERE continues = ?").get(run.id) as { id: number } | null);
+		const done = await ended(next.id);
+		expect(done.status).toBe("done");
+		expect(runEvents(db, next.id)[0]).toMatchObject({ n: 0, kind: "message", text: "Then tidy up.\n\nAnd push." });
+		expect(getRun(db, run.id)!.queued).toBe("");
+		const notes = getItem(db, t)!.notes.map((n) => n.text);
+		expect(notes.filter((n) => n === "Then tidy up.")).toHaveLength(1);
+		expect(notes.some((n) => n.startsWith(`Queued for the agent (run #${run.id}`))).toBe(true);
+		expect(notes.some((n) => n.startsWith(`Agent continued (run #${next.id}`) && n.includes("waited for it to end"))).toBe(true);
+	});
+
+	test("a run that can't take messages at all queues them too; a queued message on a stopped or moved run isn't sent, it's noted", async () => {
+		set({ "agents.tell": false, "agents.command": cmd("FAKE_BG=30") });
+		const t = task("Deaf");
+		const run = await startRun(db, t, here);
+		expect(run.live).not.toContain("tell");
 		expect(tellRun(db, run.id, "  ", here)).rejects.toThrow("write the message");
+		expect((await tellRun(db, run.id, "hello", here)).queued).toBe(true);
 		await stopRun(db, run.id);
-		set({ "agents.tell": null });
+		await Bun.sleep(100);
+		expect(db.query("SELECT id FROM runs WHERE continues = ?").get(run.id)).toBeNull();
+		const notes = getItem(db, t)!.notes.map((n) => n.text);
+		expect(notes.some((n) => n.startsWith(`The message queued for run #${run.id} didn't reach the agent: the run was stopped`) && n.endsWith("hello"))).toBe(true);
+		set({ "agents.tell": null, "agents.command": cmd("FAKE_BG=30") });
+		const m = task("Moved");
+		const moving = await startRun(db, m, here);
+		await until("its session", () => getRun(db, moving.id)!.session);
+		await until("its stdin closed", () => existsSync(join(process.env.XDG_RUNTIME_DIR!, "workbench-runs", `${getRun(db, moving.id)!.tag}.in.closed`)));
+		expect((await tellRun(db, moving.id, "for later", here)).queued).toBe(true);
+		await moveRun(db, moving.id);
+		await Bun.sleep(100);
+		expect(db.query("SELECT id FROM runs WHERE continues = ?").get(moving.id)).toBeNull();
+		expect(getItem(db, m)!.notes.some((n) => n.text.includes("moved to Claude Desktop, so carry on there"))).toBe(true);
 	});
 
 	test("only Claude Code's own message line goes in: what you write is its text, never a line of its own", () => {

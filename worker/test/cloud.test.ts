@@ -538,6 +538,8 @@ while IFS= read -r line; do
   fi
   echo '{"type":"result","subtype":"success","is_error":false,"num_turns":1,"total_cost_usd":0.1,"result":"Done.","session_id":"'"$sid"'"}'
 done
+# "Background": its stdin closed, a background task keeps it going a while longer, then another turn ends it.
+case "$WB_TITLE" in *Background*) sleep 8; echo '{"type":"result","subtype":"success","is_error":false,"num_turns":1,"result":"Background done.","session_id":"'"$sid"'"}';; esac
 `);
 		try {
 			const id = (await json<{ id: number }>(post("/api/items", { project: "repo", title: "Talk to it", owner: "agent" }))).id;
@@ -578,10 +580,26 @@ done
 			expect((await post(`/api/runs/${run2.id}/tell`, { message: "Thanks." })).status).toBe(200);
 			await until("the second run's end", async () => (await get<RunRow>(`/api/runs/${run2.id}`)).ended_at);
 			expect(a.log()).not.toContain("waits for an OK");
+
+			// Its stdin closed (15 s after its turn's result), but a background task keeps it going: the message is
+			// queued on the cloud board, and continues its session on the computer when it ends.
+			const id3 = (await json<{ id: number }>(post("/api/items", { project: "repo", title: "Background work", owner: "agent" }))).id;
+			const { run: run3 } = (await (await post("/api/runs", { item: String(id3) })).json()) as Live;
+			const tag = (await get<{ tag: string }>(`/api/runs/${run3.id}`)).tag;
+			await until("its stdin closed", async () => existsSync(join(dir, "computer-Computer-A", "run", "workbench-runs", `${tag}.in.closed`)), 40e3);
+			const queued = await post(`/api/runs/${run3.id}/tell`, { message: "Then tidy up." });
+			expect(queued.status).toBe(202);
+			expect(((await queued.json()) as { queued: boolean }).queued).toBe(true);
+			expect(JSON.parse((await get<{ queued: string }>(`/api/runs/${run3.id}`)).queued)).toMatchObject([{ text: "Then tidy up." }]);
+			await until("the run's end", async () => (await get<RunRow>(`/api/runs/${run3.id}`)).ended_at);
+			const after = await until("the continuation", async () => (await get<(RunRow & { continues: number | null })[]>(`/api/runs?item=${id3}`)).find((x) => x.continues === run3.id));
+			const cont = await get<Live>(`/api/runs/${after.id}/events`);
+			expect(cont.events[0]).toMatchObject({ kind: "message", text: "Then tidy up." });
+			await until("the continuation's end", async () => (await get<RunRow>(`/api/runs/${after.id}`)).ended_at, 40e3);
 		} finally {
 			writeFileSync(fake, before);
 		}
-	}, 90e3);
+	}, 240e3);
 
 	test("with two computers online, each job goes to one of them", async () => {
 		const b = await startHelper("Computer B");

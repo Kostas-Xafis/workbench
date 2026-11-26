@@ -1222,7 +1222,7 @@ export function boardRoutes(h: BoardHost) {
 				try {
 					const { message } = await req.json();
 					const out = await tellRun(db, Number(req.params.id), String(message ?? ""), from);
-					return json(out, out.continued ? 201 : 200);
+					return json(out, out.continued ? 201 : out.queued ? 202 : 200);
 				} catch (e) {
 					return fail(e);
 				}

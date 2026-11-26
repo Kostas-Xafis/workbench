@@ -25,7 +25,7 @@ import { staleOf } from "./stale";
 import { AGENT_COMMAND, AGENT_EFFORTS, AGENT_MODELS, AGENT_MODES, dayStartHour, getSetting, yourName } from "./settings";
 import { runShell, shellPath } from "./trackers";
 import { sessionsCost } from "./usage";
-import { pendingPermissions } from "./live";
+import { deliverQueued, pendingPermissions } from "./live";
 
 export { AGENT_COMMAND };
 export type RunStatus = "running" | "done" | "failed" | "stopped";
@@ -77,6 +77,8 @@ export type Run = {
 	/** What the board can do with it while it runs (live.ts): "ask" (its permission prompts come to the board),
 	 * "tell" (messages reach it on its stdin); comma-separated, '' for neither (runs from before, other commands). */
 	live: string;
+	/** Messages waiting for it to end (live.ts tellRun), as JSON; '' for none. */
+	queued: string;
 	pid: number;
 	unit: string;
 	tag: string;
@@ -901,7 +903,7 @@ export function continuePrompt(db: Db, i: Pick<Item, "ref">, message: string): s
  * follow-up on a done one too); the limits apply as for Run. Refused while that session, or any run on the item, is
  * still going. The item's history gets the message (as `from.by`, Kostas by default) and "Agent continued (run #n)".
  */
-export async function continueRun(db: Db, runId: number, message: string, from: From): Promise<Run> {
+export async function continueRun(db: Db, runId: number, message: string, from: From, o: { noted?: boolean } = {}): Promise<Run> {
 	const text = String(message ?? "").trim();
 	if (!text) throw new Error("write the message to send the agent");
 	if (text.length > 20000) throw new Error("the message is too long (20,000 characters at most)");
@@ -936,8 +938,8 @@ export async function continueRun(db: Db, runId: number, message: string, from: 
 		text.slice(0, EVENT_TEXT),
 		JSON.stringify({ by: from.by ?? "kostas" }),
 	);
-	addNote(db, i.id, text, from.by ?? "kostas");
-	addNote(db, i.id, `Agent continued (run #${id}, from ${from.label}): the session of run #${r.id}, with the message above`, "workbench");
+	if (!o.noted) addNote(db, i.id, text, from.by ?? "kostas");
+	addNote(db, i.id, `Agent continued (run #${id}, from ${from.label}): the session of run #${r.id}, ${o.noted ? "with the message that waited for it to end" : "with the message above"}`, "workbench");
 	return getRun(db, id)!;
 }
 
@@ -1070,6 +1072,8 @@ export async function launchRun(l: Launch, onError: (message: string) => void = 
    (its result is in the log), whoever follows the run writes the end line (closeInput): the feeder stops, Claude Code
    sees its stdin close and finishes, as a run without messages does. A message after that is a Continue. */
 const END_LINE = '{"type":"wb_end"}';
+/** How long after its turn's result, with no new output, a run's stdin stays open. Tests shorten it. */
+export const INPUT_IDLE = { ms: 15e3 };
 const inPath = (r: Pick<Run, "tag">) => join(runDir(), `${r.tag}.in`);
 const closedPath = (r: Pick<Run, "tag">) => join(runDir(), `${r.tag}.in.closed`);
 /** A message as Claude Code's stream-json input takes it, on one line. Only this goes in: never a line from elsewhere
@@ -1109,8 +1113,10 @@ export function sendInput(r: Pick<Run, "tag">, line: string): InputSent {
 	}
 }
 /** The run's turn ended (`l` has its result): its stdin closes, so it finishes. Once; nothing for a run without a pipe. */
-export function closeInput(r: Pick<Run, "tag">, l: Pick<Live, "events">) {
-	if (!l.events.some((e) => e.kind === "result") || existsSync(closedPath(r)) || !existsSync(inPath(r))) return;
+export function closeInput(r: Pick<Run, "tag">, l: Pick<Live, "events" | "grew">, now = Date.now()) {
+	// Its last word is a result, and nothing new came for a while: a quick follow-up still lands while it's open.
+	if (l.events.at(-1)?.kind !== "result" || now - (l.grew ?? 0) < INPUT_IDLE.ms) return;
+	if (existsSync(closedPath(r)) || !existsSync(inPath(r))) return;
 	writeFileSync(closedPath(r), "", { mode: 0o600 });
 	try {
 		const fd = openSync(inPath(r), fsc.O_WRONLY | fsc.O_NONBLOCK);
@@ -1145,6 +1151,8 @@ export type Live = {
 	seq: number;
 	/** Its first message from stdin (the prompt, with tell) has been read; the ones after it are messages sent to it. */
 	prompted?: boolean;
+	/** When this process last read new output from its log (ms); closeInput waits for a quiet spell after a result. */
+	grew?: number;
 };
 /** The words of a user message's content: a string, or text blocks only (not a tool's result); undefined otherwise. */
 const replayText = (content: unknown): string | undefined =>
@@ -1428,6 +1436,7 @@ export function readLog(r: Pick<Run, "id" | "tag">): Live {
 			const n = readSync(fd, buf, 0, buf.length, l.offset);
 			if (!n) break;
 			l.offset += n;
+			l.grew = Date.now();
 			const text = l.partial + buf.subarray(0, n).toString("utf8");
 			const lines = text.split("\n");
 			l.partial = lines.pop() ?? "";
@@ -1538,6 +1547,8 @@ export function endRun(db: Db, r: Pick<Run, "id" | "item_id" | "status" | "error
 	);
 	// Moved: the work goes on in Claude Desktop, so the item stays as the agent left it.
 	if (!moved) unpark(db, r.item_id, r.id);
+	// Messages that waited for it to end (live.ts): its session goes on with them, or they're noted when it broke.
+	void deliverQueued(db, r.id).catch((e) => console.error(`agents: run #${r.id}'s queued message: ${(e as Error).message}`));
 }
 
 /** After a run: an item it left doing, or waiting on nothing, would sit there with nobody to bring it back (nobody
