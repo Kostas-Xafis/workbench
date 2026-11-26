@@ -21,6 +21,7 @@ import { lanUrls } from "./health";
 import { startUpdateChecks } from "./updates";
 import { resumeShares } from "./share";
 import { pollRuns, sendUnblocked } from "./dispatch";
+import { runAutopilot } from "./autopilot";
 import { refreshUsage } from "./usage";
 import { runDue } from "./trackers";
 import { boardRoutes, PAIR_OPEN, type BoardFile, type BoardHost } from "./routes";
@@ -135,7 +136,8 @@ export function serve({ lan = false } = {}) {
 	const gate = phoneGate(db, { port: PORT, loopback, open: PAIR_OPEN });
 
 	// Every 2 s: new output into the runs' tails, and the end of those whose process is gone (also the ones that ended
-	// while the board was off: the first look is now). Unblocked work is sent from here when Settings says so.
+	// while the board was off: the first look is now). Unblocked work is sent from here when Settings says so,
+	// and autopilot (autopilot.ts) starts a project's Next up.
 	let runsBusy = false;
 	const watchRuns = async () => {
 		if (runsBusy) return;
@@ -143,6 +145,7 @@ export function serve({ lan = false } = {}) {
 		try {
 			pollRuns(db);
 			await sendUnblocked(db);
+			await runAutopilot(db);
 		} catch (e) {
 			console.error(`agents: ${(e as Error).message}`);
 		} finally {

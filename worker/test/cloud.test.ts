@@ -462,6 +462,29 @@ echo '{"type":"result","subtype":"success","is_error":false,"num_turns":1,"total
 		expect((await post(`/api/runs/${run.id}/move`)).status).toBe(400);
 	}, 60e3);
 
+	test("autopilot: turned on, the project's first Next up item starts on the computer; its state says what goes", async () => {
+		type State = { slug: string; on: boolean; why: string; run?: { id: number; ref: string } };
+		const put = (on: boolean) => api("/api/projects/repo/autopilot", { method: "PUT", body: JSON.stringify({ on }) });
+		expect(await get<State[]>("/api/autopilot")).toEqual([]);
+		const res = await put(true);
+		expect(res.status).toBe(200);
+		const body = (await res.json()) as { project: { autopilot: number }; autopilot: State };
+		expect(body.project.autopilot).toBe(1);
+		// A free slot took the first item at once (Build it, the oldest), through the computer.
+		expect(body.autopilot.run?.ref).toBe(item.ref);
+		const run = body.autopilot.run!;
+		expect((await put(false)).status).toBe(200);
+		expect(await get<State[]>("/api/autopilot")).toEqual([]);
+		const done = await until("the autopilot run's end", async () => {
+			const r = await get<RunRow>(`/api/runs/${run.id}`);
+			return r.ended_at ? r : null;
+		});
+		expect(done).toMatchObject({ status: "done", started_from: "autopilot" });
+		expect(a.log()).toContain(`run #${run.id} started`);
+		const notes = (await get<{ notes: { text: string }[] }>(`/api/items/${item.ref}`)).notes.map((n) => n.text);
+		expect(notes).toContain(`Agent started by autopilot (run #${run.id})`);
+	}, 60e3);
+
 	test("with two computers online, each job goes to one of them", async () => {
 		const b = await startHelper("Computer B");
 		expect((await get<{ computers: string[] }>("/api/runs")).computers.sort()).toEqual(["Computer A", "Computer B"]);

@@ -130,7 +130,8 @@ function pjHeader() {
 	// Reviews and notices go ahead by themselves: said quietly, not counted.
 	const quiet = look ? `<span title="They go ahead by themselves; look when you like">${look} to look at</span>` : "";
 	const line = [pjRepoLine(), inbox ? `<a href="#inbox/${encodeURIComponent(pv.slug)}">${inbox} in your inbox</a>` : "", quiet].filter(Boolean).join("&nbsp;· ");
-	return `<div class="pj-id">${logo(p)}<div class="pj-name"><h1>${esc(p.name)}</h1>${line ? `<div class="pj-line">${line}</div>` : ""}</div></div>
+	const auto = typeof autopilotHtml === "function" ? autopilotHtml(pv.slug) : "";
+	return `<div class="pj-id">${logo(p)}<div class="pj-name"><h1>${esc(p.name)}</h1>${line ? `<div class="pj-line">${line}</div>` : ""}${auto}</div></div>
 		<div class="pj-side">${pjGoalHtml()}${pjMeters()}</div>`;
 }
 
