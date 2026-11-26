@@ -232,7 +232,7 @@ describe("the computer helper", () => {
 		throw new Error(`timed out waiting for ${what}`);
 	};
 	/** A helper as a computer runs it: the local server's process, synced with the cloud board through its own device. */
-	async function startHelper(name: string, via: "ws" | "poll" = "ws") {
+	async function startHelper(name: string, via: "ws" | "poll" = "ws", env: Record<string, string> = {}) {
 		const claimed = await json<{ token: string; device: { id: string } }>(api("/api/sync/claim", { method: "POST", body: JSON.stringify({ key: KEY, name }) }, ""));
 		const home = join(dir, `computer-${name.replace(/\W+/g, "-")}`);
 		mkdirSync(home, { recursive: true });
@@ -250,6 +250,7 @@ describe("the computer helper", () => {
 				WB_HELPER_ASK: "0",
 				CLAUDE_CONFIG_DIR: join(home, "claude"),
 				...(via === "poll" ? { WB_HELPER_WS: "0" } : {}),
+				...env,
 			},
 			stdout: "pipe",
 			stderr: "pipe",
@@ -521,7 +522,8 @@ echo '{"type":"result","subtype":"success","is_error":false,"num_turns":1,"total
 
 	test("a computer that can't keep a WebSocket polls, and gets its jobs all the same", async () => {
 		a.proc.kill();
-		const c = await startHelper("Computer C", "poll");
+		// Its window says yes to a new command, as Kostas would.
+		const c = await startHelper("Computer C", "poll", { WB_HELPER_ASK: "yes" });
 		await until("A gone", async () => {
 			const list = (await get<{ computers: { name: string }[] }>("/api/helper")).computers.map((x) => x.name);
 			return list.length === 1 && list[0] === "Computer C";
@@ -536,6 +538,16 @@ echo '{"type":"result","subtype":"success","is_error":false,"num_turns":1,"total
 		});
 		expect(done.status).toBe("done");
 		expect(c.log()).toContain(`run #${run.id} started`);
+		// Bypass permissions is a new command here: the run waits for the window's yes and starts, rather than failing.
+		expect((await api(`/api/items/${id}/agent`, { method: "PUT", body: JSON.stringify({ mode: "bypassPermissions" }) })).status).toBe(200);
+		const bypass = await post("/api/runs", { item: String(id) });
+		expect(bypass.status).toBe(201);
+		const { run: run2 } = (await bypass.json()) as { run: RunRow };
+		expect((await until("the bypass run's end", async () => {
+			const r = await get<RunRow>(`/api/runs/${run2.id}`);
+			return r.ended_at ? r : null;
+		})).status).toBe("done");
+		expect(c.log()).toContain("allowed: the command that starts agents");
 		c.proc.kill();
 	}, 150e3);
 
