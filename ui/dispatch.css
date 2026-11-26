@@ -100,3 +100,16 @@
 .run-link code { color: var(--muted); margin-right: 4px; }
 .run-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
 .run-offer .primary:disabled { opacity: .45; cursor: default; }
+
+/* A permission a run asks you for (ui/dispatch.js permHtml): in its run box, and at the top of the Inbox. */
+.perms { display: flex; flex-direction: column; gap: var(--sp-2); }
+.run-box .perms { margin-top: var(--sp-3); }
+.perm { border: 1px solid color-mix(in srgb, var(--warn-ink) 35%, var(--line)); background: var(--warn-bg); border-radius: var(--r-md); padding: var(--sp-2) var(--sp-3); min-width: 0; }
+.perm-q { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px var(--sp-2); font-size: var(--fs-13); color: var(--ink); }
+.perm-left { margin-left: auto; font-size: var(--fs-11); }
+.perm-ref { border: 0; background: none; padding: 0; font: inherit; color: inherit; cursor: pointer; }
+.perm-ref:hover code { text-decoration: underline; }
+.perm-what { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; margin-top: 4px; font-size: var(--fs-12); white-space: pre-wrap; overflow-wrap: anywhere; background: var(--card); border-radius: var(--r-sm); padding: 3px 6px; }
+.perm-acts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: var(--sp-2); }
+.perm-strip { padding: var(--sp-3) var(--sp-4) 0; }
+@media (max-width: 760px) { .perm-strip { padding: var(--sp-2) var(--sp-3) 0; } }

@@ -37,6 +37,7 @@ import {
 	startRun,
 	type From,
 	type Launch,
+	type InputSent,
 	type Launched,
 	type ReadLog,
 } from "../../src/dispatch";
@@ -123,6 +124,15 @@ export class Helpers {
 				return (e as Error).message;
 			}
 		};
+		// While a run goes (live.ts): what the computers that have the folder can do (an older app can't), and a message
+		// to a running agent on the computer that runs it.
+		places.live = (folder) => {
+			const hs = this.online().filter((h) => h.folders.includes(folder));
+			const all = (cap: string) => hs.length > 0 && hs.every((h) => h.caps?.includes(cap));
+			return { ask: all("ask"), tell: all("tell") };
+		};
+		places.tell = (r, text) => this.tell(r.id, text);
+		places.settle = () => {};
 		costs.of = (sessions, since = 0) => this.costs(sessions, since);
 		agentGit.read = (list) => this.gitForAgents(list);
 		landingGit.facts = (asks, maxAge, fresh) => this.landingFor(asks, maxAge, fresh);
@@ -255,11 +265,23 @@ export class Helpers {
 		const h = spec.resume ? this.continuer(spec.resume, folder) : this.pick({ need: folder });
 		// An older helper would run a continuation as a fresh run (it knows no resume, folder or base).
 		if (spec.resume && !helperContinues(h.version, h.caps)) throw new Error(`Update the Workbench app on ${h.name} to continue sessions from the board.`);
+		if ((spec.live?.ask && !h.caps?.includes("ask")) || (spec.live?.tell && !h.caps?.includes("tell")))
+			throw new Error(`Update the Workbench app on ${h.name} to answer agents' permissions and send them messages from the board.`);
 		this.db.query("INSERT OR REPLACE INTO helper_runs (run_id, device) VALUES (?, ?)").run(spec.id, h.device);
 		this.db.query("INSERT OR REPLACE INTO helper_ran (run_id, device) VALUES (?, ?)").run(spec.id, h.device);
 		// Long enough for the computer's window asking whether a new command may run (ASK_WAIT_MS): a yes starts it.
 		const out = await this.ask<Launched>("run", spec, { device: h.device, timeout: ASK_WAIT_MS + 30e3 });
 		return { pid: Number(out?.pid) || 0, unit: String(out?.unit ?? ""), cwd: typeof out?.cwd === "string" ? out.cwd.slice(0, 1000) : "" };
+	}
+
+	/** A message to a running agent: the computer that runs it writes it to the run's stdin (src/helper.ts, "tell"). */
+	private async tell(id: number, text: string): Promise<InputSent> {
+		const at = (this.db.query("SELECT device FROM helper_runs WHERE run_id = ?").get(id) as { device: string } | null)?.device;
+		const h = at ? this.online().find((x) => x.device === at) : undefined;
+		if (!h) throw new Error("The computer that runs it isn't online.");
+		if (!h.caps?.includes("tell")) throw new Error(`Update the Workbench app on ${h.name} to send messages to a running agent.`);
+		const out = await this.ask<string>("tell", { id, text }, { device: h.device, timeout: 15e3 });
+		return out === "sent" || out === "closed" ? out : "gone";
 	}
 
 	/** What sessions cost, from Claude Code's transcripts on a computer: asked at most once a minute. */

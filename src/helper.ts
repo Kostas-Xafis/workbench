@@ -17,7 +17,7 @@ import { chmodSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { hostname } from "node:os";
 import pkg from "../package.json";
 import { DB_PATH, type Project } from "./db";
-import { alive, ASK_WAIT_MS, exitCode, flushLog, forgetLog, launchCwd, launchRun, madeFrom, readLog, terminate, testCommand, type Launch, type Live } from "./dispatch";
+import { alive, ASK_WAIT_MS, closeInput, exitCode, flushLog, forgetLog, launchCwd, launchRun, madeFrom, readLog, sendInput, terminate, testCommand, userLine, type Launch, type Live } from "./dispatch";
 import { codeLinks, repoState } from "./git";
 import { diffstat, landingFacts, type Want } from "./landing";
 import { candidatesNear, folderState } from "./health";
@@ -139,7 +139,8 @@ export function startHelper(cfg: SyncConfig, o: HelperOptions = {}) {
 	const timers: ReturnType<typeof setInterval>[] = [];
 
 	// caps: what this helper can do that its version may not say (a nightly's version is the last release's next patch).
-	const hello = () => ({ t: "hello", name, version: pkg.version, folders, caps: ["continue", "landing"] });
+	// "landing": the landing desk's jobs; "ask": its runs ask the board for permissions; "tell": messages reach a running one (not on Windows: no named pipes).
+	const hello = () => ({ t: "hello", name, version: pkg.version, folders, caps: ["continue", "landing", "ask", ...(process.platform === "win32" ? [] : ["tell"])] });
 
 	/** Sends a message: over the WebSocket when it's up (and the message isn't big), else over https, whose answer is read here. */
 	async function send(m: Msg) {
@@ -201,13 +202,23 @@ export function startHelper(cfg: SyncConfig, o: HelperOptions = {}) {
 			// it's exactly that. Bypass permissions, or anything else, is its own command text, which waits for an OK.
 			const what = l.resume ? "the command that continues agents (Settings → Agents)" : "the command that starts agents (Settings → Agents)";
 			// A run waits for the window's answer (it closes itself after 5 min), so a yes starts it rather than failing it.
-			if (l.base && madeFrom(l.base, l.command, l.choices)) await allowed(agentText(l.base), what, undefined, ASK_WAIT_MS);
+			// The flags that let the board reach it while it runs (permission prompts, messages: withLive) are allowed the
+			// same way, as those words only.
+			if (l.base && madeFrom(l.base, l.command, l.choices, l.live)) await allowed(agentText(l.base), what, undefined, ASK_WAIT_MS);
 			else await allowed(agentText(l.command), l.choices?.mode === "bypassPermissions" ? `${what}, in Bypass permissions mode (chosen on the board)` : what, undefined, ASK_WAIT_MS);
 			if (!launchCwd(l)) throw new Error(`there's no folder ${l.cwd || l.folder} on ${name}`);
 			const out = await launchRun(l, (e) => log(`run #${l.id} couldn't start: ${e}`));
 			mine.set(l.id, { id: l.id, tag: l.tag, pid: out.pid, unit: out.unit, sent: -1 });
 			log(`run #${l.id} ${l.resume ? "continues a session" : "started"} (${l.vars.WB_ITEM ?? ""}) in ${out.cwd ?? l.cwd}`);
 			return out;
+		},
+		// A message to a run it follows, on that run's stdin. Only the text comes from the board: the line is made here
+		// (a raw line could be a control request that changes what the agent may do).
+		tell: ({ id, text }: { id: number; text: string }) => {
+			const r = mine.get(Number(id));
+			if (!r || r.ending) return "gone";
+			if (typeof text !== "string" || !text.trim() || text.length > 20000) throw new Error("no message to send");
+			return sendInput(r, userLine(text));
 		},
 		stop: async (r: Pick<Mine, "id" | "pid" | "tag" | "unit">) => {
 			await stopMine(mine.get(r.id) ?? { ...r, sent: -1 });
@@ -308,6 +319,8 @@ export function startHelper(cfg: SyncConfig, o: HelperOptions = {}) {
 	async function follow(r: Mine, force = false) {
 		if (r.ending) return send({ t: "ended", id: r.id, ...r.ending });
 		const l = readLog(r);
+		// Its turn ended: its stdin closes, so it finishes (a run that takes messages: dispatch.ts closeInput).
+		closeInput(r, l);
 		let code = exitCode(r);
 		const done = force || (code === null ? !alive(r) : true);
 		if (!done) {

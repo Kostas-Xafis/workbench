@@ -191,6 +191,11 @@ async function notifyCheck() {
 			else if (was === undefined) ev("reports", `New report · ${projectName(r.project)}`, r.title, `report-${r.id}`, { report: r.id });
 		}
 	}
+	// A run asks for a permission (live.ts): it waits for you.
+	const perms = await api("/api/permissions").catch(() => []);
+	if (notify.perms && away)
+		for (const p of perms) if (!notify.perms.has(p.id)) ev("needs", `Agent asks · ${projectName(p.project)}`, `wb-${p.ref} wants to run: ${p.what}`, `perm-${p.id}`, { item: p.item_id });
+	notify.perms = new Set(perms.map((p) => p.id));
 	notifyEmit(events.filter((e) => notifyWants(e.kind)), away);
 	notify.items = new Map(items.map((i) => [i.id, i]));
 	notify.reports = new Map(reports.map((r) => [r.id, r.version]));

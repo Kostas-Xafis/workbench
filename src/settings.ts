@@ -227,6 +227,10 @@ const AGENTS: Defs = {
 	"agents.autopilot-hours": { about: "Autopilot starts agents only between these times, e.g. 22:00-08:00 ('' = any time)", default: "", check: hoursRange },
 	"agents.autopilot-zone": { about: "The time zone autopilot's hours are in ('' = the board's own)", default: "", check: timeZone },
 	"agents.autopilot-trackers": { about: "Autopilot pauses while a tracker of its project, or a board-wide one, is at this level", default: "bad", check: oneOf("bad", "warn", "off") },
+	// While a run goes (live.ts): a tool call that needs a permission asks you on the board (--permission-prompt-tool),
+	// and what you write reaches it at once (--input-format stream-json). Nobody answering is a no, as without it.
+	"agents.ask": { about: "Ask me on the board when an agent needs a permission", default: true, check: bool },
+	"agents.tell": { about: "Messages reach a running agent at once (off: they wait for the run to end)", default: true, check: bool },
 };
 function hoursRange(v: unknown): string {
 	if (v === "") return "";

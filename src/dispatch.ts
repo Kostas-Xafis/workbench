@@ -15,7 +15,7 @@
  */
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { closeSync, existsSync, fstatSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, rmSync } from "node:fs";
+import { closeSync, constants as fsc, existsSync, fstatSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, rmSync, writeFileSync, writeSync } from "node:fs";
 import { homedir, tmpdir, userInfo } from "node:os";
 import { join } from "node:path";
 import { addNote, getItem, getProject, updateItem, type Db, type Item } from "./db";
@@ -25,6 +25,7 @@ import { staleOf } from "./stale";
 import { AGENT_COMMAND, AGENT_EFFORTS, AGENT_MODELS, AGENT_MODES, dayStartHour, getSetting, yourName } from "./settings";
 import { runShell, shellPath } from "./trackers";
 import { sessionsCost } from "./usage";
+import { pendingPermissions } from "./live";
 
 export { AGENT_COMMAND };
 export type RunStatus = "running" | "done" | "failed" | "stopped";
@@ -73,6 +74,9 @@ export type Run = {
 	uses: string;
 	/** 1: stopped here to carry on in Claude Desktop (Move to Claude Desktop): not a failure, nothing to restart. */
 	moved: number;
+	/** What the board can do with it while it runs (live.ts): "ask" (its permission prompts come to the board),
+	 * "tell" (messages reach it on its stdin); comma-separated, '' for neither (runs from before, other commands). */
+	live: string;
 	pid: number;
 	unit: string;
 	tag: string;
@@ -108,7 +112,8 @@ export function createRunTables(db: Db) {
 		continues INTEGER,
 		kind TEXT NOT NULL DEFAULT 'run',
 		choices TEXT NOT NULL DEFAULT '',
-		moved INTEGER NOT NULL DEFAULT 0
+		moved INTEGER NOT NULL DEFAULT 0,
+		live TEXT NOT NULL DEFAULT ''
 	)`);
 	const cols = (db.query("PRAGMA table_info(runs)").all() as { name: string }[]).map((c) => c.name);
 	if (!cols.includes("refused")) db.run("ALTER TABLE runs ADD COLUMN refused TEXT NOT NULL DEFAULT ''");
@@ -117,6 +122,7 @@ export function createRunTables(db: Db) {
 	if (!cols.includes("kind")) db.run("ALTER TABLE runs ADD COLUMN kind TEXT NOT NULL DEFAULT 'run'");
 	if (!cols.includes("choices")) db.run("ALTER TABLE runs ADD COLUMN choices TEXT NOT NULL DEFAULT ''");
 	if (!cols.includes("moved")) db.run("ALTER TABLE runs ADD COLUMN moved INTEGER NOT NULL DEFAULT 0");
+	if (!cols.includes("live")) db.run("ALTER TABLE runs ADD COLUMN live TEXT NOT NULL DEFAULT ''");
 	db.run("CREATE INDEX IF NOT EXISTS runs_item ON runs(item_id, id)");
 	db.run("CREATE INDEX IF NOT EXISTS runs_started ON runs(started_at)");
 	db.run("CREATE INDEX IF NOT EXISTS runs_session ON runs(session)");
@@ -439,7 +445,7 @@ export function commandWith(command: string, choices: Choices): string {
  * command made from it, resumeCommand) with `choices` in it, and none of them is Bypass permissions (SAFE_MODES).
  * So a model, an effort or a safe mode chosen on the cloud board needs no new OK on the computer, and nothing else does.
  */
-export function madeFrom(base: string, command: string, choices: unknown = {}): boolean {
+export function madeFrom(base: string, command: string, choices: unknown = {}, live: unknown = {}): boolean {
 	let c: Choices;
 	try {
 		c = checkChoices(choices);
@@ -447,7 +453,61 @@ export function madeFrom(base: string, command: string, choices: unknown = {}): 
 		return false;
 	}
 	if (c.mode !== undefined && !SAFE_MODES.includes(c.mode)) return false;
-	return [base, resumeCommand(base)].some((b) => !!b && withChoices(b, c) === command);
+	const l = checkLive(live);
+	return [base, resumeCommand(base)].some((b) => {
+		const made = b ? withChoices(b, c) : undefined;
+		return made !== undefined && withLive(made, l) === command;
+	});
+}
+
+/* ---------- While it runs: permission prompts to the board, messages on its stdin (live.ts) ---------- */
+
+/** What a run's command gets so the board can reach it while it runs: `ask` (Claude Code asks the board's MCP tool
+ * when a tool call needs a permission) and `tell` (it reads messages from stdin as stream-json, and echoes them). */
+export type LiveOpts = { ask?: boolean; tell?: boolean };
+/** The words each adds, always these and in this order: the only differences madeFrom allows beyond the choices. */
+const LIVE_WORDS = { ask: ["--permission-prompt-tool", "mcp__wb__permission"], tell: ["--input-format", "stream-json", "--replay-user-messages"] } as const;
+/** Live options as given (a helper's job): only true or nothing. */
+export const checkLive = (l: unknown): LiveOpts => {
+	const o = (l && typeof l === "object" ? l : {}) as Record<string, unknown>;
+	return { ...(o.ask === true ? { ask: true } : {}), ...(o.tell === true ? { tell: true } : {}) };
+};
+/** "ask,tell": what a run's `live` column says. */
+export const liveText = (l: LiveOpts) => (["ask", "tell"] as const).filter((k) => l[k]).join(",");
+/**
+ * What `command` can take: both need print mode (-p) and a command the shell splits as one simple command. `ask`
+ * needs the board's MCP server named wb in it (--allowedTools mcp__wb, as the default has) and no prompt tool or
+ * Bypass permissions of its own; `tell` needs --output-format stream-json and no --input-format of its own.
+ */
+export function liveFits(command: string): LiveOpts {
+	const words = shellWords(command);
+	if (!words?.length) return {};
+	const has = (flag: string) => words.some((w) => (w.plain && w.text === flag) || w.raw.startsWith(`${flag}=`));
+	const value = (flag: string) => {
+		for (let n = 0; n < words.length; n++) {
+			if (words[n].plain && words[n].text === flag) return words[n + 1]?.text ?? "";
+			if (words[n].raw.startsWith(`${flag}=`)) return words[n].text.slice(flag.length + 1);
+		}
+		return undefined;
+	};
+	if (!has("-p") && !has("--print")) return {};
+	const out: LiveOpts = {};
+	const wb = words.some((w) => /(^|[\s,])mcp__wb(__|\b|$)/.test(w.text));
+	const bypass = commandChoices(command).mode === "bypassPermissions" || has("--dangerously-skip-permissions");
+	if (wb && !bypass && !has("--permission-prompt-tool") && !has("--permission-prompts")) out.ask = true;
+	if (value("--output-format") === "stream-json" && !has("--input-format") && !has("--replay-user-messages")) out.tell = true;
+	return out;
+}
+/** The command with the live flags in it, at its end (before a `--`, after which words aren't flags). Deterministic,
+ * so the computer helper makes the same text (madeFrom). The command as it is for none; undefined when it can't split. */
+export function withLive(command: string, live: LiveOpts = {}): string | undefined {
+	const adds: string[] = [...(live.ask ? LIVE_WORDS.ask : []), ...(live.tell ? LIVE_WORDS.tell : [])];
+	if (!adds.length) return command;
+	const out = shellWords(command);
+	if (!out?.length) return undefined;
+	const dashes = out.findIndex((w) => w.plain && w.text === "--");
+	out.splice(dashes >= 0 ? dashes : out.length, 0, ...adds.map(plainWord));
+	return out.map((w) => w.raw).join(" ");
 }
 
 /** An item's own choice for its runs (the reader's choice line): each of model, effort, mode as a value, '' (model
@@ -514,6 +574,15 @@ export const places = {
 	/** Why the computer that would run a continuation of `session` (in `folder`) can't, or ''. On this computer it's
 	 * this code, so ''; the cloud board asks which helper would run it, and refuses one too old (worker/src/helper.ts). */
 	continueWhy: (_session: string, _folder: string): string => "",
+	/** What the computer that runs in `folder` can do with a run while it goes (LiveOpts): here, permission prompts
+	 * to the board, and messages on stdin except on Windows (no named pipes there). The cloud board asks its helpers. */
+	live: (_folder: string): LiveOpts => ({ ask: true, tell: !WINDOWS }),
+	/** Writes a message to a running run's stdin: sent, closed (its turn ended and it's finishing) or gone. The
+	 * cloud board asks the computer that runs it (worker/src/helper.ts, the job "tell"). */
+	tell: async (r: Pick<Run, "id" | "tag">, text: string): Promise<InputSent> => sendInput(r, userLine(text)),
+	/** Brings the runs up to date (a run that's finishing ends): here, a look at their logs; the cloud board hears it
+	 * from its helper instead. */
+	settle: (db: Db) => void pollRuns(db),
 };
 const folderOf = (db: Db, slug: string) => {
 	const p = getProject(db, slug);
@@ -702,6 +771,14 @@ function chosen(base: string, command: string) {
 	return choiceLabel(Object.fromEntries(CHOICE_KEYS.filter((k) => now[k] !== was[k] && now[k]).map((k) => [k, now[k]])));
 }
 
+/** What a run with `command` gets so the board reaches it while it runs: what Settings → Agents turns on, the
+ * computer that runs it can do (places.live) and the command can take (liveFits). */
+function liveFor(db: Db, command: string, folder: string): LiveOpts {
+	const can = places.live(folder);
+	const fits = liveFits(command);
+	return checkLive({ ask: getSetting<boolean>(db, "agents.ask") && !!can.ask && !!fits.ask, tell: getSetting<boolean>(db, "agents.tell") && !!can.tell && !!fits.tell });
+}
+
 /** Inserts a run and starts its process (launcher), or marks it failed and throws. Returns its id. Nothing awaited
  * before the insert, so the checks the caller just made still hold. */
 async function launchNew(
@@ -711,21 +788,27 @@ async function launchNew(
 	o: { session: string; command: string; cwd: string; vars: Record<string, string>; continues?: number; folder?: string; base?: string; choices?: Choices; resume?: string; kind?: RunKind },
 ): Promise<number> {
 	const uses = commandChoices(o.command);
+	// What the board can do with it while it runs (Settings → Agents, what the computer can, what the command takes):
+	// its flags go in, and the command they went into is the base the computer helper checks (madeFrom).
+	const live = liveFor(db, o.command, o.folder || o.cwd);
+	const command = withLive(o.command, live) ?? o.command;
+	const base = o.base ?? (command !== o.command ? o.command : undefined);
 	const { id } = db
-		.query("INSERT INTO runs (item_id, project, session, started_by, started_from, command, cwd, continues, kind, choices) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id")
-		.get(i.id, i.project, o.session, from.by ?? (from.where === "auto" ? "board" : "kostas"), from.label, o.command, o.cwd, o.continues ?? null, o.kind ?? "run", hasChoices(uses) ? JSON.stringify(uses) : "") as { id: number };
+		.query("INSERT INTO runs (item_id, project, session, started_by, started_from, command, cwd, continues, kind, choices, live) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id")
+		.get(i.id, i.project, o.session, from.by ?? (from.where === "auto" ? "board" : "kostas"), from.label, command, o.cwd, o.continues ?? null, o.kind ?? "run", hasChoices(uses) ? JSON.stringify(uses) : "", liveText(live)) as { id: number };
 	const tag = tagOf(db, id);
 	db.query("UPDATE runs SET tag = ? WHERE id = ?").run(tag, id);
 	const spec: Launch = {
 		id,
 		tag,
-		command: o.command,
+		command,
 		cwd: o.cwd,
 		vars: { WB_ITEM: `wb-${i.ref}`, WB_TITLE: i.title, WB_PROJECT: i.project, WB_RUN: String(id), ...o.vars },
 		...(o.folder ? { folder: o.folder } : {}),
-		...(o.base ? { base: o.base } : {}),
-		...(o.base && o.choices && hasChoices(o.choices) ? { choices: o.choices } : {}),
+		...(base ? { base } : {}),
+		...(base && o.choices && hasChoices(o.choices) ? { choices: o.choices } : {}),
 		...(o.resume ? { resume: o.resume } : {}),
+		...(liveText(live) ? { live } : {}),
 	};
 	try {
 		const { pid, unit, cwd } = await launcher.launch(spec, (e) => {
@@ -894,7 +977,7 @@ export function helperContinues(version: string, caps: string[] = []): boolean {
  * A continuation also has `resume` (the session), `folder` (the project's, for when the session's folder is gone) and,
  * when its command was made from the start command, `base` (that command). A run whose command has a model, effort
  * or mode put in (withChoices) has `base` (the command they were put in) and `choices` (what was put in): madeFrom. */
-export type Launch = { id: number; tag: string; command: string; cwd: string; vars: Record<string, string>; folder?: string; base?: string; choices?: Choices; resume?: string };
+export type Launch = { id: number; tag: string; command: string; cwd: string; vars: Record<string, string>; folder?: string; base?: string; choices?: Choices; resume?: string; live?: LiveOpts };
 /** `cwd`: the folder it started in (a continuation's may differ from the spec's: launchCwd). */
 export type Launched = { pid: number; unit: string; cwd?: string };
 
@@ -957,7 +1040,8 @@ export async function launchRun(l: Launch, onError: (message: string) => void = 
 	const fd = openSync(logPath(run), "w", 0o600);
 	// The exit code goes to a file, so whoever looks later knows how it ended. $0 is the tag, so the process can be
 	// told from another one that got the same pid.
-	const argv = ["bash", "-c", `${l.command}\nprintf '%s' "$?" > "$WB_RUN_EXIT"`, l.tag];
+	const tell = !!l.live?.tell && !WINDOWS;
+	const argv = ["bash", "-c", tell ? feedScript(l.command) : `${l.command}\nprintf '%s' "$?" > "$WB_RUN_EXIT"`, l.tag];
 	const scoped = await canScope();
 	const full = scoped ? ["systemd-run", "--user", "--scope", "--quiet", `--unit=${l.tag}`, ...argv] : argv;
 	const env: Record<string, string> = {};
@@ -967,11 +1051,75 @@ export async function launchRun(l: Launch, onError: (message: string) => void = 
 	// board too, and PATH, BASH_ENV or LD_PRELOAD from it would change what the command the helper allowed runs.
 	for (const [k, v] of Object.entries(l.vars)) if (RUN_VARS.includes(k) && typeof v === "string") env[k] = v;
 	env.WB_RUN_EXIT = exitPath(run);
+	if (tell) {
+		for (const p of [inPath(run), closedPath(run), `${inPath(run)}.pid`]) rmSync(p, { force: true });
+		env.WB_RUN_IN = inPath(run);
+		// With --input-format stream-json, Claude Code reads its prompt from stdin, not from its arguments.
+		env.WB_RUN_FIRST = userLine(String(l.vars.WB_PROMPT ?? ""));
+	}
 	const child = spawn(full[0], full.slice(1), { cwd, env, detached: true, windowsHide: true, stdio: ["ignore", fd, fd] });
 	closeSync(fd);
 	child.on("error", (e) => onError(e.message));
 	child.unref();
 	return { pid: child.pid ?? 0, unit: scoped ? l.tag : "", cwd };
+}
+
+/* Messages to a run while it goes (tell): its stdin is a named pipe next to its log, `<tag>.in`. A small feeder in the
+   run's own shell reads the pipe and passes each line on, so the pipe outlives the board (a restarted board opens it
+   again to write) and nobody writing never blocks the run. The first line is the prompt. When the agent's turn ends
+   (its result is in the log), whoever follows the run writes the end line (closeInput): the feeder stops, Claude Code
+   sees its stdin close and finishes, as a run without messages does. A message after that is a Continue. */
+const END_LINE = '{"type":"wb_end"}';
+const inPath = (r: Pick<Run, "tag">) => join(runDir(), `${r.tag}.in`);
+const closedPath = (r: Pick<Run, "tag">) => join(runDir(), `${r.tag}.in.closed`);
+/** A message as Claude Code's stream-json input takes it, on one line. Only this goes in: never a line from elsewhere
+ * (a control request on stdin could change what the agent may do). */
+export const userLine = (text: string) => JSON.stringify({ type: "user", message: { role: "user", content: text }, parent_tool_use_id: null });
+function feedScript(command: string) {
+	return [
+		`wb_feed() { [ -p "$WB_RUN_IN" ] && exec 3<>"$WB_RUN_IN" && echo "$BASHPID" > "$WB_RUN_IN.pid"; printf '%s\\n' "$WB_RUN_FIRST"; [ -s "$WB_RUN_IN.pid" ] || return 0; while IFS= read -r wb_line <&3; do [ "$wb_line" = '${END_LINE}' ] && return 0; printf '%s\\n' "$wb_line"; done; }`,
+		`mkfifo -m 600 "$WB_RUN_IN" 2>/dev/null`,
+		`${command} < <(wb_feed)`,
+		`wb_code=$?`,
+		`[ -s "$WB_RUN_IN.pid" ] && kill "$(cat "$WB_RUN_IN.pid")" 2>/dev/null`,
+		`rm -f "$WB_RUN_IN" "$WB_RUN_IN.pid"`,
+		`printf '%s' "$wb_code" > "$WB_RUN_EXIT"`,
+	].join("\n");
+}
+export type InputSent = "sent" | "closed" | "gone";
+/** Writes one line to a run's stdin pipe: "closed" once its end line went (the run is finishing), "gone" when there's
+ * no pipe or nobody reads it (it ended, or it never had one). */
+export function sendInput(r: Pick<Run, "tag">, line: string): InputSent {
+	if (existsSync(closedPath(r))) return "closed";
+	let fd: number;
+	try {
+		// Non-blocking first: it fails (ENXIO) when nobody has the pipe open to read, instead of waiting.
+		closeSync(openSync(inPath(r), fsc.O_WRONLY | fsc.O_NONBLOCK));
+		fd = openSync(inPath(r), fsc.O_WRONLY);
+	} catch {
+		return "gone";
+	}
+	try {
+		writeSync(fd, `${line}\n`);
+		return "sent";
+	} catch {
+		return "gone";
+	} finally {
+		closeSync(fd);
+	}
+}
+/** The run's turn ended (`l` has its result): its stdin closes, so it finishes. Once; nothing for a run without a pipe. */
+export function closeInput(r: Pick<Run, "tag">, l: Pick<Live, "events">) {
+	if (!l.events.some((e) => e.kind === "result") || existsSync(closedPath(r)) || !existsSync(inPath(r))) return;
+	writeFileSync(closedPath(r), "", { mode: 0o600 });
+	try {
+		const fd = openSync(inPath(r), fsc.O_WRONLY | fsc.O_NONBLOCK);
+		try {
+			writeSync(fd, `${END_LINE}\n`);
+		} finally {
+			closeSync(fd);
+		}
+	} catch {}
 }
 
 /** Who starts a run's process: this computer, or (on the cloud board) a computer helper that syncs with it. */
@@ -995,7 +1143,16 @@ export type Live = {
 	/** What it said and did (RunEvent), the last EVENTS_KEPT; `seq` is how many there were in all (the last one's n). */
 	events: RunEvent[];
 	seq: number;
+	/** Its first message from stdin (the prompt, with tell) has been read; the ones after it are messages sent to it. */
+	prompted?: boolean;
 };
+/** The words of a user message's content: a string, or text blocks only (not a tool's result); undefined otherwise. */
+const replayText = (content: unknown): string | undefined =>
+	typeof content === "string"
+		? content
+		: Array.isArray(content) && content.length && content.every((c) => c?.type === "text" && typeof c.text === "string")
+			? content.map((c) => c.text).join("\n")
+			: undefined;
 
 /**
  * One thing the agent said or did, as the board shows it (GET /api/runs/:id/events):
@@ -1083,7 +1240,16 @@ export function readLine(l: Live, line: string) {
 				if (typeof c.id === "string") toolsOf(l).set(c.id, String(c.name));
 			}
 		}
-	else if (d.type === "user")
+	else if (d.type === "user" && d.isReplay === true && !d.isSynthetic && replayText(d.message?.content) !== undefined) {
+		// A message from its stdin, echoed back (--replay-user-messages): the first is the prompt it started with,
+		// the others what was sent while it ran (tell).
+		const text = replayText(d.message?.content)!;
+		if (!l.prompted) l.prompted = true;
+		else if (text.trim()) {
+			event(l, { kind: "message", text: text.trim().slice(0, EVENT_TEXT) });
+			push(l, `» ${text}`);
+		}
+	} else if (d.type === "user")
 		for (const c of d.message?.content ?? []) {
 			if (c?.type !== "tool_result" || !c.is_error) continue;
 			const text = typeof c.content === "string" ? c.content : Array.isArray(c.content) ? c.content.map((x: any) => x?.text ?? "").join(" ") : "";
@@ -1339,6 +1505,7 @@ export function forgetLog(r: Pick<Run, "id" | "tag">) {
 	live.delete(r.id);
 	rmSync(logPath(r), { force: true });
 	rmSync(exitPath(r), { force: true });
+	for (const p of [inPath(r), closedPath(r), `${inPath(r)}.pid`]) rmSync(p, { force: true });
 }
 
 /** Writes how a run ended (`l`: its whole log as read) and the line in its item's history. The cloud board calls
@@ -1394,6 +1561,7 @@ export function pollRuns(db: Db): Run[] {
 		if (!r.pid && Date.now() - fromSql(r.started_at).getTime() < 30e3) continue;
 		const l = readLog(r);
 		save(db, r, l);
+		closeInput(r, l);
 		let code = exitCode(r);
 		if (code === null && alive(r)) continue;
 		code ??= exitCode(r); // it may have just written it
@@ -1573,6 +1741,8 @@ export async function runsInfo(db: Db, from: From | null) {
 			command: commandChoices(l.command),
 			splits: !!shellWords(l.command)?.length,
 		},
+		// Tool calls waiting for your yes or no (live.ts): the Inbox and the run box show them.
+		permissions: pendingPermissions(db),
 		active: active.map(strip),
 		runs: listRuns(db, { limit: 30 }).map(strip),
 	};
