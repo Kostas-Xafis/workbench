@@ -52,6 +52,7 @@ The cloud board has no computer. What needs one is done by a **helper on a compu
 | Agents the board starts (Run, Answer & send, Send it, `wb run`) | Start on a computer that has the project's folder. Output and events stream back, and Stop stops them there. Continue goes to the computer the session ran on, or one with the project's folder. |
 | Trackers that run a command (and the presets) | Read on a computer when due, and with Refresh |
 | Git state, commits and pull requests | From the project folders on a computer (and its `gh`), kept on the board for when none is online. The Agents place says how old it is or what's missing |
+| The landing desk (what landed, what's lost, what a branch changes) | From a computer whose app has it (its `landing` and `diffstat` jobs, read-only git); the daily pass runs on the helper's tick ([agents.md](agents.md#the-landing-desk)) |
 | Whether an agent is alive | As on a computer: the relay and `wb` send the session to the cloud board |
 | The vault's password window for agents | `wb mcp` answers itself: the window opens on the computer where the agent runs, and the `.env` file is written there. The cloud board hands over the sealed secrets and keeps the log |
 | Usage, what agents cost today, logos, project folders, Add project's suggestions, Test the command | From a computer |

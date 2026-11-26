@@ -105,6 +105,7 @@ import { addImage, imageData, prepareImage, removeImage, setImageCaption } from 
 import { exportStream } from "./export";
 import { mcpHttp } from "./mcp";
 import { agentsView, landItem } from "./agents";
+import { itemDiff } from "./landing";
 import { checkChoices, continueRun, getRun, listRuns, moveRun, openInDesktop, runEvents, runPrompt, runsInfo, setItemChoice, startRun, stopRun, testCommand, type From } from "./dispatch";
 
 /** Bypass permissions lets an agent do anything: chosen only where the board's own settings are changed. */
@@ -1131,6 +1132,14 @@ export function boardRoutes(h: BoardHost) {
 			const u = new URL(req.url).searchParams;
 			try {
 				return json(await agentsView(db, { project: u.get("project") || "*", since: u.get("since") || undefined }, runFrom(req, srv)));
+			} catch (e) {
+				return fail(e);
+			}
+		},
+		// What a done item's branch changes against the main branch (landing.ts): the reader's file list.
+		"/api/items/:id/diff": async (req) => {
+			try {
+				return json(await itemDiff(db, itemId(req.params.id)));
 			} catch (e) {
 				return fail(e);
 			}

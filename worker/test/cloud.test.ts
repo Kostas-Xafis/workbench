@@ -345,6 +345,38 @@ echo '{"type":"result","subtype":"success","is_error":false,"num_turns":1,"total
 		expect(tab.find((p) => p.slug === "repo")?.folder).toEqual({ exists: true, git: true });
 	}, 60e3);
 
+	test("the landing desk: what landed, what's lost and what a branch changes come from the computer", async () => {
+		const git = (...a: string[]) => Bun.spawnSync(["git", "-c", "user.name=T", "-c", "user.email=t@example.com", ...a], { cwd: repo });
+		const done = async (title: string, branch: string) => {
+			const id = (await json<{ id: number }>(post("/api/items", { project: "repo", title, owner: "agent", branch }))).id;
+			await api(`/api/items/${id}`, { method: "PATCH", body: JSON.stringify({ status: "done" }) });
+			return { id, ref: (await get<{ ref: string }>(`/api/items/${id}`)).ref };
+		};
+		const landed = await done("Landed elsewhere", "gone-branch");
+		const lost = await done("Lost one", "never-pushed");
+		const ready = await done("Ready one", "feat-ready");
+		writeFileSync(join(repo, "landed.txt"), "x");
+		git("add", "landed.txt");
+		git("commit", "-q", "-m", `Merge: landed elsewhere (wb-${landed.ref})`);
+		git("checkout", "-q", "-b", "feat-ready");
+		writeFileSync(join(repo, "ready.txt"), "a\nb\n");
+		git("add", "ready.txt");
+		git("commit", "-q", "-m", `ready work (wb-${ready.ref})`);
+		git("checkout", "-q", "main");
+		type View = { ready: { item: { id: number }; diff: { files: number; clean: boolean | null } | null }[]; lost: { item: { id: number } }[] };
+		const v = await until("the landing pass", async () => {
+			const v = await get<View>("/api/agents?project=repo");
+			return v.lost.some((x) => x.item.id === lost.id) ? v : null;
+		});
+		expect(v.ready.map((x) => x.item.id)).toEqual([ready.id]);
+		expect(v.ready[0].diff).toMatchObject({ files: 1, clean: true });
+		const notes = (await get<{ notes: { text: string; author: string }[] }>(`/api/items/${landed.id}`)).notes;
+		expect(notes.find((n) => n.text.startsWith("Landed: found in main as "))?.author).toBe("workbench");
+		const diff = await get<{ files: { path: string }[]; base: string }>(`/api/items/${ready.id}/diff`);
+		expect(diff).toMatchObject({ base: "main", files: [{ path: "ready.txt" }] });
+		for (const x of [landed, lost, ready]) await api(`/api/items/${x.id}`, { method: "PATCH", body: JSON.stringify({ status: "dropped" }) });
+	}, 60e3);
+
 	test("Run starts the agent on the computer; its output comes back, and how it ended", async () => {
 		const panel = await get<{ allowed: boolean; folders: string[]; computers: string[] }>("/api/runs");
 		expect(panel.allowed).toBe(true);
