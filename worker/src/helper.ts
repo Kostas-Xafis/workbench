@@ -41,6 +41,7 @@ import {
 	type ReadLog,
 } from "../../src/dispatch";
 import { reader, RUN_TIMEOUT_MS, runDue, type Reading } from "../../src/trackers";
+import { autopilotAny, runAutopilot } from "../../src/autopilot";
 import { agentGit, agentsView, landItem, type GitRead } from "../../src/agents";
 import type { CodeLinks, RepoState } from "../../src/git";
 import { getSetting } from "../../src/settings";
@@ -596,13 +597,14 @@ export class Helpers {
 		return [{ t: "welcome", device, name: hello.name, runs, orphans }];
 	}
 
-	/** Every 15 s from a helper: the trackers that are due, and unblocked work Settings says to send. */
+	/** Every 15 s from a helper: the trackers that are due, unblocked work Settings says to send, and autopilot. */
 	private async tick() {
 		if (this.ticking) return;
 		this.ticking = true;
 		try {
 			for (const t of await runDue(this.db)) if (t.error) console.log(`tracker ${t.ref}: ${t.error}`);
 			for (const r of await sendUnblocked(this.db)) console.log(`agents: run #${r.id} on wb-${r.ref} started by itself`);
+			for (const r of await runAutopilot(this.db)) console.log(`agents: run #${r.id} on wb-${r.ref} started by autopilot`);
 		} catch (e) {
 			console.error(`helper tick: ${(e as Error).message}`);
 		} finally {
@@ -619,7 +621,7 @@ export class Helpers {
 			)
 			.get() as { s: number | null } | null;
 		let ms = row?.s == null ? 600e3 : row.s * 1000;
-		if (getSetting<boolean>(this.db, "agents.on") && getSetting<string>(this.db, "agents.unblocked") === "send") ms = Math.min(ms, 60e3);
+		if (getSetting<boolean>(this.db, "agents.on") && (getSetting<string>(this.db, "agents.unblocked") === "send" || autopilotAny(this.db))) ms = Math.min(ms, 60e3);
 		return Math.max(15e3, Math.min(600e3, ms));
 	}
 

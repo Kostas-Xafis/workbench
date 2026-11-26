@@ -1,0 +1,17 @@
+/* ---------- Autopilot (ui/autopilot.js): the switch in a project's header, its line on the Agents place ---------- */
+.switch.sm { width: 28px; height: 16px; }
+.switch.sm > span::after { width: 12px; height: 12px; }
+.switch.sm input:checked + span::after { translate: 12px 0; }
+.pj-auto { display: flex; align-items: center; gap: var(--sp-2); margin-top: var(--sp-2); font-size: var(--fs-12); color: var(--muted); min-width: 0; }
+.pj-auto-sw { display: inline-flex; align-items: center; gap: var(--sp-2); cursor: pointer; flex: none; }
+/* A phone's finger: the switch and its word, 40 px tall, without moving the line. */
+@media (max-width: 760px) { .pj-auto-sw { min-height: 40px; margin: -10px 0; } }
+.pj-auto-t { font-weight: 500; color: var(--muted); }
+.pj-auto.on .pj-auto-t { color: var(--ink); }
+.pj-auto-why { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pj-auto-why::before { content: "·"; margin-right: var(--sp-2); color: var(--faint); }
+.pj-auto a { color: inherit; }
+.ag-autopilot { font-size: var(--fs-12); color: var(--muted); margin: calc(-1 * var(--sp-2)) 0 0; }
+.ag-autopilot > span { color: var(--faint); }
+.ag-autopilot a { color: inherit; text-decoration: none; font-weight: 500; }
+.ag-autopilot a:hover { text-decoration: underline; }

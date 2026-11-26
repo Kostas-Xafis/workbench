@@ -72,10 +72,11 @@ import { buildQueue, deferItem, giveBack } from "./queue";
 import { resolveAsk } from "./asks";
 import { fileItem } from "./filing";
 import { setOrder } from "./order";
+import { autopilotStates, runAutopilot, setAutopilot } from "./autopilot";
 import { codeLinksOf, repoStateOf } from "./git";
 import { candidateFolders, checkFolder, folderState, health } from "./health";
 import { addGoal, goalsWithStats, itemGoals, moveGoal, updateGoal, type GoalPatch } from "./goals";
-import { getSettings, settingDefs, updateSettings } from "./settings";
+import { getSetting, getSettings, settingDefs, updateSettings } from "./settings";
 import { addRuling, getRuling, listRulings, updateRuling } from "./rulings";
 import { checkNow, updateInfo } from "./updates";
 import {
@@ -740,6 +741,26 @@ export function boardRoutes(h: BoardHost) {
 					if (!getProject(db, req.params.slug)) return json({ error: "not found" }, 404);
 					const { refs } = await req.json();
 					return json({ refs: setOrder(db, req.params.slug, refs) });
+				} catch (e) {
+					return fail(e);
+				}
+			}),
+		},
+		// Autopilot (autopilot.ts): a project's switch, and every one that's on with why it starts nothing now. It
+		// starts agents, so it turns on where agents may be started from; off from anywhere they may.
+		"/api/autopilot": async () => json(await autopilotStates(db)),
+		"/api/projects/:slug/autopilot": {
+			PUT: jsonOnly(async (req, srv) => {
+				const from = runFrom(req, srv);
+				if (!from) return json({ error: "autopilot is turned on and off from the board on this computer, or a phone paired with it" }, 403);
+				try {
+					const { on } = await req.json();
+					if (on === true && from.where === "phone" && !getSetting<boolean>(db, "agents.phone"))
+						return json({ error: "Agents start only from this computer. Settings → Agents can allow a paired phone." }, 403);
+					const p = setAutopilot(db, req.params.slug, on);
+					// A free slot takes its first item now, rather than at the next look.
+					if (on) await runAutopilot(db).catch((e) => console.error(`autopilot: ${(e as Error).message}`));
+					return json({ project: p, autopilot: (await autopilotStates(db)).find((x) => x.slug === p.slug) ?? { slug: p.slug, on: false, why: "" } });
 				} catch (e) {
 					return fail(e);
 				}

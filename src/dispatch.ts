@@ -683,8 +683,11 @@ export async function startRun(
 		vars: { WB_PROMPT: runPrompt(db, i, command), WB_SESSION: session },
 	});
 	const uses = chosen(base, command);
-	const how2 = `run #${id}, from ${from.label}${uses ? `, with ${uses}` : ""}`;
-	addNote(db, i.id, again ? `Agent restarted (${how2}): run #${again.id} had ${again.status === "failed" ? "failed" : "been stopped"}` : `Agent started (${how2})`, "workbench");
+	// Autopilot (autopilot.ts) says so up front: "Agent started by autopilot (run #n)".
+	const pilot = from.where === "auto" && from.label === "autopilot";
+	const how2 = `run #${id}${pilot ? "" : `, from ${from.label}`}${uses ? `, with ${uses}` : ""}`;
+	const started = pilot ? "Agent started by autopilot" : "Agent started";
+	addNote(db, i.id, again ? `${pilot ? "Agent restarted by autopilot" : "Agent restarted"} (${how2}): run #${again.id} had ${again.status === "failed" ? "failed" : "been stopped"}` : `${started} (${how2})`, "workbench");
 	return getRun(db, id)!;
 }
 

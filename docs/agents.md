@@ -63,7 +63,17 @@ Answering a decision hands it back to the agent, but nothing runs until someone 
 - **Merge it** is below.
 - **When an agent's work is unblocked** (Settings → Agents): **Tell me** (the default) is the notification "An agent can carry on" and Run on its card. **Send it** starts the agent by itself, whoever answered, within the limits. What a limit holds back goes when the limit allows, the same day.
 - **Limits:** at most 1 at once and 5 a day unless changed, and optionally a day's usage: no new agent once today's runs come to that much at API prices, counted from their sessions as the Usage page does. A run already going isn't stopped. A day starts at the hour set in Settings → About.
+- **Autopilot**, per project: below.
 - **Only this computer starts agents.** A paired phone can answer, but starting needs "From a paired phone too" in Settings → Agents. Agents never start agents: there's no MCP tool for it, and `wb run` and `wb continue` refuse inside one.
+
+### Autopilot
+
+A switch in each project's header, off until you turn it on. While it's on, whenever a slot is free, the board starts an agent on the first item of the project's **Next up** that an agent can run: an agent's to-do (not an idea), waiting on nothing, with no run on it. It starts with the item's own model, effort and mode, and its history says "Agent started by autopilot (run #n)". One at a time per project: any run on the project (yours too) is its one. With one slot and several projects on, the project it started least lately goes first.
+
+- **Within the limits:** at once, per day and a day's usage, as every run. And its own, in Settings → Agents → Limits: **Autopilot starts agents** any time (the default) or only in hours you pick (at night, 22:00–08:00, so the queue moves while you sleep), at your device's clock; and **Autopilot pauses when a tracker is** bad (the default), warn or bad, or never. The trackers that count are the project's own and the board-wide ones, such as your plan's usage; one that couldn't read doesn't.
+- **It says why it waits**, in one line under the switch: "Paused: Storage · System at 90%", "Waits for its hours: 22:00–08:00", "Paused: 1 agent started today, the most per day", "Nothing in Next up an agent can run". The Agents place has one line, "Autopilot: Isokratis, Workbench", for the projects it's on for.
+- **A run that breaks doesn't loop:** an item whose last autopilot run failed or was stopped isn't picked again. It shows under Stuck; once you run it yourself, it's back in the queue. The next item goes meanwhile.
+- **Where it runs:** the board looks every 2 s, where it sends unblocked work; the cloud board when its computer helper ticks (every minute while autopilot is on), and at once when you turn it on. Turning it on is allowed where starting agents is (this computer, a paired phone when Settings allows); `PUT /api/projects/<slug>/autopilot {"on": true}`.
 
 ### The agent session in the reader
 

@@ -18,6 +18,8 @@ import checkrunCss from "../ui/checkrun.css" with { type: "file" };
 import checkrunJs from "../ui/checkrun.js" with { type: "file" };
 import coreJs from "../ui/core.js" with { type: "file" };
 import dialogsCss from "../ui/dialogs.css" with { type: "file" };
+import autopilotCss from "../ui/autopilot.css" with { type: "file" };
+import autopilotJs from "../ui/autopilot.js" with { type: "file" };
 import dispatchCss from "../ui/dispatch.css" with { type: "file" };
 import dispatchJs from "../ui/dispatch.js" with { type: "file" };
 import goalsCss from "../ui/goals.css" with { type: "file" };
@@ -84,6 +86,8 @@ export const UI: Record<string, string> = {
 	"copy.js": copyJs,
 	"core.js": coreJs,
 	"dialogs.css": dialogsCss,
+	"autopilot.css": autopilotCss,
+	"autopilot.js": autopilotJs,
 	"dispatch.css": dispatchCss,
 	"dispatch.js": dispatchJs,
 	"goals.css": goalsCss,
