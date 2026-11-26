@@ -107,21 +107,20 @@ function pjGoalHtml() {
 		<button type="button" class="icon-btn" data-goal-edit="${g.id}" title="Edit this goal" aria-label="Edit ${esc(g.title)}">${goalIc("edit")}</button></div>`;
 }
 
-// One meter per tracker: the one that warns most (or the fullest), the rest in its tooltip. A click opens it.
+// The project's trackers, then the ones for every project (a GitHub account's minutes, the disk): a block each, its
+// name and when it was read over every meter it has (label, bar, value against the max; meterRow, trackers.js). A
+// click opens it. Add a tracker sits beside the goal.
+const pjTrackerAdd = () => `<button type="button" class="icon-btn" data-tracker-new title="Add a status tracker" aria-label="Add a status tracker">${TRK_ADD}</button>`;
 function pjMeters() {
-	const list = state.trackers.filter((t) => t.project === pv.slug);
-	const lv = { bad: 2, warn: 1 };
-	const meters = list.map((t) => {
+	const list = [...state.trackers.filter((t) => t.project === pv.slug), ...state.trackers.filter((t) => !t.project)];
+	if (!list.length) return "";
+	return `<div class="pj-meters">${list.map((t) => {
 		const ms = t.reading?.meters ?? [];
-		const m = [...ms].sort((a, b) => (lv[b.level] ?? 0) - (lv[a.level] ?? 0) || (pctOf(b) ?? -1) - (pctOf(a) ?? -1))[0];
-		const level = t.error ? "bad" : m?.level ?? "";
-		const p = m ? pctOf(m) : null;
-		const value = !m ? (t.error ? "failed" : "no reading") : m.value == null ? esc(m.text ?? "") : `${esc(withUnit(m.value, m.unit))}${m.max != null ? `/${esc(withUnit(m.max, m.unit))}` : ""}`;
-		const name = ms.length > 1 && m?.label ? `${t.title} · ${m.label}` : t.title;
-		return `<button type="button" class="pj-meter${level ? ` lv-${level}` : ""}${t.stale ? " stale" : ""}" data-tracker="${t.id}" title="${esc(trkTip(t))}">
-			<span class="pj-meter-t"><span>${esc(name)}</span><b>${value}</b></span>${p == null ? "" : `<span class="pj-bar"><i style="width:${p}%"></i></span>`}</button>`;
-	}).join("");
-	return `<div class="pj-meters">${meters}<button type="button" class="icon-btn" data-tracker-new title="Add a status tracker" aria-label="Add a status tracker">${TRK_ADD}</button></div>`;
+		const read = t.error ? `<small class="pj-trk-err">Last read failed</small>` : t.read_at ? `<small>${esc(ago(t.read_at))}</small>` : "";
+		const rows = ms.length ? ms.map((m) => meterRow(m)).join("") : `<span class="pj-trk-none">No reading yet</span>`;
+		return `<button type="button" class="pj-meter${t.stale ? " stale" : ""}" data-tracker="${t.id}" title="${esc(trkTip(t))}">
+			<span class="pj-trk-h"><b>${esc(t.title)}</b>${read}</span><span class="pj-trk-ms">${rows}</span></button>`;
+	}).join("")}</div>`;
 }
 
 function pjHeader() {
@@ -132,7 +131,7 @@ function pjHeader() {
 	const line = [pjRepoLine(), inbox ? `<a href="#inbox/${encodeURIComponent(pv.slug)}">${inbox} in your inbox</a>` : "", quiet].filter(Boolean).join("&nbsp;· ");
 	const auto = typeof autopilotHtml === "function" ? autopilotHtml(pv.slug) : "";
 	return `<div class="pj-id">${logo(p)}<div class="pj-name"><h1>${esc(p.name)}</h1>${line ? `<div class="pj-line">${line}</div>` : ""}${auto}</div></div>
-		<div class="pj-side">${pjGoalHtml()}${pjMeters()}</div>`;
+		<div class="pj-side">${pjGoalHtml()}${pjTrackerAdd()}</div>${pjMeters()}`;
 }
 
 /* ---------- The tabs ---------- */

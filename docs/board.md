@@ -53,7 +53,7 @@ What's on the board and how to work it. Settings are in [settings.md](settings.m
 
 `#project/<slug>`: where you plan a project's work: write the next piece, put it in order, start agents on it.
 
-- **The header:** the logo and name; a quiet line with the repository (branch, uncommitted files, unpushed commits, unmerged branches, worktrees; point at it for the list) and "N in your inbox"; the active goal with its progress and target date; and the project's trackers as small meters ([trackers.md](trackers.md)); and the **Autopilot** switch, with one line on what it does now ([agents.md](agents.md#autopilot)).
+- **The header:** the logo and name; a quiet line with the repository (branch, uncommitted files, unpushed commits, unmerged branches, worktrees; point at it for the list) and "N in your inbox"; the **Autopilot** switch, with one line on what it does now ([agents.md](agents.md#autopilot)); the active goal with its progress and target date; and, on a line of their own, its trackers and the global ones, a block each with a row per meter ([trackers.md](trackers.md)).
 - **Tabs:** Work · Pages · Rulings · Done, with their counts. The page opens on the tab you used last.
 - **Work:**
   - **The composer:** "Write what needs doing…". Enter files it as an agent's task in this project (the first line is the title, Shift+Enter starts the details). Ctrl+Enter files it and starts an agent on it, when the board starts agents (Settings → Agents); when it can't, it only files it and the line under the box says why. Task, Bug or Idea picks the kind; **More…** opens the full form (details, pictures, who acts, priority). On a phone, **File it**.

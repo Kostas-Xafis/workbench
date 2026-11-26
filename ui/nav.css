@@ -26,7 +26,9 @@
 .nav-none { font-size: var(--fs-12); color: var(--faint); padding: var(--sp-1) var(--sp-2); }
 #nav-warn { display: flex; flex-direction: column; gap: var(--sp-1); padding-top: var(--sp-2); }
 #nav-warn:empty { display: none; }
-.nav-warn { display: flex; align-items: center; gap: var(--sp-2); padding: 6px var(--sp-2); border-radius: var(--r-md); font-size: var(--fs-12); text-decoration: none; min-width: 0; }
+.nav-warn { display: flex; align-items: center; gap: var(--sp-2); width: 100%; padding: 6px var(--sp-2); border: 0; border-radius: var(--r-md); font-size: var(--fs-12); text-align: left; text-decoration: none; min-width: 0; }
+/* The number that matters stays whole; the name before it gives way. */
+.nav-v { flex: none; font-weight: 600; font-variant-numeric: tabular-nums; }
 .nav-warn .nav-ic { width: 14px; height: 14px; color: inherit; }
 .nav-warn .nav-ic svg { width: 14px; height: 14px; }
 .nav-warn.st-stuck { background: var(--st-stuck-bg); color: var(--st-stuck); }
@@ -52,7 +54,7 @@ dialog.nav-sheet { margin: auto 0 0; width: 100%; max-width: 100%; border-radius
 @media (min-width: 761px) and (max-width: 1100px) {
 	body { --nav-w: 56px; }
 	#nav { padding: var(--sp-3) var(--sp-1); align-items: stretch; }
-	#nav .nav-t, #nav .nav-label { display: none; }
+	#nav .nav-t, #nav .nav-label, #nav .nav-v { display: none; }
 	#nav .nav-label + .nav-list { border-top: 1px solid var(--line); padding-top: var(--sp-2); margin-top: var(--sp-2); }
 	.nav-brand { justify-content: center; padding: var(--sp-1) 0 var(--sp-3); }
 	.nav-row, .nav-warn { justify-content: center; padding: var(--sp-2) 0; }
