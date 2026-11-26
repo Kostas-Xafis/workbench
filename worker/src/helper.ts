@@ -27,6 +27,7 @@ import {
 	endRun,
 	getRun,
 	helperContinues,
+	ASK_WAIT_MS,
 	launcher,
 	markMoved,
 	places,
@@ -252,7 +253,8 @@ export class Helpers {
 		if (spec.resume && !helperContinues(h.version, h.caps)) throw new Error(`Update the Workbench app on ${h.name} to continue sessions from the board.`);
 		this.db.query("INSERT OR REPLACE INTO helper_runs (run_id, device) VALUES (?, ?)").run(spec.id, h.device);
 		this.db.query("INSERT OR REPLACE INTO helper_ran (run_id, device) VALUES (?, ?)").run(spec.id, h.device);
-		const out = await this.ask<Launched>("run", spec, { device: h.device, timeout: 30e3 });
+		// Long enough for the computer's window asking whether a new command may run (ASK_WAIT_MS): a yes starts it.
+		const out = await this.ask<Launched>("run", spec, { device: h.device, timeout: ASK_WAIT_MS + 30e3 });
 		return { pid: Number(out?.pid) || 0, unit: String(out?.unit ?? ""), cwd: typeof out?.cwd === "string" ? out.cwd.slice(0, 1000) : "" };
 	}
 

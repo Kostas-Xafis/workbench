@@ -871,6 +871,10 @@ export function continueRefusal(db: Db, r: Run): string | undefined {
 }
 
 /** The first version of the app whose computer helper can continue a session (resume, folder, base, the run's cwd). */
+/** How long a run the cloud board starts waits for the computer's window asking whether its new command may run
+ * there (helper.ts; the window gives up at 5 min): a yes starts the run instead of failing it. */
+export const ASK_WAIT_MS = 300e3;
+
 export const CONTINUE_VERSION = "0.5.0";
 /** Whether a computer helper that says it's `version` (and has `caps`) can continue a session: one that says it can
  * ("continue" in caps, sent from 0.5.0 on, nightlies too), or a version of 0.5.0 or later. */

@@ -17,7 +17,7 @@ import { chmodSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { hostname } from "node:os";
 import pkg from "../package.json";
 import { DB_PATH, type Project } from "./db";
-import { alive, exitCode, flushLog, forgetLog, launchCwd, launchRun, madeFrom, readLog, terminate, testCommand, type Launch, type Live } from "./dispatch";
+import { alive, ASK_WAIT_MS, exitCode, flushLog, forgetLog, launchCwd, launchRun, madeFrom, readLog, terminate, testCommand, type Launch, type Live } from "./dispatch";
 import { codeLinks, repoState } from "./git";
 import { candidatesNear, folderState } from "./health";
 import { agentFiles, integratePrompt } from "./integrate";
@@ -104,6 +104,8 @@ export function allowPending() {
 export const confirm = {
 	ask: async (title: string, text: string): Promise<boolean | null> => {
 		const zenity = "/usr/bin/zenity";
+		// Tests answer for the window: "yes" / "no" a moment later, "0" never.
+		if (process.env.WB_HELPER_ASK === "yes" || process.env.WB_HELPER_ASK === "no") return new Promise((r) => setTimeout(() => r(process.env.WB_HELPER_ASK === "yes"), 300));
 		if (process.env.WB_HELPER_ASK === "0" || !existsSync(zenity) || !(process.env.DISPLAY || process.env.WAYLAND_DISPLAY)) return null;
 		const p = Bun.spawn([zenity, "--question", `--title=${title}`, "--no-markup", `--text=${text.replace(/\\/g, "\\\\")}`, "--ok-label=Allow", "--cancel-label=Deny", "--width=520", "--timeout=300"], {
 			stdin: "ignore",
@@ -131,7 +133,8 @@ export function startHelper(cfg: SyncConfig, o: HelperOptions = {}) {
 	let polling = false;
 	let failures = 0;
 	let lastPong = 0;
-	const asking = new Set<string>();
+	// The windows open now, by command hash: what each answers (true, false, or null when nobody did).
+	const asking = new Map<string, Promise<boolean | null>>();
 	const timers: ReturnType<typeof setInterval>[] = [];
 
 	// caps: what this helper can do that its version may not say (a nightly's version is the last release's next patch).
@@ -196,8 +199,9 @@ export function startHelper(cfg: SyncConfig, o: HelperOptions = {}) {
 			// effort or a safe mode put in (withChoices), is allowed as the command it was made from: madeFrom checks
 			// it's exactly that. Bypass permissions, or anything else, is its own command text, which waits for an OK.
 			const what = l.resume ? "the command that continues agents (Settings → Agents)" : "the command that starts agents (Settings → Agents)";
-			if (l.base && madeFrom(l.base, l.command, l.choices)) await allowed(agentText(l.base), what);
-			else await allowed(agentText(l.command), l.choices?.mode === "bypassPermissions" ? `${what}, in Bypass permissions mode (chosen on the board)` : what);
+			// A run waits for the window's answer (it closes itself after 5 min), so a yes starts it rather than failing it.
+			if (l.base && madeFrom(l.base, l.command, l.choices)) await allowed(agentText(l.base), what, undefined, ASK_WAIT_MS);
+			else await allowed(agentText(l.command), l.choices?.mode === "bypassPermissions" ? `${what}, in Bypass permissions mode (chosen on the board)` : what, undefined, ASK_WAIT_MS);
 			if (!launchCwd(l)) throw new Error(`there's no folder ${l.cwd || l.folder} on ${name}`);
 			const out = await launchRun(l, (e) => log(`run #${l.id} couldn't start: ${e}`));
 			mine.set(l.id, { id: l.id, tag: l.tag, pid: out.pid, unit: out.unit, sent: -1 });
@@ -243,8 +247,9 @@ export function startHelper(cfg: SyncConfig, o: HelperOptions = {}) {
 		await send(reply).catch((e) => log(`couldn't answer job ${m.id}: ${(e as Error).message}`));
 	}
 
-	/** Throws unless `text` may run here; a new one is asked about in a window on this computer, once. */
-	async function allowed(text: string, what: string, tracker?: number) {
+	/** Throws unless `text` may run here; a new one is asked about in a window on this computer, once. With `wait`,
+	 * it waits up to that long for the window's answer: a yes goes on, a no throws as a refusal. */
+	async function allowed(text: string, what: string, tracker?: number, wait = 0) {
 		const h = hashOf(text);
 		const a = readAllowed() ?? { allowed: [], denied: [], asked: {} };
 		if (a.allowed.includes(h)) return;
@@ -254,21 +259,28 @@ export function startHelper(cfg: SyncConfig, o: HelperOptions = {}) {
 			a.asked[h] = { what, text, tracker, at: new Date().toISOString() };
 			writeAllowed(a);
 		}
-		if (!asking.has(h)) {
-			asking.add(h);
-			void confirm
+		let answer = asking.get(h);
+		if (!answer) {
+			answer = confirm
 				.ask("Workbench: a new command", `The cloud board asks ${name} to run a new command, for ${what}:\n\n${text}\n\nAny device paired with the cloud board can change it. Allow it to run on this computer?`)
 				.then(async (yes) => {
-					if (yes === null) return;
+					if (yes === null) return null;
 					const now = readAllowed() ?? a;
 					delete now.asked[h];
 					(yes ? now.allowed : now.denied).push(h);
 					writeAllowed(now);
 					log(`${yes ? "allowed" : "refused"}: ${what}`);
 					if (yes && tracker) await cloudFetch(cfg, `/api/trackers/${tracker}/refresh`, { method: "POST", body: "{}" }).catch(() => {});
+					return yes;
 				})
-				.catch(() => {})
+				.catch(() => null)
 				.finally(() => asking.delete(h));
+			asking.set(h, answer);
+		}
+		if (wait > 0) {
+			const yes = await Promise.race([answer, new Promise<null>((r) => setTimeout(() => r(null), wait))]);
+			if (yes === true) return;
+			if (yes === false) throw new Error(`${name} said no to running ${what}'s new command. To allow it after all: wb helper allow on ${name}.`);
 		}
 		throw new Error(`${what} has a new command, which waits for an OK on ${name}: ${how}.`);
 	}
