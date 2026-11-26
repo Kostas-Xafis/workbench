@@ -1,0 +1,45 @@
+/* The morning plan at the top of the Inbox (ui/plan.js): one line, or a short plan after a while away. Tokens only. */
+.pl-line { display: flex; align-items: center; gap: var(--sp-1); }
+.pl-line > span { min-width: 0; }
+.pl-unfold { position: relative; flex: none; display: inline-grid; place-items: center; width: 22px; height: 20px; margin-left: auto; padding: 0;
+	border: 0; border-radius: var(--r-sm); background: transparent; color: var(--faint); }
+.pl-unfold:hover { background: var(--hover); color: var(--ink); }
+.pl-unfold svg { width: 14px; height: 14px; }
+
+.pl { border: 1px solid var(--line); border-radius: var(--r-md); background: var(--sunk); padding: var(--sp-2) var(--sp-3); font-size: var(--fs-13); }
+.pl-sec + .pl-sec { margin-top: var(--sp-2); padding-top: var(--sp-2); border-top: 1px solid var(--line); }
+.pl-h { display: flex; align-items: baseline; gap: var(--sp-2); font-size: var(--fs-11); font-weight: 600; letter-spacing: .07em; text-transform: uppercase; color: var(--faint); }
+.pl-h { white-space: nowrap; }
+.pl-h span { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-weight: 400; letter-spacing: 0; text-transform: none; }
+.pl-h button { margin-left: auto; font-weight: 400; letter-spacing: 0; text-transform: none; color: var(--ink); }
+.pl-h:has(button) { align-items: center; }
+.pl-counts { margin-top: 2px; font-size: var(--fs-12); color: var(--muted); }
+.pl a { color: var(--accent); text-decoration: none; }
+.pl a:hover { text-decoration: underline; text-underline-offset: 2px; }
+.pl a.ib-stuck { color: var(--st-stuck); }
+.pl-list { list-style: none; margin: var(--sp-1) 0 0; padding: 0; }
+.pl-list li { display: flex; align-items: center; gap: var(--sp-2); min-width: 0; }
+.pl-title { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 6px; border: 0; background: transparent; padding: 3px 0; text-align: left; color: var(--ink); }
+.pl-title > span:not(.pl-dot) { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pl-title small { flex: none; font-size: var(--fs-11); color: var(--faint); }
+.pl-title:hover > span:not(.pl-dot) { text-decoration: underline; text-underline-offset: 2px; }
+.pl-title.pl-off { color: var(--muted); }
+.pl-dot { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--faint); transform: translateY(-1px); }
+.pl-dot.pl-done { background: var(--st-done); }
+/* An ask: its title over what it unblocks, the one tap beside it. */
+.pl-ask .pl-title { flex-direction: column; align-items: stretch; gap: 0; }
+.pl-ask small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pl-ask small b { font-weight: 600; color: var(--muted); }
+.pl-act { flex: none; }
+.pl-more { display: inline-block; margin-top: 2px; font-size: var(--fs-12); }
+.pl-start { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-1) var(--sp-2); margin-top: var(--sp-1); }
+.pl-why { font-size: var(--fs-12); color: var(--muted); }
+.pl button:focus-visible { outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent); outline-offset: 1px; }
+
+@media (max-width: 760px) {
+	.pl { padding: var(--sp-2); }
+	/* Rows a thumb can hit, still dense enough that the list starts on the first screen once folded. */
+	.pl-title { padding: 6px 0; min-height: 32px; }
+	.pl-unfold::after, .pl a::after { content: ""; position: absolute; inset: -10px; }
+	.pl a { position: relative; }
+}

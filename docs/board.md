@@ -20,6 +20,11 @@ What's on the board and how to work it. Settings are in [settings.md](settings.m
 `#inbox`, where the board opens (the T key from anywhere): what waits on you across every project, as a list beside the item you're reading. The old addresses `#board` and `#today` open it too.
 
 - **Since you were away:** how many asks are new, and how many agent items finished and are stuck (an hour away starts a new visit).
+- **The morning plan:** the first time you open the Inbox after six hours away, or the first time since your work day started (Settings → About → You), that line unfolds into a short plan:
+  - **While you were away:** how many finished, are stuck and wait to land (as Agents counts them), how many asks are new, and the first three that finished; tap one to read it.
+  - **Unblock first:** up to three asks whose answer lets the most agent work go on, with **Accept** for the recommendation (or **No objections**), else **Open**.
+  - **Start next:** the first item of each project's Next up that an agent could start, as many as the limits leave room for. **Start these N** starts them one after another, each with its own model, effort and mode, and says how many started and why the rest didn't. Only where the board starts agents from (as Run); a project on autopilot is left out.
+  - **Done for now** folds it back to one line until the next time away; the arrow at the end of the line unfolds it. Kept per browser.
 - **Projects:** **All**, then a chip for each project with asks for you (`#inbox/<slug>`).
 - **Three tabs**, each with its count:
   - **Answer:** decisions.
