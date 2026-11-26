@@ -69,6 +69,8 @@ export function createLiveTables(db: Db) {
 	)`);
 	db.run("CREATE INDEX IF NOT EXISTS run_permissions_run ON run_permissions(run_id, id)");
 	db.run("CREATE INDEX IF NOT EXISTS run_permissions_open ON run_permissions(answer)");
+	// Messages that wait for a run to end (tellRun): JSON, '' for none.
+	if (!(db.query("PRAGMA table_info(runs)").all() as { name: string }[]).some((c) => c.name === "queued")) db.run("ALTER TABLE runs ADD COLUMN queued TEXT NOT NULL DEFAULT ''");
 }
 
 const COLS = "p.*, r.item_id, i.ref, i.title, i.project";
@@ -185,37 +187,81 @@ export function runPermissions(db: Db, runId: number): Permission[] {
 
 /* ---------- Messages to a running agent ---------- */
 
-/** How long a message to a run that's finishing its turn waits for it to end, then continues its session. */
-export const TELL_SETTLE = { ms: 20e3 };
+/** A message that waits for its run to end (tellRun): `runs.queued` holds them as JSON. */
+type Queued = { text: string; by: string; where: From["where"]; label: string; at: string };
+export const queuedOf = (r: Pick<Run, "queued">): Queued[] => {
+	try {
+		const q = JSON.parse(r.queued || "[]");
+		return Array.isArray(q) ? q : [];
+	} catch {
+		return [];
+	}
+};
+const newestRun = (db: Db, itemId: number) => getRun(db, (db.query("SELECT MAX(id) AS id FROM runs WHERE item_id = ?").get(itemId) as { id: number }).id)!;
 
 /**
- * "Tell the agent…": `message` goes to run `runId` while it runs (its stdin), or, once it has ended (or as it ends),
- * to a new run that continues its session (continueRun). The history gets the message as `from.by`'s, either way.
+ * "Tell the agent…": `message` goes to run `runId` while it runs (its stdin). When it can't take it now (its stdin
+ * closed after its turn's result while a background task keeps it going; it never read stdin; its computer can't be
+ * reached), the message waits on the run (`queued`) and goes when it ends (deliverQueued): never refused while the
+ * run is alive. A run that had ended is continued at once (continueRun). The history gets the message as `from.by`'s.
  */
-export async function tellRun(db: Db, runId: number, message: string, from: From): Promise<{ run: Run; item: Item; continued: boolean }> {
+export async function tellRun(db: Db, runId: number, message: string, from: From): Promise<{ run: Run; item: Item; continued: boolean; queued?: boolean }> {
 	const text = String(message ?? "").trim();
 	if (!text) throw new Error("write the message to send the agent");
 	if (text.length > 20000) throw new Error("the message is too long (20,000 characters at most)");
-	let r = getRun(db, runId);
+	const r = getRun(db, runId);
 	if (!r) throw new Error(`no run #${runId}`);
-	if (!r.ended_at) {
-		if (!r.live.split(",").includes("tell"))
-			throw new Error(`run #${r.id} can't take messages while it runs (it started before the board could send them, or its command doesn't read them): send it once it ends, or stop it`);
-		const sent = await places.tell(r, text);
-		if (sent === "sent") {
-			addNote(db, r.item_id, text, from.by ?? "kostas");
-			addNote(db, r.item_id, `Sent to the agent while it runs (run #${r.id}, from ${from.label}): the message above`, "workbench");
-			return { run: getRun(db, r.id)!, item: getItem(db, r.item_id)!, continued: false };
-		}
-		// Its turn ended and it's finishing: once it has, the message continues its session.
-		const until = Date.now() + TELL_SETTLE.ms;
-		while (!r.ended_at && Date.now() < until) {
-			places.settle(db);
-			await sleep(300);
-			r = getRun(db, runId)!;
-		}
-		if (!r.ended_at) throw new Error("The agent is just finishing: send it again in a moment.");
+	if (r.ended_at) {
+		const run = await continueRun(db, r.id, text, from);
+		return { run, item: getItem(db, run.item_id)!, continued: true };
 	}
-	const run = await continueRun(db, r.id, text, from);
-	return { run, item: getItem(db, run.item_id)!, continued: true };
+	const by = from.by ?? "kostas";
+	// Messages already waiting go first: this one waits behind them.
+	const live = r.live.split(",").includes("tell") && !queuedOf(r).length;
+	const sent = live ? await places.tell(r, text).catch(() => "gone" as const) : "gone";
+	if (sent === "sent") {
+		addNote(db, r.item_id, text, by);
+		addNote(db, r.item_id, `Sent to the agent while it runs (run #${r.id}, from ${from.label}): the message above`, "workbench");
+		return { run: getRun(db, r.id)!, item: getItem(db, r.item_id)!, continued: false };
+	}
+	const now = getRun(db, r.id)!;
+	const q = [...queuedOf(now), { text, by, where: from.where, label: from.label, at: new Date().toISOString().slice(0, 19).replace("T", " ") }];
+	db.query("UPDATE runs SET queued = ? WHERE id = ?").run(JSON.stringify(q), r.id);
+	addNote(db, r.item_id, text, by);
+	addNote(db, r.item_id, `Queued for the agent (run #${r.id}, from ${from.label}): the message above goes to it when this run ends`, "workbench");
+	// It may have ended just now, after its end looked for messages: they go now.
+	places.settle(db);
+	if (getRun(db, r.id)!.ended_at) await deliverQueued(db, r.id);
+	const next = newestRun(db, r.item_id);
+	return { run: next, item: getItem(db, r.item_id)!, continued: next.id !== r.id, queued: next.id === r.id };
+}
+
+/**
+ * Run `runId` has ended with messages waiting for it (dispatch.ts endRun, wherever a run is finished): a run that
+ * finished is continued with them, joined, as from whoever sent the first, once. One that failed, was stopped or
+ * moved to Claude Desktop isn't: the history keeps them, saying they didn't reach the agent. So does a continuation
+ * the board can't start (agents off, a limit).
+ */
+export async function deliverQueued(db: Db, runId: number): Promise<void> {
+	const r = getRun(db, runId);
+	if (!r?.ended_at || !r.queued) return;
+	// Taken once: whoever clears it delivers it.
+	if (!db.query("UPDATE runs SET queued = '' WHERE id = ? AND queued = ?").run(r.id, r.queued).changes) return;
+	const q = queuedOf(r);
+	if (!q.length) return;
+	const text = q.map((m) => m.text).join("\n\n");
+	const lost = (why: string) =>
+		addNote(
+			db,
+			r.item_id,
+			`${q.length === 1 ? "The message" : `${q.length} messages`} queued for run #${r.id} didn't reach the agent: ${why}. Send ${q.length === 1 ? "it" : "them"} again with Tell the agent…\n\n${text}`,
+			"workbench",
+		);
+	if (r.moved) return lost("the run moved to Claude Desktop, so carry on there");
+	if (r.status !== "done") return lost(`the run ${r.status === "stopped" ? "was stopped" : "failed"}`);
+	try {
+		await continueRun(db, r.id, text, { where: q[0].where, label: q[0].label, by: q[0].by }, { noted: true });
+	} catch (e) {
+		lost(`the board couldn't continue its session (${(e as Error).message})`);
+	}
 }

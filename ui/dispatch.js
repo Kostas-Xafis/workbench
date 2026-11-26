@@ -178,9 +178,8 @@ function continueWhy(item) {
 	const info = runs.info;
 	if (!item?.id || !info) return "Loading…";
 	const r = runsOf(item)[0];
-	// While it runs, a run that takes messages gets it at once (live.ts tellRun).
-	const going = runsOf(item).find((x) => !x.ended_at);
-	if (going) return runTells(going) ? "" : "The agent is still working: wait for it to finish, or stop it.";
+	// While it runs, it gets it at once, or when it ends if it can't take it now (live.ts tellRun).
+	if (runsOf(item).some((x) => !x.ended_at)) return "";
 	if (!r || !RUN_UUID.test(r.session || "")) return "No agent session on it to continue.";
 	if (runLive(item)) return "The agent is still working: wait for it to finish, or stop it.";
 	if (!info.on) return "The board doesn't start agents: turn it on in Settings → Agents.";
@@ -205,6 +204,7 @@ async function continueAgent(item, text) {
 	runView.sel = res.run.id;
 	await Promise.all([loadItems(), runsLoad()]);
 	if (runs.panel?.item.id === item.id) runPanelPoll(runs.panel);
+	toast(res.queued ? "Queued: it goes to the agent when this run ends" : going && !res.continued ? "Sent: the agent gets it while it works" : "Sent: the agent carries on");
 	return res.item;
 }
 /** A run that's going takes messages on its stdin (its command reads them: dispatch.ts, `tell`). */
@@ -309,8 +309,8 @@ function actsHtml(item, r) {
 	if (r && newest && !live && RUN_UUID.test(r.session || "")) {
 		const why = continueWhy(item);
 		b.push(`<button type="button" class="${why || r.moved ? "ghost" : "primary"} sm" data-run-tell${why ? ` disabled title="${esc(why)}"` : ' title="Write to the agent in the box below: it carries on in the same session"'}>Tell the agent…</button>`);
-	} else if (r && live && runTells(r))
-		b.push(`<button type="button" class="ghost sm" data-run-tell title="Write to the agent in the box below: it gets it while it works">Tell the agent…</button>`);
+	} else if (r && live)
+		b.push(`<button type="button" class="ghost sm" data-run-tell title="${runTells(r) ? "Write to the agent in the box below: it gets it while it works, or when this run ends if it can't take it now" : "Write to the agent in the box below: it goes to it when this run ends"}">Tell the agent…</button>`);
 	if (desk && !r.moved) b.push(desk);
 	if (r?.session) b.push(`<button type="button" class="ghost sm" data-run-copy="${esc(`${r.cwd ? `cd ${shq(r.cwd)} && ` : ""}claude --resume ${r.session}`)}" title="To carry on in a terminal">Copy resume command</button>`);
 	const again = restartKind(item);
@@ -335,7 +335,7 @@ function runPanel(item) {
 	return `<div class="run-box">${headHtml(item, r, list)}
 		${r.error ? `<p class="run-err">${esc(r.error)}</p>` : ""}
 		${r.refused ? `<p class="run-err">Its permissions refused ${esc(r.refused)}. What a run may do is in Settings → Agents → The command.</p>` : ""}
-		${feedHtml(r)}${runPermsHtml(r)}${choiceHtml(item)}${actsHtml(item, r)}</div>`;
+		${feedHtml(r)}${runQueuedHtml(r)}${runPermsHtml(r)}${choiceHtml(item)}${actsHtml(item, r)}</div>`;
 }
 
 /* ---------- Permissions it asks you for while it runs (live.ts) ---------- */
@@ -359,6 +359,13 @@ function permHtml(p, inbox = false) {
 		<div class="perm-acts"><button type="button" class="primary sm" data-perm="${p.id}" data-perm-answer="allow">Allow</button><button type="button" class="ghost sm" data-perm="${p.id}" data-perm-answer="run" title="${esc(`Every ${tool} call it makes from now on, until this run ends`)}">Allow ${esc(tool)} for this run</button><button type="button" class="ghost sm danger" data-perm="${p.id}" data-perm-answer="deny">Deny</button></div></div>`;
 }
 /** The run's permissions waiting for you: what its events said last, else the board's list. */
+/** Messages waiting for the run to end (live.ts tellRun): they go to the agent then. */
+function runQueuedHtml(r) {
+	if (r.ended_at || !r.queued) return "";
+	let q = [];
+	try { q = JSON.parse(r.queued); } catch {}
+	return q.length ? `<div class="run-queued"><b>Queued: goes to the agent when this run ends</b>${q.map((m) => `<div class="run-queued-msg">${md(m.text)}</div>`).join("")}</div>` : "";
+}
 function runPermsHtml(r) {
 	if (r.ended_at) return "";
 	const got = runView.ev.get(r.id)?.perms;
